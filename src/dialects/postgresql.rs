@@ -94,9 +94,15 @@ impl<'a> PostgreSQLTokenizer<'a> {
     }
 }
 
+macro_rules! operators {
+    () => {
+        '+' | '-' | '*' | '/' | '<' | '>' | '=' | '~' | '!' | '@' | '#' | '%' | '^' | '&' | '|' | '`' | '?'
+    };
+}
+
 macro_rules! is_operator {
     ($ch:expr) => {
-        matches!($ch, '+' | '-' | '*' | '/' | '<' | '>' | '=' | '~' | '!' | '@' | '#' | '%' | '^' | '&' | '|' | '`' | '?')
+        matches!($ch, operators!())
     };
 }
 
@@ -106,17 +112,15 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
         &self.source[start_offset..end_offset]
     }
 
-    fn peek(&mut self) -> Result<Option<crate::model::token::Token>> {
-        if let Some(token) = &self.peeked {
-            return Ok(Some(*token));
+    fn peek(&mut self) -> Result<Option<Token>> {
+        if self.peeked.is_none() {
+            self.peeked = self.next()?;
         }
-
-        self.peeked = self.next()?;
 
         Ok(self.peeked)
     }
 
-    fn next(&mut self) -> Result<Option<crate::model::token::Token>> {
+    fn next(&mut self) -> Result<Option<Token>> {
         if let Some(token) = self.peeked {
             self.peeked = None;
             return Ok(Some(token));
@@ -128,36 +132,154 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
             return Ok(None);
         };
 
-        if ch >= '0' && ch <= '9' {
-            // number
-            unimplemented!() // TODO
-        } else if ch.is_ascii_alphabetic() || ch == '_' {
-            // word (or U string or E string)
-            unimplemented!() // TODO
-        } else if ch == '\'' {
-            // string
-            unimplemented!() // TODO
-        } else if ch == '"' {
-            // quoted word
-            unimplemented!() // TODO
-        } else if ch == '$' {
-            // dollar string
-            unimplemented!() // TODO
-        } else if is_operator!(ch) {
-            // operator
-            let start_offset = self.offset;
-            self.offset += 1;
-            self.offset = if let Some(index) = self.source[self.offset..].find(|c| !is_operator!(c)) {
-                self.offset + index
-            } else {
-                self.source.len()
-            };
-            return Ok(Some(Token::new(TokenKind::Operator, Cursor::new(start_offset, self.offset))));
-        } else {
-            return Err(Error::with_message(
-                ErrorKind::IllegalToken,
-                Cursor::new(self.offset, self.offset + 1),
-                format!("unexpected: {ch}")));
+        match ch {
+            _ if ch.is_ascii_digit() || ((ch == '+' || ch == '-') && self.peek_char_at(1).unwrap_or('\0').is_ascii_digit()) => {
+                // number
+                let start_offset = self.offset;
+                if ch == '+' || ch == '-' {
+                    self.offset += 2;
+                } else {
+                    self.offset += 1;
+                }
+                // TODO: hexadecimal/octal/binary
+                let end_offset = if let Some(index) = self.source[self.offset..].find(|c: char| !c.is_ascii_digit() && c != '_') {
+                    start_offset + index
+                } else {
+                    self.source.len()
+                };
+                let tail = &self.source[end_offset..];
+                if tail.starts_with(".") {
+                    // TODO: comma
+                }
+
+                if tail.starts_with("e") || tail.starts_with("E") {
+                    // TODO: exponent
+                }
+
+                self.offset = end_offset;
+                unimplemented!() // TODO
+            }
+            'E' if self.source[self.offset + 1..].starts_with('\'') => {
+                // E string
+                unimplemented!() // TODO
+            }
+            'U' if self.source[self.offset + 1..].starts_with("&'") => {
+                // U& string
+                unimplemented!() // TODO
+            }
+            _ if ch.is_ascii_alphabetic() || ch == '_' => {
+                // word
+                let start_offset = self.offset;
+                let end_offset = if let Some(index) = self.source[start_offset..].find(|c: char| !c.is_ascii_alphanumeric() && c != '_') {
+                    start_offset + index
+                } else {
+                    self.source.len()
+                };
+                self.offset = end_offset;
+                return Ok(Some(Token::new(
+                    TokenKind::Word,
+                    Cursor::new(start_offset, end_offset))));
+            }
+            '\'' => {
+                // string
+                unimplemented!() // TODO
+            }
+            '"' => {
+                // quoted word
+                unimplemented!() // TODO
+            }
+            '$' => {
+                // dollar string or single dollar?
+                unimplemented!() // TODO
+            }
+            ':' => {
+                let start_offset = self.offset;
+                if self.source[self.offset + 1..].starts_with(":") {
+                    self.offset += 2;
+                    return Ok(Some(Token::new(
+                        TokenKind::DoubleColon,
+                        Cursor::new(start_offset, self.offset),
+                    )));
+                }
+                self.offset += 1;
+                return Ok(Some(Token::new(
+                    TokenKind::Colon,
+                    Cursor::new(start_offset, self.offset),
+                )));
+            }
+            ',' => {
+                let start_offset = self.offset;
+                self.offset += 1;
+                return Ok(Some(Token::new(
+                    TokenKind::Comma,
+                    Cursor::new(start_offset, self.offset),
+                )));
+            }
+            ';' => {
+                let start_offset = self.offset;
+                self.offset += 1;
+                return Ok(Some(Token::new(
+                    TokenKind::SemiColon,
+                    Cursor::new(start_offset, self.offset),
+                )));
+            }
+            '.' => {
+                let start_offset = self.offset;
+                self.offset += 1;
+                return Ok(Some(Token::new(
+                    TokenKind::Period,
+                    Cursor::new(start_offset, self.offset),
+                )));
+            }
+            '(' => {
+                let start_offset = self.offset;
+                self.offset += 1;
+                return Ok(Some(Token::new(
+                    TokenKind::LParen,
+                    Cursor::new(start_offset, self.offset),
+                )));
+            }
+            ')' => {
+                let start_offset = self.offset;
+                self.offset += 1;
+                return Ok(Some(Token::new(
+                    TokenKind::RParen,
+                    Cursor::new(start_offset, self.offset),
+                )));
+            }
+            '[' => {
+                let start_offset = self.offset;
+                self.offset += 1;
+                return Ok(Some(Token::new(
+                    TokenKind::LBracket,
+                    Cursor::new(start_offset, self.offset),
+                )));
+            }
+            ']' => {
+                let start_offset = self.offset;
+                self.offset += 1;
+                return Ok(Some(Token::new(
+                    TokenKind::RBracket,
+                    Cursor::new(start_offset, self.offset),
+                )));
+            }
+            operators!() => {
+                // operator
+                let start_offset = self.offset;
+                self.offset += 1;
+                self.offset = if let Some(index) = self.source[self.offset..].find(|c| !is_operator!(c)) {
+                    self.offset + index
+                } else {
+                    self.source.len()
+                };
+                return Ok(Some(Token::new(TokenKind::Operator, Cursor::new(start_offset, self.offset))));
+            }
+            _ => {
+                return Err(Error::with_message(
+                    ErrorKind::IllegalToken,
+                    Cursor::new(self.offset, self.offset + 1),
+                    format!("unexpected: {ch}")));
+            }
         }
     }
 }
@@ -174,21 +296,18 @@ impl<'a> PostgreSQLParser<'a> {
     }
 
     fn parse_qname(&self, cursor: &Cursor) -> Name {
-        // assumes that the quoted name is already syntactically correct
+        // assumes that the quoted name is syntactically correct
         let source = cursor.get(self.tokenizer.source());
         let mut source = &source[1..source.len() - 1];
-        let mut name = String::new();
+        let mut name = String::with_capacity(source.len());
 
-        loop {
-            let Some(index) = source.find('"') else {
-                break;
-            };
-
+        while let Some(index) = source.find('"') {
             name.push_str(&source[..index + 1]);
             source = &source[index + 2..];
         }
 
         name.push_str(&source);
+        name.shrink_to_fit();
 
         Name::new_quoted(name)
     }
@@ -199,9 +318,108 @@ impl<'a> PostgreSQLParser<'a> {
         Name::new_unquoted(source)
     }
 
-    fn parse_token_list(&mut self) -> Result<Vec<Token>> {
-        let mut stack = Vec::new();
+    fn parse_string(&self, cursor: &Cursor) -> String {
+        // assumes that the quoted string is syntactically correct
+        let source = cursor.get(self.tokenizer.source());
+        let mut source = &source[1..source.len() - 1];
+        let mut value = String::with_capacity(source.len());
+
+        while let Some(index) = source.find('\'') {
+            value.push_str(&source[..index + 1]);
+            source = &source[index + 2..];
+        }
+
+        value.push_str(&source);
+        value.shrink_to_fit();
+
+        value
+    }
+
+    fn parse_expr(&mut self) -> Result<Vec<Token>> {
+        let Some(mut token) = self.tokenizer.peek()? else {
+            return Err(Error::with_message(
+                ErrorKind::UnexpectedEOF,
+                Cursor::new(self.tokenizer.offset(), self.tokenizer.offset()),
+                format!("expected: <expression>, actual: EOF")));
+        };
+
+        match token.kind() {
+            TokenKind::Comma | TokenKind::SemiColon | TokenKind::Colon | TokenKind::DoubleColon | TokenKind::Period | TokenKind::RParen | TokenKind::RBracket => {
+                let actual = self.tokenizer.get(token.cursor());
+                return Err(Error::with_message(
+                    ErrorKind::UnexpectedToken,
+                    *token.cursor(),
+                    format!("expected: <expression>, actual: {actual}")));
+            }
+            _ => {}
+        }
+
+        let mut expr = vec![token];
+        self.tokenizer.next()?;
+
+        while let Some(next) = self.tokenizer.peek()? {
+            match next.kind() {
+                TokenKind::Comma | TokenKind::SemiColon | TokenKind::RParen | TokenKind::RBracket => {
+                    break;
+                }
+                TokenKind::Word if !matches!(token.kind(), TokenKind::Period | TokenKind::Operator | TokenKind::DoubleColon) => {
+                    break;
+                }
+                TokenKind::LParen | TokenKind::LBracket => {
+                    expr.push(next);
+                    self.tokenizer.next()?;
+                    self.parse_token_list_into(&mut expr, false)?;
+
+                    token = if let Some(token) = self.tokenizer.next()? {
+                        token
+                    } else {
+                        return Err(Error::with_message(
+                            ErrorKind::UnexpectedEOF,
+                            Cursor::new(self.tokenizer.offset(), self.tokenizer.offset()),
+                            format!("expected: expression, actual: EOF")));
+                    };
+
+                    if next.kind() == TokenKind::LParen {
+                        if token.kind() != TokenKind::RParen {
+                            let actual = self.tokenizer.get(token.cursor());
+                            return Err(Error::with_message(
+                                ErrorKind::UnexpectedEOF,
+                                *token.cursor(),
+                                format!("expected: ), actual: {actual}")));
+                        }
+                    } else {
+                        if token.kind() != TokenKind::RBracket {
+                            let actual = self.tokenizer.get(token.cursor());
+                            return Err(Error::with_message(
+                                ErrorKind::UnexpectedEOF,
+                                *token.cursor(),
+                                format!("expected: ], actual: {actual}")));
+                        }
+                    }
+
+                    expr.push(token);
+                }
+                _ => {
+                    expr.push(next);
+                    self.tokenizer.next()?;
+                    token = next;
+                }
+            }
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_token_list(&mut self, early_stop: bool) -> Result<Vec<Token>> {
         let mut tokens = Vec::new();
+
+        self.parse_token_list_into(&mut tokens, early_stop)?;
+
+        Ok(tokens)
+    }
+
+    fn parse_token_list_into(&mut self, tokens: &mut Vec<Token>, early_stop: bool) -> Result<()> {
+        let mut stack = Vec::new();
 
         while let Some(token) = self.tokenizer.peek()? {
             match token.kind() {
@@ -221,7 +439,7 @@ impl<'a> PostgreSQLParser<'a> {
                             ));
                         }
                     } else {
-                        return Ok(tokens);
+                        return Ok(());
                     }
                 }
                 TokenKind::RBracket => {
@@ -234,11 +452,11 @@ impl<'a> PostgreSQLParser<'a> {
                             ));
                         }
                     } else {
-                        return Ok(tokens);
+                        return Ok(());
                     }
                 }
-                TokenKind::SemiColon | TokenKind::Comma if stack.is_empty() => {
-                    return Ok(tokens);
+                TokenKind::SemiColon | TokenKind::Comma if early_stop && stack.is_empty() => {
+                    return Ok(());
                 }
                 _ => {}
             }
@@ -255,7 +473,7 @@ impl<'a> PostgreSQLParser<'a> {
             ))
         }
 
-        Ok(tokens)
+        Ok(())
     }
 }
 
