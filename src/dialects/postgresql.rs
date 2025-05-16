@@ -221,10 +221,7 @@ impl<'a> PostgreSQLParser<'a> {
                             ));
                         }
                     } else {
-                        return Err(Error::with_cursor(
-                            ErrorKind::UnexpectedToken,
-                            *token.cursor(),
-                        ));
+                        return Ok(tokens);
                     }
                 }
                 TokenKind::RBracket => {
@@ -237,13 +234,10 @@ impl<'a> PostgreSQLParser<'a> {
                             ));
                         }
                     } else {
-                        return Err(Error::with_cursor(
-                            ErrorKind::UnexpectedToken,
-                            *token.cursor(),
-                        ));
+                        return Ok(tokens);
                     }
                 }
-                TokenKind::SemiColon | TokenKind::Comma => {
+                TokenKind::SemiColon | TokenKind::Comma if stack.is_empty() => {
                     return Ok(tokens);
                 }
                 _ => {}
