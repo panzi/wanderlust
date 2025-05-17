@@ -1,6 +1,6 @@
-use super::{name::Name, syntax::{Cursor, Locatable}, token::Token, types::ColumnDataType};
+use super::{name::Name, syntax::{Cursor, Locatable}, token::ParsedToken, types::ColumnDataType};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Column {
     cursor: Cursor,
     name: Name,
@@ -72,15 +72,15 @@ impl Default for ReferentialAction {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ColumnConstraintData {
     Null,
     NotNull,
     Check {
-        expr: Vec<Token>,
+        expr: Vec<ParsedToken>,
         inherit: bool,
     },
-    Default { value: Vec<Token> },
+    Default { value: Vec<ParsedToken> },
     Unique { nulls_distinct: bool },
     PrimaryKey,
     References {
@@ -92,7 +92,7 @@ pub enum ColumnConstraintData {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ColumnConstraint {
     cursor: Cursor,
     name: Option<Name>,

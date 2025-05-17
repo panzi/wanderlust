@@ -1,6 +1,6 @@
 use super::{index::Index, table::Table, types::TypeDef};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DDL {
     types: Vec<TypeDef>,
     tables: Vec<Table>,

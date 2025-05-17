@@ -80,6 +80,7 @@ pub const TSQUERY: &str = "TSQUERY";
 pub const TSVECTOR: &str = "TSVECTOR";
 pub const TXID_SNAPSHOT: &str = "TXID_SNAPSHOT";
 pub const TYPE: &str = "TYPE";
+pub const UESCAPE: &str = "UESCAPE";
 pub const UNIQUE: &str = "UNIQUE";
 pub const UUID: &str = "UUID";
 pub const VARBIT: &str = "VARBIT";

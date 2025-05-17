@@ -14,8 +14,6 @@ pub enum TokenKind {
     Word,
     QIdent,
     UIdent,
-
-    /// Sequence of + - * / < > = ~ ! @ # % ^ & | ` ? but not containing -- or /*
     Operator,
     LParen,
     RParen,
@@ -59,10 +57,10 @@ impl Locatable for Token {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum ParsedToken {
-    Integer(String),
-    Float(String),
+    Integer(i64),
+    Float(f64),
     String(String),
     Name(Name),
     Operator(String),

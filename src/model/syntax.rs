@@ -1,6 +1,6 @@
 use crate::error::{Error, ErrorKind, Result};
 
-use super::{ddl::DDL, name::Name, token::{Token, TokenKind}};
+use super::{ddl::DDL, name::Name, token::{ParsedToken, Token, TokenKind}};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Cursor {
@@ -230,6 +230,7 @@ pub trait Tokenizer {
 
     fn peek(&mut self) -> Result<Option<Token>>;
     fn next(&mut self) -> Result<Option<Token>>;
+    fn parse(&self, token: &Token) -> Result<ParsedToken>;
 }
 
 #[macro_export]
@@ -346,6 +347,21 @@ pub trait Parser {
         } else {
             Ok(None)
         }
+    }
+
+    #[inline]
+    fn maybe_expect_word(&mut self, word: &str) -> Result<Option<Token>> {
+        let Some(token) = self.peek_token()? else {
+            return Ok(None);
+        };
+
+        if token.kind() == TokenKind::Word && self.get_source(token.cursor()).eq_ignore_ascii_case(word) {
+            self.expect_some()?;
+            Ok(Some(token))
+        } else {
+            Ok(None)
+        }
+
     }
 
     fn peek_word(&mut self, word: &str) -> Result<bool> {

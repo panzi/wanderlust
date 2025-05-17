@@ -1,6 +1,6 @@
 use super::{column::{Column, ColumnMatch, ReferentialAction}, name::Name, syntax::{Cursor, Locatable}, token::Token};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Table {
     cursor: Cursor,
     name: Name,
@@ -12,6 +12,11 @@ impl Table {
     #[inline]
     pub fn new(cursor: Cursor, name: Name) -> Self {
         Self { cursor, name, columns: Vec::new(), constraints: Vec::new() }
+    }
+
+    #[inline]
+    pub fn with_all(cursor: Cursor, name: Name, columns: Vec<Column>, constraints: Vec<TableConstraint>) -> Self {
+        Self { cursor, name, columns, constraints }
     }
 
     #[inline]
@@ -74,6 +79,39 @@ pub struct TableConstraint {
     data: TableConstraintData,
     deferrable: bool,
     initially_deferred: bool,
+}
+
+impl TableConstraint {
+    #[inline]
+    pub fn new(
+        cursor: Cursor,
+        name: Option<Name>,
+        data: TableConstraintData,
+        deferrable: bool,
+        initially_deferred: bool
+    ) -> Self {
+        Self { cursor, name, data, deferrable, initially_deferred }
+    }
+
+    #[inline]
+    pub fn name(&self) -> Option<&Name> {
+        self.name.as_ref()
+    }
+
+    #[inline]
+    pub fn data(&self) -> &TableConstraintData {
+        &self.data
+    }
+
+    #[inline]
+    pub fn deferrable(&self) -> bool {
+        self.deferrable
+    }
+
+    #[inline]
+    pub fn initially_deferred(&self) -> bool {
+        self.initially_deferred
+    }
 }
 
 impl Locatable for TableConstraint {
