@@ -1,6 +1,6 @@
 use crate::error::{Error, ErrorKind, Result};
 
-use super::{ddl::DDL, token::{Token, TokenKind}};
+use super::{ddl::DDL, name::Name, token::{Token, TokenKind}};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Cursor {
@@ -214,6 +214,13 @@ pub trait Locatable {
     fn cursor(&self) -> &Cursor;
 }
 
+impl Locatable for Cursor {
+    #[inline]
+    fn cursor(&self) -> &Cursor {
+        self
+    }
+}
+
 pub trait Tokenizer {
     fn get(&self, cursor: &Cursor) -> &str {
         self.get_offset(cursor.start_offset(), cursor.end_offset())
@@ -223,6 +230,37 @@ pub trait Tokenizer {
 
     fn peek(&mut self) -> Result<Option<Token>>;
     fn next(&mut self) -> Result<Option<Token>>;
+}
+
+macro_rules! expect_token {
+    ($parser:expr, $($kinds:tt)*) => {
+        match $parser.expect_some() {
+            Ok(_token) => {
+                if matches!(_token.kind(), $($kinds)*) {
+                    Ok(_token)
+                } else {
+                    let _actual = $parser.get_source(_token.cursor());
+                    let mut _msg = "expected one of:".to_owned();
+                    expect_token!(@msg _msg $($kinds)*);
+                    let _ = write!(_msg, ", actual: {_actual}");
+                    Err(Error::with_message(
+                        ErrorKind::UnexpectedToken,
+                        *_token.cursor(),
+                        _msg
+                    ))
+                }
+            },
+            Err(_err) => Err(_err)
+        }
+    };
+    (@msg $msg:ident) => {};
+    (@msg $msg:ident $tp:ident :: $val:ident) => {
+        let _ = write!($msg, " {}", $tp::$val);
+    };
+    (@msg $msg:ident $tp:ident :: $val:ident | $($tail:tt)*) => {
+        let _ = write!($msg, " {}", $tp::$val);
+        expect_token!(@msg $msg $($tail)*);
+    };
 }
 
 pub trait Parser {
@@ -237,7 +275,11 @@ pub trait Parser {
 
         if token.kind() != kind {
             let actual = self.get_source(token.cursor());
-            return Err(Error::with_message(ErrorKind::UnexpectedToken, *token.cursor(), format!("expected: {kind:?}, actual: {actual}")));
+            return Err(Error::with_message(
+                ErrorKind::UnexpectedToken,
+                *token.cursor(),
+                format!("expected: {kind:?}, actual: {actual}")
+            ));
         }
 
         Ok(token)
@@ -248,9 +290,71 @@ pub trait Parser {
         let actual = self.get_source(token.cursor());
 
         if !actual.eq_ignore_ascii_case(word) {
-            return Err(Error::with_message(ErrorKind::UnexpectedToken, *token.cursor(), format!("expected: {word}, actual: {actual}")));
+            return Err(Error::with_message(
+                ErrorKind::UnexpectedToken,
+                *token.cursor(),
+                format!("expected: {word}, actual: {actual}")
+            ));
         }
 
         Ok(token)
     }
+
+    fn peek_token(&mut self) -> Result<Option<Token>>;
+
+    #[inline]
+    fn peek_kind(&mut self, kind: TokenKind) -> Result<bool> {
+        let Some(token) = self.peek_token()? else {
+            return Ok(false);
+        };
+
+        return Ok(token.kind() == kind);
+    }
+
+    fn peek_word(&mut self, word: &str) -> Result<bool> {
+        let Some(token) = self.peek_token()? else {
+            return Ok(false);
+        };
+
+        if token.kind() != TokenKind::Word {
+            return Ok(false);
+        }
+
+        let actual = self.get_source(token.cursor());
+        if !actual.eq_ignore_ascii_case(word) {
+            return Ok(false);
+        }
+
+        Ok(true)
+    }
+
+    fn peek_words<'a>(&mut self, words: &[&'a str]) -> Result<Option<&'a str>> {
+        let Some(token) = self.peek_token()? else {
+            return Ok(None);
+        };
+
+        if token.kind() != TokenKind::Word {
+            return Ok(None);
+        }
+
+        let actual = self.get_source(token.cursor());
+        let Some(word) = words.iter().find(|word| word.eq_ignore_ascii_case(actual)) else {
+            return Ok(None);
+        };
+
+        Ok(Some(*word))
+    }
+
+    #[inline]
+    fn parse_word(&mut self, word: &str) -> Result<bool> {
+        if self.peek_word(word)? {
+            self.expect_some()?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    fn expect_name(&mut self) -> Result<Name>;
+    fn expect_string(&mut self) -> Result<String>;
 }

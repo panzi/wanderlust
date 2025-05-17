@@ -10,6 +10,7 @@ pub enum TokenKind {
     DollarString,
     Word,
     QIdent,
+    UIdent,
 
     /// Sequence of + - * / < > = ~ ! @ # % ^ & | ` ? but not containing -- or /*
     Operator,
@@ -17,7 +18,7 @@ pub enum TokenKind {
     RParen,
     LBracket,
     RBracket,
-    Dollar,
+    //Dollar,
     Comma,
     DoubleColon,
     Colon,

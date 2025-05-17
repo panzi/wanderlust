@@ -11,8 +11,8 @@ pub struct Column {
 
 impl Column {
     #[inline]
-    pub fn new(cursor: Cursor, name: Name, type_name: Name, collation: Option<impl Into<String>>) -> Self {
-        Self { cursor, name, type_name, collation: collation.map(|c| c.into()), constraints: Vec::new() }
+    pub fn new(cursor: Cursor, name: Name, type_name: Name, collation: Option<impl Into<String>>, constraints: Vec<ColumnConstraint>) -> Self {
+        Self { cursor, name, type_name, collation: collation.map(|c| c.into()), constraints }
     }
 
     #[inline]
@@ -95,10 +95,43 @@ pub enum ColumnConstraintData {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ColumnConstraint {
     cursor: Cursor,
-    name: Option<String>,
+    name: Option<Name>,
     data: ColumnConstraintData,
     deferrable: bool,
     initially_deferred: bool,
+}
+
+impl ColumnConstraint {
+    #[inline]
+    pub fn new(
+        cursor: Cursor,
+        name: Option<Name>,
+        data: ColumnConstraintData,
+        deferrable: bool,
+        initially_deferred: bool
+    ) -> Self {
+        Self { cursor, name, data, deferrable, initially_deferred }
+    }
+
+    #[inline]
+    pub fn name(&self) -> Option<&Name> {
+        self.name.as_ref()
+    }
+
+    #[inline]
+    pub fn data(&self) -> &ColumnConstraintData {
+        &self.data
+    }
+
+    #[inline]
+    pub fn deferrable(&self) -> bool {
+        self.deferrable
+    }
+
+    #[inline]
+    pub fn initially_deferred(&self) -> bool {
+        self.initially_deferred
+    }
 }
 
 impl Locatable for ColumnConstraint {
