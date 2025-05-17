@@ -232,6 +232,7 @@ pub trait Tokenizer {
     fn next(&mut self) -> Result<Option<Token>>;
 }
 
+#[macro_export]
 macro_rules! expect_token {
     ($parser:expr, $($kinds:tt)*) => {
         match $parser.expect_some() {
@@ -261,6 +262,23 @@ macro_rules! expect_token {
         let _ = write!($msg, " {}", $tp::$val);
         expect_token!(@msg $msg $($tail)*);
     };
+}
+
+#[macro_export]
+macro_rules! peek_token {
+    ($parser:expr, $($kinds:tt)*) => {
+        match $parser.peek_token() {
+            Ok(Some(_token)) => {
+                if matches!(_token.kind(), $($kinds)*) {
+                    Ok(Some(_token))
+                } else {
+                    Ok(None)
+                }
+            }
+            Ok(None) => Ok(None),
+            Err(_err) => Err(_err)
+        }
+    }
 }
 
 pub trait Parser {
@@ -303,12 +321,31 @@ pub trait Parser {
     fn peek_token(&mut self) -> Result<Option<Token>>;
 
     #[inline]
+    fn peek_integer(&mut self) -> Result<Option<Token>> {
+        peek_token!(self, TokenKind::BinInt | TokenKind::OctInt | TokenKind::DecInt | TokenKind::HexInt)
+    }
+
+    #[inline]
     fn peek_kind(&mut self, kind: TokenKind) -> Result<bool> {
         let Some(token) = self.peek_token()? else {
             return Ok(false);
         };
 
         return Ok(token.kind() == kind);
+    }
+
+    #[inline]
+    fn maybe_expect_token(&mut self, kind: TokenKind) -> Result<Option<Token>> {
+        let Some(token) = self.peek_token()? else {
+            return Ok(None);
+        };
+
+        if token.kind() == kind {
+            self.expect_some()?;
+            Ok(Some(token))
+        } else {
+            Ok(None)
+        }
     }
 
     fn peek_word(&mut self, word: &str) -> Result<bool> {

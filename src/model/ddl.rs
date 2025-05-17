@@ -1,8 +1,8 @@
-use super::{index::Index, table::Table, types::Type};
+use super::{index::Index, table::Table, types::TypeDef};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DDL {
-    types: Vec<Type>,
+    types: Vec<TypeDef>,
     tables: Vec<Table>,
     indices: Vec<Index>,
 }
@@ -14,7 +14,7 @@ impl DDL {
     }
 
     #[inline]
-    pub fn types(&self) -> &[Type] {
+    pub fn types(&self) -> &[TypeDef] {
         &self.types
     }
 
@@ -29,7 +29,7 @@ impl DDL {
     }
 
     #[inline]
-    pub fn types_mut(&mut self) -> &mut Vec<Type> {
+    pub fn types_mut(&mut self) -> &mut Vec<TypeDef> {
         &mut self.types
     }
 

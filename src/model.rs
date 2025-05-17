@@ -6,3 +6,5 @@ pub mod index;
 pub mod types;
 pub mod name;
 pub mod syntax;
+pub mod words;
+pub mod integers;

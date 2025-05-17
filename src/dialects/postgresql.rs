@@ -3,7 +3,10 @@
 // https://www.postgresql.org/docs/current/sql-createindex.html
 // https://www.postgresql.org/docs/current/sql-createtype.html
 
-use crate::{error::{Error, ErrorKind, Result}, model::{column::{Column, ColumnConstraint, ColumnConstraintData}, ddl::DDL, name::Name, syntax::{Cursor, Parser, SourceLocation, Tokenizer}, token::{Token, TokenKind}}};
+use std::num::NonZeroU32;
+
+use crate::{error::{Error, ErrorKind, Result}, model::{column::{Column, ColumnConstraint, ColumnConstraintData}, ddl::DDL, integers::{Integer, SignedInteger, UnsignedInteger}, name::Name, syntax::{Cursor, Parser, SourceLocation, Tokenizer}, token::{Token, TokenKind}, types::{ColumnDataType, DataType}}, peek_token};
+use crate::model::words::*;
 
 pub fn uunescape(string: &str, escape: char) -> Option<String> {
     let mut buf = String::with_capacity(string.len());
@@ -235,7 +238,7 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                     }
                     self.offset = end_offset;
                     return Ok(Some(Token::new(
-                        TokenKind::Int,
+                        TokenKind::HexInt,
                         Cursor::new(start_offset, end_offset)
                     )));
                 } else if tail.starts_with("0o") || tail.starts_with("0O") {
@@ -255,7 +258,7 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                     }
                     self.offset = end_offset;
                     return Ok(Some(Token::new(
-                        TokenKind::Int,
+                        TokenKind::OctInt,
                         Cursor::new(start_offset, end_offset)
                     )));
                 } else if tail.starts_with("0b") || tail.starts_with("0B") {
@@ -275,7 +278,7 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                     }
                     self.offset = end_offset;
                     return Ok(Some(Token::new(
-                        TokenKind::Int,
+                        TokenKind::BinInt,
                         Cursor::new(start_offset, end_offset)
                     )));
                 } else {
@@ -323,7 +326,7 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
 
                     self.offset = end_offset;
                     return Ok(Some(Token::new(
-                        if float { TokenKind::Float } else { TokenKind::Int },
+                        if float { TokenKind::Float } else { TokenKind::DecInt },
                         Cursor::new(start_offset, end_offset)
                     )));
                 }
@@ -584,6 +587,9 @@ impl<'a> PostgreSQLParser<'a> {
         };
 
         match token.kind() {
+            TokenKind::LParen => {
+                return self.parse_token_list(true);
+            }
             TokenKind::Comma | TokenKind::SemiColon | TokenKind::Colon | TokenKind::DoubleColon | TokenKind::Period | TokenKind::RParen | TokenKind::RBracket => {
                 let actual = self.tokenizer.get(token.cursor());
                 return Err(Error::with_message(
@@ -722,6 +728,367 @@ impl<'a> PostgreSQLParser<'a> {
 
         Ok(())
     }
+
+    fn parse_int_intern<I: Integer>(token: &Token, mut source: &str) -> Result<I> {
+        let mut value = I::ZERO;
+
+        // TODO: handle overflow?
+        match token.kind() {
+            TokenKind::BinInt => {
+                source = &source[2..];
+                for ch in source.chars() {
+                    match ch {
+                        '0' => {
+                            value <<= I::ONE;
+                        }
+                        '1' => {
+                            value <<= I::ONE;
+                            value |= I::ONE;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            TokenKind::OctInt => {
+                source = &source[2..];
+                for ch in source.chars() {
+                    if ch != '_' {
+                        value *= I::EIGHT;
+                        value += I::value_of(ch);
+                    }
+                }
+            }
+            TokenKind::DecInt => {
+                for ch in source.chars() {
+                    if ch != '_' {
+                        value *= I::TEN;
+                        value += I::value_of(ch);
+                    }
+                }
+            }
+            TokenKind::HexInt => {
+                source = &source[2..];
+                for ch in source.chars() {
+                    if ch != '_' {
+                        value *= I::SIXTEEN;
+                        value += I::hex_value_of(ch);
+                    }
+                }
+            }
+            _ => {
+                return Err(Error::with_message(
+                    ErrorKind::UnexpectedToken,
+                    *token.cursor(),
+                    format!("expected: <unsigned integer>, actual: {source}")
+                ));
+            }
+        }
+
+        Ok(value)
+    }
+
+    fn parse_neg_int_intern<I: SignedInteger>(token: &Token, mut source: &str) -> Result<I> {
+        let mut value = I::ZERO;
+
+        // TODO: handle overflow?
+        match token.kind() {
+            TokenKind::BinInt => {
+                source = &source[2..];
+                for ch in source.chars() {
+                    match ch {
+                        '0' => {
+                            value *= I::TWO;
+                        }
+                        '1' => {
+                            value *= I::TWO;
+                            value -= I::ONE;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            TokenKind::OctInt => {
+                source = &source[2..];
+                for ch in source.chars() {
+                    if ch != '_' {
+                        value *= I::EIGHT;
+                        value -= I::value_of(ch);
+                    }
+                }
+            }
+            TokenKind::DecInt => {
+                for ch in source.chars() {
+                    if ch != '_' {
+                        value *= I::TEN;
+                        value -= I::value_of(ch);
+                    }
+                }
+            }
+            TokenKind::HexInt => {
+                source = &source[2..];
+                for ch in source.chars() {
+                    if ch != '_' {
+                        value *= I::SIXTEEN;
+                        value -= I::hex_value_of(ch);
+                    }
+                }
+            }
+            _ => {
+                return Err(Error::with_message(
+                    ErrorKind::UnexpectedToken,
+                    *token.cursor(),
+                    format!("expected: <unsigned integer>, actual: {source}")
+                ));
+            }
+        }
+
+        Ok(value)
+    }
+
+    fn parse_uint<I: UnsignedInteger>(&mut self) -> Result<(Token, I)> {
+        let token = self.expect_some()?;
+        let mut source = self.get_source(token.cursor());
+
+        if source.starts_with('-') {
+            return Err(Error::with_message(
+                ErrorKind::UnexpectedToken,
+                *token.cursor(),
+                format!("expected: <unsigned integer>, actual: {source}")
+            ));
+        }
+
+        if source.starts_with('+') {
+            source = &source[1..];
+        }
+
+        let value = Self::parse_int_intern(&token, source)?;
+
+        Ok((token, value))
+    }
+
+    fn parse_int<I: SignedInteger>(&mut self) -> Result<(Token, I)> {
+        let token = self.expect_some()?;
+        let mut source = self.get_source(token.cursor());
+        let mut neg = false;
+
+        if source.starts_with('-') {
+            source = &source[1..];
+            neg = true;
+        } else if source.starts_with('+') {
+            source = &source[1..];
+        }
+
+        let mut value: I = Self::parse_int_intern(&token, source)?;
+
+        if neg {
+            value = -value;
+        }
+
+        return Ok((token, value));
+    }
+
+    fn parse_precision(&mut self) -> Result<NonZeroU32> {
+        let (token, value) = self.parse_uint()?;
+        let Some(value) = NonZeroU32::new(value) else {
+            return Err(Error::with_message(
+                ErrorKind::UnexpectedToken,
+                *token.cursor(),
+                format!("precision may not be zero")
+            ));
+        };
+        Ok(value)
+    }
+
+    fn parse_column_data_type(&mut self) -> Result<ColumnDataType> {
+        let token = self.expect_some()?;
+
+        let data_type = match token.kind() {
+            TokenKind::Word => {
+                let word = self.get_source(token.cursor());
+
+                if word.eq_ignore_ascii_case(BIGINT) || word.eq_ignore_ascii_case(INT8) {
+                    DataType::Bigint
+                } else if word.eq_ignore_ascii_case(BIGSERIAL) || word.eq_ignore_ascii_case(SERIAL8) {
+                    DataType::BigSerial
+                } else if word.eq_ignore_ascii_case(BIT) {
+                    let mut var = false;
+                    if self.peek_word(VARYING)? {
+                        self.tokenizer.next()?;
+                        var = true;
+                    }
+                    let mut precision = None;
+                    if self.maybe_expect_token(TokenKind::LParen)?.is_some() {
+                        precision = Some(self.parse_precision()?);
+                        self.expect_token(TokenKind::RParen)?;
+                    }
+
+                    if var {
+                        DataType::BitVarying(precision)
+                    } else {
+                        DataType::Bit(precision)
+                    }
+                } else if word.eq_ignore_ascii_case(VARBIT) {
+                    let mut precision = None;
+                    if self.maybe_expect_token(TokenKind::LParen)?.is_some() {
+                        precision = Some(self.parse_precision()?);
+                        self.expect_token(TokenKind::RParen)?;
+                    }
+
+                    DataType::BitVarying(precision)
+                } else if word.eq_ignore_ascii_case(BOOLEAN) || word.eq_ignore_ascii_case(BOOL) {
+                    DataType::Boolean
+                } else if word.eq_ignore_ascii_case(BOX) {
+                    DataType::Box
+                } else if word.eq_ignore_ascii_case(BYTEA) {
+                    DataType::ByteA
+                } else if word.eq_ignore_ascii_case(CHARACTER) {
+                    let mut var = false;
+                    if self.peek_word(VARYING)? {
+                        self.tokenizer.next()?;
+                        var = true;
+                    }
+                    let mut precision = None;
+                    if self.maybe_expect_token(TokenKind::LParen)?.is_some() {
+                        precision = Some(self.parse_precision()?);
+                        self.expect_token(TokenKind::RParen)?;
+                    }
+
+                    if var {
+                        DataType::CharacterVarying(precision)
+                    } else {
+                        DataType::Character(precision)
+                    }
+                } else if word.eq_ignore_ascii_case(CHAR) {
+                    let mut precision = None;
+                    if self.maybe_expect_token(TokenKind::LParen)?.is_some() {
+                        precision = Some(self.parse_precision()?);
+                        self.expect_token(TokenKind::RParen)?;
+                    }
+
+                    DataType::Character(precision)
+                } else if word.eq_ignore_ascii_case(VARCHAR) {
+                    let mut precision = None;
+                    if self.maybe_expect_token(TokenKind::LParen)?.is_some() {
+                        precision = Some(self.parse_precision()?);
+                        self.expect_token(TokenKind::RParen)?;
+                    }
+
+                    DataType::CharacterVarying(precision)
+                } else if word.eq_ignore_ascii_case(CIDR) {
+                    DataType::CIDR
+                } else if word.eq_ignore_ascii_case(CIRCLE) {
+                    DataType::Circle
+                } else if word.eq_ignore_ascii_case(DATE) {
+                    DataType::Date
+                } else if word.eq_ignore_ascii_case(DOUBLE) {
+                    self.expect_word(PRECISION)?;
+
+                    DataType::DoublePrecision
+                } else if word.eq_ignore_ascii_case(FLOAT8) {
+                    DataType::DoublePrecision
+                } else if word.eq_ignore_ascii_case(INET) {
+                    DataType::INet
+                } else if word.eq_ignore_ascii_case(INTEGER) || word.eq_ignore_ascii_case(INT) || word.eq_ignore_ascii_case(INT4) {
+                    DataType::Integer
+                } else if word.eq_ignore_ascii_case(INTERVAL) {
+                    unimplemented!() // TODO
+                } else if word.eq_ignore_ascii_case(JSON) {
+                    DataType::JSON
+                } else if word.eq_ignore_ascii_case(JSONB) {
+                    DataType::JSONB
+                } else if word.eq_ignore_ascii_case(LINE) {
+                    DataType::Line
+                } else if word.eq_ignore_ascii_case(LSEG) {
+                    DataType::LSeg
+                } else if word.eq_ignore_ascii_case(MACADDR) {
+                    DataType::MacAddr
+                } else if word.eq_ignore_ascii_case(MACADDR8) {
+                    DataType::MacAddr8
+                } else if word.eq_ignore_ascii_case(MONEY) {
+                    DataType::Money
+                } else if word.eq_ignore_ascii_case(NUMERIC) {
+                    unimplemented!() // TODO
+                } else if word.eq_ignore_ascii_case(PATH) {
+                    DataType::Path
+                } else if word.eq_ignore_ascii_case(PG_LSN) {
+                    DataType::PgLSN
+                } else if word.eq_ignore_ascii_case(PG_SNAPSHOT) {
+                    DataType::PgSnapshot
+                } else if word.eq_ignore_ascii_case(POINT) {
+                    DataType::Point
+                } else if word.eq_ignore_ascii_case(POLYGON) {
+                    DataType::Polygon
+                } else if word.eq_ignore_ascii_case(REAL) || word.eq_ignore_ascii_case(FLOAT4) {
+                    DataType::Real
+                } else if word.eq_ignore_ascii_case(SMALLINT) || word.eq_ignore_ascii_case(INT2) {
+                    DataType::SmallInt
+                } else if word.eq_ignore_ascii_case(SMALLSERIAL) || word.eq_ignore_ascii_case(SERIAL2) {
+                    DataType::SmallSerial
+                } else if word.eq_ignore_ascii_case(SERIAL) || word.eq_ignore_ascii_case(SERIAL4) {
+                    DataType::Serial
+                } else if word.eq_ignore_ascii_case(TEXT) {
+                    DataType::Text
+                } else if word.eq_ignore_ascii_case(TIME) {
+                    unimplemented!() // TODO
+                } else if word.eq_ignore_ascii_case(TIMETZ) {
+                    unimplemented!() // TODO
+                } else if word.eq_ignore_ascii_case(TIMESTAMP) {
+                    unimplemented!() // TODO
+                } else if word.eq_ignore_ascii_case(TIMESTAMPTZ) {
+                    unimplemented!() // TODO
+                } else if word.eq_ignore_ascii_case(TSQUERY) {
+                    DataType::TsQuery
+                } else if word.eq_ignore_ascii_case(TSVECTOR) {
+                    DataType::TsVector
+                } else if word.eq_ignore_ascii_case(TXID_SNAPSHOT) {
+                    DataType::TxIdSnapshot
+                } else if word.eq_ignore_ascii_case(UUID) {
+                    DataType::UUID
+                } else if word.eq_ignore_ascii_case(XML) {
+                    DataType::XML
+                } else {
+                    DataType::Custom { name: Name::new_unquoted(word) }
+                }
+            }
+            TokenKind::QIdent => {
+                let name = self.parse_qname(token.cursor());
+
+                DataType::Custom { name }
+            }
+            TokenKind::UIdent => {
+                let name = self.parse_uname(token.cursor())?;
+
+                DataType::Custom { name }
+            }
+            _ => {
+                let actual = self.get_source(token.cursor());
+                
+                return Err(Error::with_message(
+                    ErrorKind::IllegalToken,
+                    *token.cursor(),
+                    format!("expected: <column data type>, actual: {actual}")
+                ));
+            }
+        };
+
+        let mut array_dimensions: Option<Box<[Option<u32>]>> = None;
+        if self.peek_word(ARRAY)? {
+            self.expect_some()?;
+
+            let mut dims = None;
+            if self.peek_kind(TokenKind::LBracket)? {
+                self.expect_some()?;
+                if !self.peek_kind(TokenKind::RBracket)? {
+                    dims = Some(self.parse_uint()?.1);
+                }
+                self.expect_token(TokenKind::RBracket)?;
+            }
+
+            array_dimensions = Some(Box::new([dims]));
+        }
+
+        Ok(ColumnDataType::new(data_type, array_dimensions))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -813,15 +1180,15 @@ impl<'a> Parser for PostgreSQLParser<'a> {
         let mut ddl = DDL::new();
 
         while self.tokenizer.peek()?.is_some() {
-            self.expect_word("CREATE")?;
+            self.expect_word(CREATE)?;
 
             let token = self.expect_token(TokenKind::Word)?;
             let word = self.get_source(token.cursor());
 
-            if word.eq_ignore_ascii_case("TABLE") {
-                if self.parse_word("IF")? {
-                    self.expect_word("NOT")?;
-                    self.expect_word("EXISTS")?;
+            if word.eq_ignore_ascii_case(TABLE) {
+                if self.parse_word(IF)? {
+                    self.expect_word(NOT)?;
+                    self.expect_word(EXISTS)?;
                 }
                 let table_name = self.expect_name()?;
                 let mut columns = Vec::new();
@@ -832,30 +1199,30 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                 while !self.peek_kind(TokenKind::RParen)? {
                     let start_offset = self.tokenizer.offset();
 
-                    if let Some(word) = self.peek_words(&["CONSTRAINT", "CHECK", "UNIQUE", "PRIMARY", "FOREIGN"])? {
+                    if let Some(word) = self.peek_words(&[CONSTRAINT, CHECK, UNIQUE, PRIMARY, FOREIGN])? {
                         let mut constraint_name = None;
-                        if word == "CONSTRAINT" {
+                        if word == CONSTRAINT {
                             self.expect_some()?;
                             constraint_name = Some(self.expect_name()?);
                         }
 
-                        if self.peek_word("CHECK")? {
+                        if self.peek_word(CHECK)? {
                             // TODO
-                        } else if self.peek_word("UNIQUE")? {
+                        } else if self.peek_word(UNIQUE)? {
                             // TODO
-                        } else if self.peek_word("PRIMARAY")? {
+                        } else if self.peek_word(PRIMARY)? {
                             // TODO
-                        } else if self.peek_word("FOREIGN")? {
+                        } else if self.peek_word(FOREIGN)? {
                             // TODO
                         } else {
                             // ERROR
                         }
                     } else {
                         let column_name = self.expect_name()?;
-                        let data_type = self.expect_name()?;
+                        let data_type = self.parse_column_data_type()?;
                         let mut collation = None;
 
-                        if self.peek_word("COLLATION")? {
+                        if self.peek_word(COLLATION)? {
                             self.expect_some()?;
                             collation = Some(self.expect_string()?);
                         }
@@ -865,23 +1232,23 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                         loop {
                             let mut constraint_name = None;
                             let constraint_start_offset = self.tokenizer.offset();
-                            if self.peek_word("CONSTRAINT")? {
+                            if self.peek_word(CONSTRAINT)? {
                                 self.expect_some()?;
                                 constraint_name = Some(self.expect_name()?);
                             }
 
                             let constraint_data;
 
-                            if self.peek_word("NOT")? {
+                            if self.peek_word(NOT)? {
                                 self.expect_some()?;
-                                self.expect_word("NULL")?;
+                                self.expect_word(NULL)?;
 
                                 constraint_data = ColumnConstraintData::NotNull;
-                            } else if self.peek_word("NULL")? {
+                            } else if self.peek_word(NULL)? {
                                 self.expect_some()?;
 
                                 constraint_data = ColumnConstraintData::Null;
-                            } else if self.peek_word("CHECK")? {
+                            } else if self.peek_word(CHECK)? {
                                 self.expect_some()?;
 
                                 self.expect_token(TokenKind::LParen)?;
@@ -889,23 +1256,23 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                                 self.expect_token(TokenKind::RParen)?;
 
                                 let mut inherit = true;
-                                if self.peek_word("NO")? {
+                                if self.peek_word(NO)? {
                                     self.expect_some()?;
-                                    self.expect_word("INHERIT")?;
+                                    self.expect_word(INHERIT)?;
                                     inherit = false;
                                 }
 
                                 constraint_data = ColumnConstraintData::Check { expr, inherit };
-                            } else if self.peek_word("DEFAULT")? {
+                            } else if self.peek_word(DEFAULT)? {
                                 self.expect_some()?;
                                 let value = self.parse_expr()?;
 
                                 constraint_data = ColumnConstraintData::Default { value };
-                            } else if self.peek_word("UNIQUE")? {
+                            } else if self.peek_word(UNIQUE)? {
                                 unimplemented!() // TODO
-                            } else if self.peek_word("PRIMARY")? {
+                            } else if self.peek_word(PRIMARY)? {
                                 unimplemented!() // TODO
-                            } else if self.peek_word("REFERENCES")? {
+                            } else if self.peek_word(REFERENCES)? {
                                 unimplemented!() // TODO
                             } else {
                                 if constraint_name.is_some() {
@@ -920,24 +1287,24 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                             }
 
                             let mut deferrable = false;
-                            if self.peek_word("DEFERRABLE")? {
+                            if self.peek_word(DEFERRABLE)? {
                                 self.expect_some()?;
                                 deferrable = true;
-                            } else if self.peek_word("NOT")? {
+                            } else if self.peek_word(NOT)? {
                                 self.expect_some()?;
-                                self.expect_word("DEFERRABLE")?;
+                                self.expect_word(DEFERRABLE)?;
                                 deferrable = false;
                             }
 
                             let mut initially_deferred = false;
-                            if self.peek_word("INITIALLY")? {
+                            if self.peek_word(INITIALLY)? {
                                 self.expect_some()?;
 
-                                if self.peek_word("DEFERRED")? {
+                                if self.peek_word(DEFERRED)? {
                                     self.expect_some()?;
                                     initially_deferred = true;
                                 } else {
-                                    self.expect_word("IMMEDIATE")?;
+                                    self.expect_word(IMMEDIATE)?;
                                     initially_deferred = false;
                                 }
                             }
@@ -967,16 +1334,16 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                 }
                 self.expect_token(TokenKind::RParen)?;
                 self.expect_token(TokenKind::SemiColon)?;
-                unimplemented!()
-            } else if word.eq_ignore_ascii_case("INDEX") {
-                unimplemented!()
-            } else if word.eq_ignore_ascii_case("TYPE") {
-                unimplemented!()
+                unimplemented!() // TODO
+            } else if word.eq_ignore_ascii_case(INDEX) {
+                unimplemented!() // TODO
+            } else if word.eq_ignore_ascii_case(TYPE) {
+                unimplemented!() // TODO
             } else {
                 return Err(Error::with_message(
                     ErrorKind::UnexpectedToken,
                     *token.cursor(),
-                    format!("expected one of: TABLE, INDEX, TYPE, actual: {word}")));
+                    format!("expected one of: {TABLE}, {INDEX}, {TYPE}, actual: {word}")));
             }
         }
 

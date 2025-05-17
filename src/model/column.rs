@@ -1,18 +1,18 @@
-use super::{name::Name, syntax::{Cursor, Locatable}, token::Token};
+use super::{name::Name, syntax::{Cursor, Locatable}, token::Token, types::ColumnDataType};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Column {
     cursor: Cursor,
     name: Name,
-    type_name: Name,
+    data_type: ColumnDataType,
     collation: Option<String>,
     constraints: Vec<ColumnConstraint>,
 }
 
 impl Column {
     #[inline]
-    pub fn new(cursor: Cursor, name: Name, type_name: Name, collation: Option<impl Into<String>>, constraints: Vec<ColumnConstraint>) -> Self {
-        Self { cursor, name, type_name, collation: collation.map(|c| c.into()), constraints }
+    pub fn new(cursor: Cursor, name: Name, data_type: ColumnDataType, collation: Option<impl Into<String>>, constraints: Vec<ColumnConstraint>) -> Self {
+        Self { cursor, name, data_type, collation: collation.map(|c| c.into()), constraints }
     }
 
     #[inline]
@@ -21,8 +21,8 @@ impl Column {
     }
 
     #[inline]
-    pub fn type_name(&self) -> &Name {
-        &self.type_name
+    pub fn data_type(&self) -> &ColumnDataType {
+        &self.data_type
     }
 
     #[inline]
