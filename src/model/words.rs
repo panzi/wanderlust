@@ -1,4 +1,5 @@
 pub const ACTION: &str = "ACTION";
+pub const ALTER: &str = "ALTER";
 pub const ARRAY: &str = "ARRAY";
 pub const AS: &str = "AS";
 pub const BIGINT: &str = "BIGINT";

@@ -341,7 +341,8 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                 Ok(ParsedToken::Integer(value))
             },
             TokenKind::Float => {
-                let Ok(value) = source.parse() else {
+                let stripped = source.replace("_", "");
+                let Ok(value) = stripped.parse() else {
                     return Err(Error::with_message(
                         ErrorKind::IllegalToken,
                         *token.cursor(),
@@ -1080,7 +1081,7 @@ impl<'a> PostgreSQLParser<'a> {
         }
     }
 
-    fn parse_references(&mut self, column_match: &mut Option<ColumnMatch>, on_update: &mut ReferentialAction, on_delete: &mut ReferentialAction) -> Result<()> {
+    fn parse_references(&mut self, column_match: &mut Option<ColumnMatch>, on_update: &mut Option<ReferentialAction>, on_delete: &mut Option<ReferentialAction>) -> Result<()> {
         if self.maybe_expect_word(MATCH)?.is_some() {
             let token = self.expect_token(TokenKind::Word)?;
             let word = self.get_source(token.cursor());
@@ -1102,17 +1103,17 @@ impl<'a> PostgreSQLParser<'a> {
 
         if self.maybe_expect_word(ON)?.is_some() {
             if self.maybe_expect_word(DELETE)?.is_some() {
-                *on_delete = self.parse_ref_action()?;
+                *on_delete = Some(self.parse_ref_action()?);
 
                 if self.maybe_expect_word(ON)?.is_some() {
                     self.expect_word(UPDATE)?;
 
-                    *on_update = self.parse_ref_action()?;
+                    *on_update = Some(self.parse_ref_action()?);
                 }
             } else {
                 self.expect_word(UPDATE)?;
 
-                *on_update = self.parse_ref_action()?;
+                *on_update = Some(self.parse_ref_action()?);
             }
         }
 
@@ -1697,8 +1698,8 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                             }
 
                             let mut column_match = None;
-                            let mut on_delete = ReferentialAction::NoAction;
-                            let mut on_update = ReferentialAction::NoAction;
+                            let mut on_delete = None;
+                            let mut on_update = None;
                             self.parse_references(
                                 &mut column_match, &mut on_update, &mut on_delete
                             )?;
@@ -1716,26 +1717,26 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                             ));
                         }
 
-                        let mut deferrable = false;
+                        let mut deferrable = None;
                         if self.peek_word(DEFERRABLE)? {
                             self.expect_some()?;
-                            deferrable = true;
+                            deferrable = Some(true);
                         } else if self.peek_word(NOT)? {
                             self.expect_some()?;
                             self.expect_word(DEFERRABLE)?;
-                            deferrable = false;
+                            deferrable = Some(false);
                         }
 
-                        let mut initially_deferred = false;
+                        let mut initially_deferred = None;
                         if self.peek_word(INITIALLY)? {
                             self.expect_some()?;
 
                             if self.peek_word(DEFERRED)? {
                                 self.expect_some()?;
-                                initially_deferred = true;
+                                initially_deferred = Some(true);
                             } else {
                                 self.expect_word(IMMEDIATE)?;
-                                initially_deferred = false;
+                                initially_deferred = Some(false);
                             }
                         }
 
@@ -1823,8 +1824,8 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                                 }
 
                                 let mut column_match = None;
-                                let mut on_delete = ReferentialAction::NoAction;
-                                let mut on_update = ReferentialAction::NoAction;
+                                let mut on_delete = None;
+                                let mut on_update = None;
                                 self.parse_references(
                                     &mut column_match, &mut on_update, &mut on_delete
                                 )?;
@@ -1845,26 +1846,26 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                                 break;
                             }
 
-                            let mut deferrable = false;
+                            let mut deferrable = None;
                             if self.peek_word(DEFERRABLE)? {
                                 self.expect_some()?;
-                                deferrable = true;
+                                deferrable = Some(true);
                             } else if self.peek_word(NOT)? {
                                 self.expect_some()?;
                                 self.expect_word(DEFERRABLE)?;
-                                deferrable = false;
+                                deferrable = Some(false);
                             }
 
-                            let mut initially_deferred = false;
+                            let mut initially_deferred = None;
                             if self.peek_word(INITIALLY)? {
                                 self.expect_some()?;
 
                                 if self.peek_word(DEFERRED)? {
                                     self.expect_some()?;
-                                    initially_deferred = true;
+                                    initially_deferred = Some(true);
                                 } else {
                                     self.expect_word(IMMEDIATE)?;
-                                    initially_deferred = false;
+                                    initially_deferred = Some(false);
                                 }
                             }
 

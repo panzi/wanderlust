@@ -44,7 +44,7 @@ impl Table {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum TableConstraintData {
     Check { expr: Vec<ParsedToken>, inherit: bool },
     Unique {
@@ -59,17 +59,77 @@ pub enum TableConstraintData {
         ref_table: Name,
         ref_columns: Option<Vec<Name>>,
         column_match: Option<ColumnMatch>,
-        on_update: ReferentialAction,
-        on_delete: ReferentialAction,
+        on_delete: Option<ReferentialAction>,
+        on_update: Option<ReferentialAction>,
     },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+impl PartialEq for TableConstraintData {
+    fn eq(&self, other: &Self) -> bool {
+        match self {
+            Self::Check { expr, inherit } => {
+                match other {
+                    Self::Check { expr: other_expr, inherit: other_inherit } => {
+                        inherit == other_inherit && expr == other_expr
+                    }
+                    _ => false
+                }
+            },
+            Self::Unique { nulls_distinct, columns } => {
+                match other {
+                    Self::Unique { nulls_distinct: other_nulls_distinct, columns: other_columns } => {
+                        nulls_distinct == other_nulls_distinct && columns == other_columns
+                    }
+                    _ => false
+                }
+            },
+            Self::PrimaryKey { columns } => {
+                match other {
+                    Self::PrimaryKey { columns: other_columns } => {
+                        columns == other_columns
+                    }
+                    _ => false
+                }
+            },
+            Self::ForeignKey { columns, ref_table, ref_columns, column_match, on_delete, on_update } => {
+                match other {
+                    Self::ForeignKey {
+                        columns: other_columns,
+                        ref_table: other_ref_table,
+                        ref_columns: other_ref_columns,
+                        column_match: other_column_match,
+                        on_delete: other_on_delete,
+                        on_update: other_on_update,
+                    } => {
+                        ref_table == other_ref_table &&
+                        columns == other_columns &&
+                        ref_columns == other_ref_columns && // XXX: false negatives if only one side uses the default
+                        column_match.unwrap_or_default() == other_column_match.unwrap_or_default() &&
+                        on_delete.as_ref().unwrap_or(&ReferentialAction::NoAction) == other_on_delete.as_ref().unwrap_or(&ReferentialAction::NoAction) &&
+                        on_update.as_ref().unwrap_or(&ReferentialAction::NoAction) == other_on_update.as_ref().unwrap_or(&ReferentialAction::NoAction)
+                    }
+                    _ => false
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct TableConstraint {
     name: Option<Name>,
     data: TableConstraintData,
-    deferrable: bool,
-    initially_deferred: bool,
+    deferrable: Option<bool>,
+    initially_deferred: Option<bool>,
+}
+
+impl PartialEq for TableConstraint {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name &&
+        self.data == other.data &&
+        self.default_deferrable() == other.default_deferrable() &&
+        self.default_initially_deferred() == other.default_initially_deferred()
+    }
 }
 
 impl TableConstraint {
@@ -77,8 +137,8 @@ impl TableConstraint {
     pub fn new(
         name: Option<Name>,
         data: TableConstraintData,
-        deferrable: bool,
-        initially_deferred: bool
+        deferrable: Option<bool>,
+        initially_deferred: Option<bool>,
     ) -> Self {
         Self { name, data, deferrable, initially_deferred }
     }
@@ -94,12 +154,22 @@ impl TableConstraint {
     }
 
     #[inline]
-    pub fn deferrable(&self) -> bool {
+    pub fn deferrable(&self) -> Option<bool> {
         self.deferrable
     }
 
     #[inline]
-    pub fn initially_deferred(&self) -> bool {
+    pub fn initially_deferred(&self) -> Option<bool> {
         self.initially_deferred
+    }
+
+    #[inline]
+    pub fn default_deferrable(&self) -> bool {
+        self.deferrable.unwrap_or(false)
+    }
+
+    #[inline]
+    pub fn default_initially_deferred(&self) -> bool {
+        self.initially_deferred.unwrap_or(false)
     }
 }
