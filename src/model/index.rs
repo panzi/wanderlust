@@ -1,4 +1,4 @@
-use super::{name::Name, syntax::{Cursor, Locatable}, token::Token};
+use super::{name::Name, syntax::{Cursor, Locatable}, token::ParsedToken};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
@@ -12,20 +12,21 @@ pub enum NullsPosition {
     Last,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum IndexItemData {
     Column(Name),
-    Expr(Vec<Token>),
+    Expr(Vec<ParsedToken>),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct IndexItem {
+    data: IndexItemData,
     collation: Option<String>,
     direction: Option<Direction>,
     nulls_position: Option<NullsPosition>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Index {
     cursor: Cursor,
     unique: bool,
@@ -35,7 +36,7 @@ pub struct Index {
     concurrently: bool,
     method: String,
     nulls_distinct: bool,
-    predicate: Option<Vec<Token>>,
+    predicate: Option<Vec<ParsedToken>>,
 }
 
 impl Index {

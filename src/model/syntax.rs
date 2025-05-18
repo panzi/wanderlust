@@ -97,8 +97,7 @@ impl Cursor {
         let mut lineno = span.start().lineno();
 
         while line_start_index < self.end_offset {
-
-            let line_end_index = self.start_offset + source[line_start_index..].find('\n').unwrap_or(source.len());
+            let line_end_index = line_start_index + source[line_start_index..].find('\n').unwrap_or(source.len());
             let line = &source[line_start_index..line_end_index];
 
             write!(write, "{: ^width$} │ {}\n", lineno, line, width = lineno_width)?;

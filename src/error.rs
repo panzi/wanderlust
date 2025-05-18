@@ -1,4 +1,4 @@
-use crate::model::syntax::Cursor;
+use crate::{format::FmtWriter, model::syntax::Cursor};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorKind {
@@ -59,6 +59,11 @@ impl Error {
     #[inline]
     pub fn message(&self) -> Option<&str> {
         self.message.as_ref().map(|s| s.as_str())
+    }
+
+    #[inline]
+    pub fn print(&self, filename: &str, source: &str, write: &mut impl std::io::Write) -> std::fmt::Result {
+        self.write(filename, source, &mut FmtWriter::new(write))
     }
 
     #[inline]

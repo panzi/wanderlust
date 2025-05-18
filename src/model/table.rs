@@ -1,4 +1,4 @@
-use super::{column::{Column, ColumnMatch, ReferentialAction}, name::Name, syntax::{Cursor, Locatable}, token::Token};
+use super::{column::{Column, ColumnMatch, ReferentialAction}, name::Name, syntax::{Cursor, Locatable}, token::ParsedToken};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Table {
@@ -52,9 +52,9 @@ impl Locatable for Table {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum TableConstraintData {
-    Check { expr: Vec<Token>, inherit: bool },
+    Check { expr: Vec<ParsedToken>, inherit: bool },
     Unique {
         nulls_distinct: bool,
         columns: Vec<Name>,
@@ -72,7 +72,7 @@ pub enum TableConstraintData {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TableConstraint {
     cursor: Cursor,
     name: Option<Name>,

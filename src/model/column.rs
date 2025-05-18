@@ -84,9 +84,9 @@ pub enum ColumnConstraintData {
     Unique { nulls_distinct: bool },
     PrimaryKey,
     References {
-        table_name: Name,
-        column: Option<Name>,
-        column_match: ColumnMatch,
+        ref_table: Name,
+        ref_column: Option<Name>,
+        column_match: Option<ColumnMatch>,
         on_update: ReferentialAction,
         on_delete: ReferentialAction,
     },

@@ -12,6 +12,11 @@ pub struct TypeDef {
 
 impl TypeDef {
     #[inline]
+    pub fn new(cursor: Cursor, name: Name, data: TypeData) -> Self {
+        Self { cursor, name, data }
+    }
+
+    #[inline]
     pub fn name(&self) -> &Name {
         &self.name
     }
@@ -115,7 +120,7 @@ pub enum DataType {
     TxIdSnapshot,
     UUID,
     XML,
-    Custom { name: Name },
+    UserDefined { name: Name },
 }
 
 impl std::fmt::Display for DataType {
@@ -233,7 +238,7 @@ impl std::fmt::Display for DataType {
             Self::TxIdSnapshot => TXID_SNAPSHOT.fmt(f),
             Self::UUID => UUID.fmt(f),
             Self::XML => XML.fmt(f),
-            Self::Custom { name } => name.fmt(f),
+            Self::UserDefined { name } => name.fmt(f),
         }
     }
 }
