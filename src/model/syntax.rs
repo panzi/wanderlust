@@ -115,7 +115,7 @@ impl Cursor {
                 get_width(line)
             };
 
-            write!(write, "{: ^before$}{:^^underline$}\n", "", "", before = start_column, underline = end_column - start_column)?;
+            write!(write, "{: ^before$}{:^^underline$}\n", "", "", before = start_column, underline = (end_column - start_column).max(1))?;
 
             line_start_index = line_end_index;
             if line_start_index < source.len() && source[line_start_index..].starts_with('\r') {
@@ -229,7 +229,7 @@ pub trait Tokenizer {
 
     fn peek(&mut self) -> Result<Option<Token>>;
     fn next(&mut self) -> Result<Option<Token>>;
-    fn parse(&self, token: &Token) -> Result<ParsedToken>;
+    fn parse(&mut self) -> Result<ParsedToken>;
 }
 
 #[macro_export]

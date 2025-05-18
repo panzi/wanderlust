@@ -262,6 +262,51 @@ impl<'a> PostgreSQLTokenizer<'a> {
 
         return Ok(self.offset + len);
     }
+
+    fn parse_uescape(&mut self) -> Result<char> {
+        let mut escape = '\\';
+        if let Some(next) = self.peek()? {
+            if next.kind() == TokenKind::Word && self.get(next.cursor()).eq_ignore_ascii_case(UESCAPE) {
+                self.next()?;
+                let Some(next) = self.next()? else {
+                    return Err(Error::with_message(
+                        ErrorKind::IllegalToken,
+                        *next.cursor(),
+                        format!("expected: <single char string>, actual: EOF")
+                    ));
+                };
+
+                let source = self.get(next.cursor());
+                if next.kind() != TokenKind::String {
+                    return Err(Error::with_message(
+                        ErrorKind::IllegalToken,
+                        *next.cursor(),
+                        format!("expected: <single char string>, actual: {source}")
+                    ));
+                }
+
+                let Some(value) = parse_string(source) else {
+                    return Err(Error::with_message(
+                        ErrorKind::IllegalToken,
+                        *next.cursor(),
+                        format!("expected: <single char string>, actual: {source}")
+                    ));
+                };
+
+                if value.len() != 1 {
+                    return Err(Error::with_message(
+                        ErrorKind::IllegalToken,
+                        *next.cursor(),
+                        format!("expected: <single char string>, actual: {source}")
+                    ));
+                }
+
+                escape = value.chars().next().unwrap();
+            }
+        }
+
+        Ok(escape)
+    }
 }
 
 macro_rules! operators {
@@ -282,11 +327,17 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
         &self.source[start_offset..end_offset]
     }
 
-    fn parse(&self, token: &Token) -> Result<ParsedToken> {
+    fn parse(&mut self) -> Result<ParsedToken> {
+        let Some(token) = self.next()? else {
+            return Err(Error::with_cursor(
+                ErrorKind::UnexpectedEOF,
+                Cursor::new(self.offset, self.offset)
+            ));
+        };
         let source = token.cursor().get(self.source);
         match token.kind() {
             TokenKind::BinInt | TokenKind::OctInt | TokenKind::DecInt | TokenKind::HexInt => {
-                let value = parse_int(token, source)?;
+                let value = parse_int(&token, source)?;
                 Ok(ParsedToken::Integer(value))
             },
             TokenKind::Float => {
@@ -310,6 +361,7 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                 Ok(ParsedToken::String(value))
             },
             TokenKind::UString => {
+                let start_offset = token.cursor().start_offset();
                 let Some(value) = parse_ustring(source) else {
                     return Err(Error::with_message(
                         ErrorKind::UnexpectedToken,
@@ -317,6 +369,17 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                         format!("expected: <unicode string>, actual: {:?}", token.kind())
                     ));
                 };
+
+                let escape = self.parse_uescape()?;
+                let end_offset = self.offset;
+                let Some(value) = uunescape(&value, escape) else {
+                    return Err(Error::with_message(
+                        ErrorKind::IllegalToken,
+                        Cursor::new(start_offset, end_offset),
+                        format!("illegal escape sequence in: {source}")
+                    ));
+                };
+
                 Ok(ParsedToken::String(value))
             },
             TokenKind::EString => {
@@ -344,6 +407,7 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                 Ok(ParsedToken::Name(Name::new_quoted(value)))
             },
             TokenKind::UIdent => {
+                let start_offset = token.cursor().start_offset();
                 let Some(value) = parse_uname(source) else {
                     return Err(Error::with_message(
                         ErrorKind::UnexpectedToken,
@@ -351,6 +415,17 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                         format!("expected: <unicode name>, actual: {:?}", token.kind())
                     ));
                 };
+
+                let escape = self.parse_uescape()?;
+                let end_offset = self.offset;
+                let Some(value) = uunescape(&value, escape) else {
+                    return Err(Error::with_message(
+                        ErrorKind::IllegalToken,
+                        Cursor::new(start_offset, end_offset),
+                        format!("illegal escape sequence in: {source}")
+                    ));
+                };
+
                 Ok(ParsedToken::Name(Name::new_quoted(value)))
             },
             TokenKind::Operator => Ok(ParsedToken::Operator(source.to_owned())),
@@ -740,7 +815,7 @@ impl<'a> PostgreSQLParser<'a> {
             return Err(Error::with_message(
                 ErrorKind::IllegalToken,
                 *cursor,
-                format!("epected: <quoted name>, actual: {source}")
+                format!("expected: <quoted name>, actual: {source}")
             ));
         };
 
@@ -755,40 +830,16 @@ impl<'a> PostgreSQLParser<'a> {
             return Err(Error::with_message(
                 ErrorKind::IllegalToken,
                 *cursor,
-                format!("epected: <unicode name>, actual: {source}")
+                format!("expected: <unicode name>, actual: {source}")
             ));
         };
 
-        let mut escape = '\\';
-        if let Some(next) = self.tokenizer.peek()? {
-            if next.kind() == TokenKind::Word && self.tokenizer.get(next.cursor()).eq_ignore_ascii_case("UESCAPE") {
-                self.tokenizer.next()?;
-                let next = self.expect_token(TokenKind::String)?;
-                let source = self.tokenizer.get(next.cursor());
-                let Some(value) = parse_string(source) else {
-                    return Err(Error::with_message(
-                        ErrorKind::IllegalToken,
-                        *next.cursor(),
-                        format!("epected: <single char string>, actual: {source}")
-                    ));
-                };
-
-                if value.len() != 1 {
-                    return Err(Error::with_message(
-                        ErrorKind::IllegalToken,
-                        *next.cursor(),
-                        format!("epected: <single char string>, actual: {source}")
-                    ));
-                }
-
-                escape = value.chars().next().unwrap();
-            }
-        }
+        let escape = self.tokenizer.parse_uescape()?;
 
         let Some(name) = uunescape(&name, escape) else {
             return Err(Error::with_message(
                 ErrorKind::IllegalToken,
-                *cursor,
+                Cursor::new(cursor.start_offset(), self.tokenizer.offset()),
                 format!("illegal escape sequence in: {source}")
             ));
         };
@@ -824,30 +875,21 @@ impl<'a> PostgreSQLParser<'a> {
             _ => {}
         }
 
-        let mut expr = vec![self.tokenizer.parse(&token)?];
-        self.tokenizer.next()?;
+        let mut expr = vec![self.tokenizer.parse()?];
 
         while let Some(next) = self.tokenizer.peek()? {
             match next.kind() {
                 TokenKind::Comma | TokenKind::SemiColon | TokenKind::RParen | TokenKind::RBracket => {
                     break;
                 }
-                TokenKind::Word if token.kind() == TokenKind::UString && self.tokenizer.get(next.cursor()).eq_ignore_ascii_case(UESCAPE) => {
-                    expr.push(self.tokenizer.parse(&token)?);
-                    self.tokenizer.next()?;
-
-                    token = self.expect_token(TokenKind::String)?;
-                    expr.push(self.tokenizer.parse(&token)?);
-                }
                 TokenKind::Word if !matches!(token.kind(), TokenKind::Period | TokenKind::Operator | TokenKind::DoubleColon) => {
                     break;
                 }
                 TokenKind::LParen | TokenKind::LBracket => {
-                    expr.push(self.tokenizer.parse(&next)?);
-                    self.tokenizer.next()?;
+                    expr.push(self.tokenizer.parse()?);
                     self.parse_token_list_into(&mut expr, false)?;
 
-                    token = if let Some(token) = self.tokenizer.next()? {
+                    token = if let Some(token) = self.tokenizer.peek()? {
                         token
                     } else {
                         return Err(Error::with_message(
@@ -874,11 +916,10 @@ impl<'a> PostgreSQLParser<'a> {
                         }
                     }
 
-                    expr.push(self.tokenizer.parse(&token)?);
+                    expr.push(self.tokenizer.parse()?);
                 }
                 _ => {
-                    expr.push(self.tokenizer.parse(&next)?);
-                    self.tokenizer.next()?;
+                    expr.push(self.tokenizer.parse()?);
                     token = next;
                 }
             }
@@ -938,8 +979,7 @@ impl<'a> PostgreSQLParser<'a> {
                 _ => {}
             }
 
-            tokens.push(self.tokenizer.parse(&token)?);
-            self.tokenizer.next()?;
+            tokens.push(self.tokenizer.parse()?);
         }
 
         if let Some(br) = stack.pop() {
@@ -1519,27 +1559,7 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                     ));
                 };
 
-                let mut escape = '\\';
-                if self.maybe_expect_word(UESCAPE)?.is_some() {
-                    let token = self.expect_token(TokenKind::String)?;
-                    let Some(value) = parse_string(self.get_source(token.cursor())) else {
-                        return Err(Error::with_message(
-                            ErrorKind::UnexpectedToken,
-                            *token.cursor(),
-                            format!("expected: <single char string>, actual: {:?}", token.kind())
-                        ));
-                    };
-
-                    if value.len() != 1 {
-                        return Err(Error::with_message(
-                            ErrorKind::IllegalToken,
-                            *token.cursor(),
-                            format!("epected: <single char string>, actual: {}", self.get_source(token.cursor()))
-                        ));
-                    }
-
-                    escape = value.chars().next().unwrap();
-                }
+                let escape = self.tokenizer.parse_uescape()?;
 
                 let Some(value) = uunescape(&value, escape) else {
                     return Err(Error::with_message(

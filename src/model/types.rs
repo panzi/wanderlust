@@ -7,7 +7,7 @@ use super::words::*;
 pub struct TypeDef {
     cursor: Cursor,
     name: Name,
-    data: TypeData
+    data: TypeData,
 }
 
 impl TypeDef {
