@@ -303,6 +303,21 @@ pub trait Parser {
         Ok(token)
     }
 
+    fn expect_semicolon_or_eof(&mut self) -> Result<()> {
+        if let Some(token) = self.peek_token()? {
+            if token.kind() != TokenKind::SemiColon {
+                let actual = self.get_source(token.cursor());
+                return Err(Error::with_message(
+                    ErrorKind::UnexpectedToken,
+                    *token.cursor(),
+                    format!("expected: ; or EOF, actual: {actual}")
+                ));
+            }
+            self.expect_some()?;
+        }
+        Ok(())
+    }
+
     fn expect_word(&mut self, word: &str) -> Result<Token> {
         let token = self.expect_token(TokenKind::Word)?;
         let actual = self.get_source(token.cursor());
@@ -335,32 +350,17 @@ pub trait Parser {
     }
 
     #[inline]
-    fn maybe_expect_token(&mut self, kind: TokenKind) -> Result<Option<Token>> {
+    fn parse_token(&mut self, kind: TokenKind) -> Result<bool> {
         let Some(token) = self.peek_token()? else {
-            return Ok(None);
+            return Ok(false);
         };
 
         if token.kind() == kind {
             self.expect_some()?;
-            Ok(Some(token))
+            Ok(true)
         } else {
-            Ok(None)
+            Ok(false)
         }
-    }
-
-    #[inline]
-    fn maybe_expect_word(&mut self, word: &str) -> Result<Option<Token>> {
-        let Some(token) = self.peek_token()? else {
-            return Ok(None);
-        };
-
-        if token.kind() == TokenKind::Word && self.get_source(token.cursor()).eq_ignore_ascii_case(word) {
-            self.expect_some()?;
-            Ok(Some(token))
-        } else {
-            Ok(None)
-        }
-
     }
 
     fn peek_word(&mut self, word: &str) -> Result<bool> {

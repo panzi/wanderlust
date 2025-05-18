@@ -8,8 +8,18 @@ pub struct Name {
 
 impl Name {
     #[inline]
-    pub fn new(name: impl Into<String>, quoted: bool) -> Self {
-        Self { name: name.into(), quoted }
+    pub fn needs_quoting(name: &str) -> bool {
+        if !name.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_') {
+            return false;
+        }
+        name[1..].contains(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+    }
+
+    #[inline]
+    pub fn new(name: impl Into<String>) -> Self {
+        let name: String = name.into();
+        let quoted = Self::needs_quoting(&name);
+        Self { name, quoted }
     }
 
     #[inline]
@@ -18,7 +28,7 @@ impl Name {
     }
 
     #[inline]
-    pub fn new_unquoted(name: impl Into<String>) -> Self {
+    pub(crate) fn new_unquoted(name: impl Into<String>) -> Self {
         Self { name: name.into(), quoted: false }
     }
 

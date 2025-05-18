@@ -14,7 +14,7 @@ fn main() {
     let old_source = std::fs::read_to_string(&old).unwrap();
     let mut parser = PostgreSQLParser::new(&old_source);
     match parser.parse() {
-        Ok(ddl) => println!("{ddl:#?}"),
+        Ok(ddl) => println!("{ddl:#?}\n\n{ddl}"),
         Err(err) => {
             err.print(&old.to_string_lossy(), &old_source, &mut std::io::stderr()).unwrap();
             std::process::exit(1);

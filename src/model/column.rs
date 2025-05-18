@@ -8,7 +8,7 @@ use super::words::*;
 pub struct Column {
     name: Name,
     data_type: ColumnDataType,
-    collation: Option<String>,
+    collate: Option<String>,
     constraints: Vec<ColumnConstraint>,
 }
 
@@ -17,8 +17,8 @@ impl std::fmt::Display for Column {
     fn fmt(&self, mut f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{} {}", self.name, self.data_type)?;
 
-        if let Some(collation) = &self.collation {
-            write!(f, " {COLLATION} ")?;
+        if let Some(collation) = &self.collate {
+            write!(f, " {COLLATE} ")?;
             format_iso_string(&mut f, collation)?;
         }
 
@@ -32,8 +32,8 @@ impl std::fmt::Display for Column {
 
 impl Column {
     #[inline]
-    pub fn new(name: Name, data_type: ColumnDataType, collation: Option<impl Into<String>>, constraints: Vec<ColumnConstraint>) -> Self {
-        Self { name, data_type, collation: collation.map(|c| c.into()), constraints }
+    pub fn new(name: Name, data_type: ColumnDataType, collate: Option<impl Into<String>>, constraints: Vec<ColumnConstraint>) -> Self {
+        Self { name, data_type, collate: collate.map(|c| c.into()), constraints }
     }
 
     #[inline]
@@ -47,8 +47,8 @@ impl Column {
     }
 
     #[inline]
-    pub fn collation(&self) -> Option<&str> {
-        self.collation.as_deref()
+    pub fn collate(&self) -> Option<&str> {
+        self.collate.as_deref()
     }
 
     #[inline]
@@ -142,7 +142,7 @@ pub enum ColumnConstraintData {
         inherit: bool,
     },
     Default { value: Vec<ParsedToken> },
-    Unique { nulls_distinct: bool },
+    Unique { nulls_distinct: Option<bool> },
     PrimaryKey,
     References {
         ref_table: Name,
@@ -161,7 +161,8 @@ impl PartialEq for ColumnConstraintData {
             Self::Check { expr, inherit } => {
                 match other {
                     Self::Check { expr: other_expr, inherit: other_inherit } => {
-                        inherit == other_inherit && expr == other_expr
+                        inherit == other_inherit &&
+                        expr == other_expr
                     }
                     _ => false
                 }
@@ -227,8 +228,12 @@ impl std::fmt::Display for ColumnConstraintData {
             Self::Unique { nulls_distinct } => {
                 f.write_str(UNIQUE)?;
 
-                if !*nulls_distinct {
-                    write!(f, "{UNIQUE} {NULLS} {NOT} {DISTINCT}")?;
+                if let Some(nulls_distinct) = nulls_distinct {
+                    if *nulls_distinct {
+                        write!(f, " {NULLS} {DISTINCT}")?;
+                    } else {
+                        write!(f, " {NULLS} {NOT} {DISTINCT}")?;
+                    }
                 }
 
                 Ok(())

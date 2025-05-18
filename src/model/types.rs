@@ -1,5 +1,7 @@
 use std::num::NonZeroU32;
 
+use crate::format::format_iso_string;
+
 use super::name::Name;
 use super::words::*;
 
@@ -7,6 +9,13 @@ use super::words::*;
 pub struct TypeDef {
     name: Name,
     data: TypeData,
+}
+
+impl std::fmt::Display for TypeDef {
+    #[inline]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{CREATE} {TYPE} {} {};", self.name, self.data)
+    }
 }
 
 impl TypeDef {
@@ -30,6 +39,29 @@ impl TypeDef {
 pub enum TypeData {
     Enum { values: Vec<String> },
     // TODO: more types
+}
+
+impl std::fmt::Display for TypeData {
+    #[inline]
+    fn fmt(&self, mut f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Enum { values } => {
+                write!(f, "{AS} (")?;
+
+                let mut iter = values.iter();
+                if let Some(first) = iter.next() {
+                    format_iso_string(&mut f, first)?;
+
+                    for value in iter {
+                        f.write_str(", ")?;
+                        format_iso_string(&mut f, value)?;
+                    }
+                }
+
+                f.write_str(")")
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
