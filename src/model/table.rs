@@ -1,8 +1,7 @@
-use super::{column::{Column, ColumnMatch, ReferentialAction}, name::Name, syntax::{Cursor, Locatable}, token::ParsedToken};
+use super::{column::{Column, ColumnMatch, ReferentialAction}, name::Name, token::ParsedToken};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Table {
-    cursor: Cursor,
     name: Name,
     columns: Vec<Column>,
     constraints: Vec<TableConstraint>,
@@ -10,13 +9,13 @@ pub struct Table {
 
 impl Table {
     #[inline]
-    pub fn new(cursor: Cursor, name: Name) -> Self {
-        Self { cursor, name, columns: Vec::new(), constraints: Vec::new() }
+    pub fn new(name: Name) -> Self {
+        Self { name, columns: Vec::new(), constraints: Vec::new() }
     }
 
     #[inline]
-    pub fn with_all(cursor: Cursor, name: Name, columns: Vec<Column>, constraints: Vec<TableConstraint>) -> Self {
-        Self { cursor, name, columns, constraints }
+    pub fn with_all(name: Name, columns: Vec<Column>, constraints: Vec<TableConstraint>) -> Self {
+        Self { name, columns, constraints }
     }
 
     #[inline]
@@ -45,13 +44,6 @@ impl Table {
     }
 }
 
-impl Locatable for Table {
-    #[inline]
-    fn cursor(&self) -> &Cursor {
-        &self.cursor
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum TableConstraintData {
     Check { expr: Vec<ParsedToken>, inherit: bool },
@@ -74,7 +66,6 @@ pub enum TableConstraintData {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TableConstraint {
-    cursor: Cursor,
     name: Option<Name>,
     data: TableConstraintData,
     deferrable: bool,
@@ -84,13 +75,12 @@ pub struct TableConstraint {
 impl TableConstraint {
     #[inline]
     pub fn new(
-        cursor: Cursor,
         name: Option<Name>,
         data: TableConstraintData,
         deferrable: bool,
         initially_deferred: bool
     ) -> Self {
-        Self { cursor, name, data, deferrable, initially_deferred }
+        Self { name, data, deferrable, initially_deferred }
     }
 
     #[inline]
@@ -111,12 +101,5 @@ impl TableConstraint {
     #[inline]
     pub fn initially_deferred(&self) -> bool {
         self.initially_deferred
-    }
-}
-
-impl Locatable for TableConstraint {
-    #[inline]
-    fn cursor(&self) -> &Cursor {
-        &self.cursor
     }
 }

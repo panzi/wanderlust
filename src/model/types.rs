@@ -1,19 +1,18 @@
 use std::num::NonZeroU32;
 
-use super::{name::Name, syntax::{Cursor, Locatable}};
+use super::name::Name;
 use super::words::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypeDef {
-    cursor: Cursor,
     name: Name,
     data: TypeData,
 }
 
 impl TypeDef {
     #[inline]
-    pub fn new(cursor: Cursor, name: Name, data: TypeData) -> Self {
-        Self { cursor, name, data }
+    pub fn new(name: Name, data: TypeData) -> Self {
+        Self { name, data }
     }
 
     #[inline]
@@ -31,13 +30,6 @@ impl TypeDef {
 pub enum TypeData {
     Enum { values: Vec<String> },
     // TODO: more types
-}
-
-impl Locatable for TypeDef {
-    #[inline]
-    fn cursor(&self) -> &Cursor {
-        &self.cursor
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

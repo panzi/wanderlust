@@ -1589,8 +1589,6 @@ impl<'a> Parser for PostgreSQLParser<'a> {
         let mut ddl = DDL::new();
 
         while self.tokenizer.peek()?.is_some() {
-            let start_offset = self.expect_word(CREATE)?.cursor().start_offset();
-
             let token = self.expect_token(TokenKind::Word)?;
             let word = self.get_source(token.cursor());
 
@@ -1606,12 +1604,9 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                 self.expect_token(TokenKind::LParen)?;
 
                 while !self.peek_kind(TokenKind::RParen)? {
-                    let start_offset = self.tokenizer.offset();
-
                     if let Some(word) = self.peek_words(&[CONSTRAINT, CHECK, UNIQUE, PRIMARY, FOREIGN])? {
                         let mut constraint_name = None;
                         let constraint_data;
-                        let start_offset = self.tokenizer.offset();
 
                         if word == CONSTRAINT {
                             self.expect_some()?;
@@ -1746,7 +1741,6 @@ impl<'a> Parser for PostgreSQLParser<'a> {
 
                         table_constraints.push(
                             TableConstraint::new(
-                                Cursor::new(start_offset, self.tokenizer.offset()),
                                 constraint_name,
                                 constraint_data,
                                 deferrable,
@@ -1767,7 +1761,6 @@ impl<'a> Parser for PostgreSQLParser<'a> {
 
                         loop {
                             let mut constraint_name = None;
-                            let constraint_start_offset = self.tokenizer.offset();
                             if self.peek_word(CONSTRAINT)? {
                                 self.expect_some()?;
                                 constraint_name = Some(self.expect_name()?);
@@ -1877,7 +1870,6 @@ impl<'a> Parser for PostgreSQLParser<'a> {
 
                             column_constraints.push(
                                 ColumnConstraint::new(
-                                    Cursor::new(constraint_start_offset, self.tokenizer.offset()),
                                     constraint_name,
                                     constraint_data,
                                     deferrable,
@@ -1887,7 +1879,6 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                         }
 
                         columns.push(Column::new(
-                            Cursor::new(start_offset, self.tokenizer.offset()),
                             column_name, data_type, collation, column_constraints,
                         ));
                     }
@@ -1902,7 +1893,6 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                 self.expect_token(TokenKind::SemiColon)?;
 
                 ddl.tables_mut().push(Table::with_all(
-                    Cursor::new(start_offset, self.tokenizer.offset()),
                     table_name,
                     columns,
                     table_constraints
@@ -1929,7 +1919,6 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                 self.expect_token(TokenKind::SemiColon)?;
 
                 ddl.types_mut().push(TypeDef::new(
-                    Cursor::new(start_offset, self.tokenizer.offset()),
                     type_name,
                     TypeData::Enum { values }
                 ));

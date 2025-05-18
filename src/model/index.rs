@@ -1,4 +1,4 @@
-use super::{name::Name, syntax::{Cursor, Locatable}, token::ParsedToken};
+use super::{name::Name, token::ParsedToken};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
@@ -28,7 +28,6 @@ pub struct IndexItem {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Index {
-    cursor: Cursor,
     unique: bool,
     name: Option<Name>,
     table_name: Name,
@@ -43,12 +42,5 @@ impl Index {
     #[inline]
     pub fn name(&self) -> Option<&Name> {
         self.name.as_ref()
-    }
-}
-
-impl Locatable for Index {
-    #[inline]
-    fn cursor(&self) -> &Cursor {
-        &self.cursor
     }
 }

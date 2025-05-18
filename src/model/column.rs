@@ -1,8 +1,7 @@
-use super::{name::Name, syntax::{Cursor, Locatable}, token::ParsedToken, types::ColumnDataType};
+use super::{name::Name, token::ParsedToken, types::ColumnDataType};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Column {
-    cursor: Cursor,
     name: Name,
     data_type: ColumnDataType,
     collation: Option<String>,
@@ -11,8 +10,8 @@ pub struct Column {
 
 impl Column {
     #[inline]
-    pub fn new(cursor: Cursor, name: Name, data_type: ColumnDataType, collation: Option<impl Into<String>>, constraints: Vec<ColumnConstraint>) -> Self {
-        Self { cursor, name, data_type, collation: collation.map(|c| c.into()), constraints }
+    pub fn new(name: Name, data_type: ColumnDataType, collation: Option<impl Into<String>>, constraints: Vec<ColumnConstraint>) -> Self {
+        Self { name, data_type, collation: collation.map(|c| c.into()), constraints }
     }
 
     #[inline]
@@ -40,13 +39,6 @@ impl Column {
         &mut self.constraints
     }
 
-}
-
-impl Locatable for Column {
-    #[inline]
-    fn cursor(&self) -> &Cursor {
-        &self.cursor
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -94,7 +86,6 @@ pub enum ColumnConstraintData {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ColumnConstraint {
-    cursor: Cursor,
     name: Option<Name>,
     data: ColumnConstraintData,
     deferrable: bool,
@@ -104,13 +95,12 @@ pub struct ColumnConstraint {
 impl ColumnConstraint {
     #[inline]
     pub fn new(
-        cursor: Cursor,
         name: Option<Name>,
         data: ColumnConstraintData,
         deferrable: bool,
         initially_deferred: bool
     ) -> Self {
-        Self { cursor, name, data, deferrable, initially_deferred }
+        Self { name, data, deferrable, initially_deferred }
     }
 
     #[inline]
@@ -131,12 +121,5 @@ impl ColumnConstraint {
     #[inline]
     pub fn initially_deferred(&self) -> bool {
         self.initially_deferred
-    }
-}
-
-impl Locatable for ColumnConstraint {
-    #[inline]
-    fn cursor(&self) -> &Cursor {
-        &self.cursor
     }
 }
