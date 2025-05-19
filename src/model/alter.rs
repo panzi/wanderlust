@@ -2,32 +2,63 @@ use std::fmt::Debug;
 
 use crate::format::{format_iso_string, write_token_list};
 
+use super::types::ColumnDataType;
 use super::{column::Column, name::Name, table::TableConstraint, token::ParsedToken, types::DataType};
 
 use super::words::*;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AlterTable {
-    name: Name,
+    table_name: Name,
     data: AlterTableData,
 }
 
 impl std::fmt::Display for AlterTable {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{ALTER} {TABLE} {} {};", self.name, self.data)
+        write!(f, "{ALTER} {TABLE} {} {};", self.table_name, self.data)
     }
 }
 
 impl AlterTable {
     #[inline]
-    pub fn new(name: Name, data: AlterTableData) -> Self {
-        Self { name, data }
+    pub fn new(table_name: Name, data: AlterTableData) -> Self {
+        Self { table_name, data }
+    }
+
+    #[inline]
+    pub fn add_column(table_name: Name, column: Column) -> Self {
+        Self { table_name, data: AlterTableData::add_column(column) }
+    }
+
+    #[inline]
+    pub fn drop_column(table_name: Name, column_name: Name) -> Self {
+        Self { table_name, data: AlterTableData::drop_column(column_name) }
+    }
+
+    #[inline]
+    pub fn alter_column(table_name: Name, alter_column: AlterColumn) -> Self {
+        Self { table_name, data: AlterTableData::alter_column(alter_column) }
+    }
+
+    #[inline]
+    pub fn rename_table(table_name: Name, new_name: Name) -> Self {
+        Self { table_name, data: AlterTableData::rename_table(new_name) }
+    }
+
+    #[inline]
+    pub fn rename_column(table_name: Name, column_name: Name, new_column_name: Name) -> Self {
+        Self { table_name, data: AlterTableData::rename_column(column_name, new_column_name) }
+    }
+
+    #[inline]
+    pub fn rename_constraint(table_name: Name, constraint_name: Name, new_constraint_name: Name) -> Self {
+        Self { table_name, data: AlterTableData::rename_constraint(constraint_name, new_constraint_name) }
     }
 
     #[inline]
     pub fn name(&self) -> &Name {
-        &self.name
+        &self.table_name
     }
 
     #[inline]
@@ -42,6 +73,38 @@ pub enum AlterTableData {
     RenameTable { new_name: Name },
     RenameColumn { column_name: Name, new_column_name: Name },
     RenameConstraint { constraint_name: Name, new_constraint_name: Name },
+}
+
+impl AlterTableData {
+    #[inline]
+    pub fn add_column(column: Column) -> Self {
+        Self::Actions { actions: vec![AlterTableAction::AddColumn { column }] }
+    }
+
+    #[inline]
+    pub fn drop_column(column_name: Name) -> Self {
+        Self::Actions { actions: vec![AlterTableAction::DropColumn { column_name, drop_option: None }] }
+    }
+
+    #[inline]
+    pub fn alter_column(alter_column: AlterColumn) -> Self {
+        Self::Actions { actions: vec![AlterTableAction::AlterColumn { alter_column }] }
+    }
+
+    #[inline]
+    pub fn rename_table(new_name: Name) -> Self {
+        Self::RenameTable { new_name }
+    }
+
+    #[inline]
+    pub fn rename_column(column_name: Name, new_column_name: Name) -> Self {
+        Self::RenameColumn { column_name, new_column_name }
+    }
+
+    #[inline]
+    pub fn rename_constraint(constraint_name: Name, new_constraint_name: Name) -> Self {
+        Self::RenameConstraint { constraint_name, new_constraint_name }
+    }
 }
 
 impl std::fmt::Display for AlterTableData {
@@ -131,7 +194,7 @@ impl std::fmt::Display for AlterTableAction {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AlterColumn {
-    Type { data_type: DataType, collate: Option<String> },
+    Type { data_type: ColumnDataType, collate: Option<String>, using: Option<Vec<ParsedToken>> },
     SetDefault { expr: Vec<ParsedToken> },
     DropDefault,
     SetNotNull,
@@ -144,14 +207,21 @@ pub enum AlterColumn {
 
 impl std::fmt::Display for AlterColumn {
     #[inline]
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, mut f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Type { data_type, collate } => {
+            Self::Type { data_type, collate, using } => {
                 write!(f, "{TYPE} {data_type}")?;
 
                 if let Some(collate) = collate {
                     write!(f, " {COLLATE} ")?;
-                    format_iso_string(f, collate)?;
+                    format_iso_string(&mut f, collate)?;
+                }
+
+                if let Some(using) = using {
+                    if !using.is_empty() {
+                        write!(f, " {USING} ")?;
+                        write_token_list(using, f)?;
+                    }
                 }
 
                 Ok(())

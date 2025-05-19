@@ -77,6 +77,23 @@ pub enum ParsedToken {
     Period,
 }
 
+impl ParsedToken {
+    #[inline]
+    pub fn from_string(value: impl Into<String>) -> Self {
+        Self::String(value.into())
+    }
+
+    #[inline]
+    pub fn from_name(name: impl Into<String>) -> Self {
+        Self::Name(Name::new(name))
+    }
+
+    #[inline]
+    pub fn from_operator(value: impl Into<String>) -> Self {
+        Self::Operator(value.into())
+    }
+}
+
 impl std::fmt::Display for ParsedToken {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
