@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use crate::error::{Error, ErrorKind, Result};
 
 use super::{ddl::DDL, name::Name, token::{ParsedToken, Token, TokenKind}};
@@ -408,5 +410,5 @@ pub trait Parser {
     }
 
     fn expect_name(&mut self) -> Result<Name>;
-    fn expect_string(&mut self) -> Result<String>;
+    fn expect_string(&mut self) -> Result<Rc<str>>;
 }

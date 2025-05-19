@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use crate::format::{write_paren_names, write_token_list};
 
 use super::{column::{Column, ColumnMatch, ReferentialAction}, name::Name, token::ParsedToken};
@@ -6,14 +8,14 @@ use super::words::*;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreateTable {
-    table: Table,
+    table: Rc<Table>,
     if_not_exists: bool,
 }
 
 impl CreateTable {
     #[inline]
-    pub fn new(table: Table, if_not_exists: bool) -> Self {
-        Self { table, if_not_exists }
+    pub fn new(table: impl Into<Rc<Table>>, if_not_exists: bool) -> Self {
+        Self { table: table.into(), if_not_exists }
     }
 
     #[inline]
@@ -22,7 +24,7 @@ impl CreateTable {
     }
 
     #[inline]
-    pub fn into_table(self) -> Table {
+    pub fn into_table(self) -> Rc<Table> {
         self.table
     }
 
@@ -32,7 +34,7 @@ impl CreateTable {
     }
 }
 
-impl From<CreateTable> for Table {
+impl From<CreateTable> for Rc<Table> {
     #[inline]
     fn from(value: CreateTable) -> Self {
         value.table
@@ -54,8 +56,8 @@ impl std::fmt::Display for CreateTable {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Table {
     name: Name,
-    columns: Vec<Column>,
-    constraints: Vec<TableConstraint>,
+    columns: Vec<Rc<Column>>,
+    constraints: Vec<Rc<TableConstraint>>,
 }
 
 impl std::fmt::Display for Table {
@@ -102,7 +104,7 @@ impl Table {
     }
 
     #[inline]
-    pub fn with_all(name: Name, columns: Vec<Column>, constraints: Vec<TableConstraint>) -> Self {
+    pub fn with_all(name: Name, columns: Vec<Rc<Column>>, constraints: Vec<Rc<TableConstraint>>) -> Self {
         Self { name, columns, constraints }
     }
 
@@ -112,22 +114,22 @@ impl Table {
     }
 
     #[inline]
-    pub fn columns(&self) -> &[Column] {
+    pub fn columns(&self) -> &[Rc<Column>] {
         &self.columns
     }
 
     #[inline]
-    pub fn constraints(&self) -> &[TableConstraint] {
+    pub fn constraints(&self) -> &[Rc<TableConstraint>] {
         &self.constraints
     }
 
     #[inline]
-    pub fn columns_mut(&mut self) -> &mut Vec<Column> {
+    pub fn columns_mut(&mut self) -> &mut Vec<Rc<Column>> {
         &mut self.columns
     }
 
     #[inline]
-    pub fn constraints_mut(&mut self) -> &mut Vec<TableConstraint> {
+    pub fn constraints_mut(&mut self) -> &mut Vec<Rc<TableConstraint>> {
         &mut self.constraints
     }
 }
@@ -135,7 +137,7 @@ impl Table {
 #[derive(Debug, Clone)]
 pub enum TableConstraintData {
     Check {
-        expr: Vec<ParsedToken>,
+        expr: Rc<[ParsedToken]>,
         inherit: bool,
     },
     Unique {

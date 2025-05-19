@@ -3,9 +3,9 @@
 // https://www.postgresql.org/docs/current/sql-createindex.html
 // https://www.postgresql.org/docs/current/sql-createtype.html
 
-use std::num::NonZeroU32;
+use std::{num::NonZeroU32, rc::Rc};
 
-use crate::{error::{Error, ErrorKind, Result}, model::{column::{Column, ColumnConstraint, ColumnConstraintData, ColumnMatch, ReferentialAction}, ddl::DDL, index::{CreateIndex, Direction, Index, IndexItem, IndexItemData, NullsPosition}, integers::{Integer, SignedInteger, UnsignedInteger}, name::Name, syntax::{Cursor, Parser, SourceLocation, Tokenizer}, table::{CreateTable, Table, TableConstraint, TableConstraintData}, token::{ParsedToken, Token, TokenKind}, types::{ColumnDataType, DataType, IntervalFields, TypeData, TypeDef}}, peek_token};
+use crate::{error::{Error, ErrorKind, Result}, model::{column::{Column, ColumnConstraint, ColumnConstraintData, ColumnMatch, ReferentialAction}, ddl::DDL, index::{CreateIndex, Direction, Index, IndexItem, IndexItemData, NullsPosition}, integers::{Integer, SignedInteger, UnsignedInteger}, name::Name, syntax::{Cursor, Parser, SourceLocation, Tokenizer}, table::{CreateTable, Table, TableConstraint, TableConstraintData}, token::{ParsedToken, Token, TokenKind}, types::{ColumnDataType, DataType, IntervalFields, TypeDef}}, peek_token};
 use crate::model::words::*;
 
 pub fn uunescape(string: &str, escape: char) -> Option<String> {
@@ -359,7 +359,7 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                         format!("expected: <string>, actual: {:?}", token.kind())
                     ));
                 };
-                Ok(ParsedToken::String(value))
+                Ok(ParsedToken::String(value.into()))
             },
             TokenKind::UString => {
                 let start_offset = token.cursor().start_offset();
@@ -381,7 +381,7 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                     ));
                 };
 
-                Ok(ParsedToken::String(value))
+                Ok(ParsedToken::String(value.into()))
             },
             TokenKind::EString => {
                 let Some(value) = parse_estring(source) else {
@@ -391,10 +391,10 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                         format!("expected: <estring>, actual: {:?}", token.kind())
                     ));
                 };
-                Ok(ParsedToken::String(value))
+                Ok(ParsedToken::String(value.into()))
             },
             TokenKind::DollarString => {
-                Ok(ParsedToken::String(strip_dollar_string(source).to_owned()))
+                Ok(ParsedToken::String(strip_dollar_string(source).into()))
             },
             TokenKind::Word => Ok(ParsedToken::Name(Name::new_unquoted(source))),
             TokenKind::QIdent => {
@@ -429,7 +429,7 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
 
                 Ok(ParsedToken::Name(Name::new_quoted(value)))
             },
-            TokenKind::Operator => Ok(ParsedToken::Operator(source.to_owned())),
+            TokenKind::Operator => Ok(ParsedToken::Operator(source.into())),
             TokenKind::LParen => Ok(ParsedToken::LParen),
             TokenKind::RParen => Ok(ParsedToken::RParen),
             TokenKind::LBracket => Ok(ParsedToken::LBracket),
@@ -1508,7 +1508,7 @@ impl<'a> PostgreSQLParser<'a> {
                         inherit = false;
                     }
 
-                    constraint_data = TableConstraintData::Check { expr, inherit };
+                    constraint_data = TableConstraintData::Check { expr: expr.into(), inherit };
                 } else if self.peek_word(UNIQUE)? {
                     self.expect_some()?;
 
@@ -1623,12 +1623,12 @@ impl<'a> PostgreSQLParser<'a> {
                 }
 
                 table_constraints.push(
-                    TableConstraint::new(
+                    Rc::new(TableConstraint::new(
                         constraint_name,
                         constraint_data,
                         deferrable,
                         initially_deferred
-                    )
+                    ))
                 );
             } else {
                 let column_name = self.expect_name()?;
@@ -1674,12 +1674,12 @@ impl<'a> PostgreSQLParser<'a> {
                             inherit = false;
                         }
 
-                        constraint_data = ColumnConstraintData::Check { expr, inherit };
+                        constraint_data = ColumnConstraintData::Check { expr: expr.into(), inherit };
                     } else if self.peek_word(DEFAULT)? {
                         self.expect_some()?;
                         let value = self.parse_expr()?;
 
-                        constraint_data = ColumnConstraintData::Default { value };
+                        constraint_data = ColumnConstraintData::Default { value: value.into() };
                     } else if self.peek_word(UNIQUE)? {
                         self.expect_some()?;
                         let mut nulls_distinct = None;
@@ -1754,18 +1754,18 @@ impl<'a> PostgreSQLParser<'a> {
                     }
 
                     column_constraints.push(
-                        ColumnConstraint::new(
+                        Rc::new(ColumnConstraint::new(
                             constraint_name,
                             constraint_data,
                             deferrable,
                             initially_deferred,
-                        )
+                        ))
                     );
                 }
 
-                columns.push(Column::new(
+                columns.push(Rc::new(Column::new(
                     column_name, data_type, collation, column_constraints,
-                ));
+                )));
             }
 
             if self.peek_kind(TokenKind::Comma)? {
@@ -1790,7 +1790,7 @@ impl<'a> PostgreSQLParser<'a> {
         let data;
         if self.parse_token(TokenKind::LParen)? {
             let expr = self.parse_token_list(false)?;
-            data = IndexItemData::Expr(expr);
+            data = IndexItemData::Expr(expr.into());
             self.expect_token(TokenKind::RParen)?;
         } else {
             let column_name = self.expect_name()?;
@@ -1918,10 +1918,7 @@ impl<'a> PostgreSQLParser<'a> {
         self.expect_token(TokenKind::RParen)?;
         self.expect_semicolon_or_eof()?;
 
-        Ok(TypeDef::new(
-            type_name,
-            TypeData::Enum { values }
-        ))
+        Ok(TypeDef::create_enum(type_name, values))
     }
 }
 
@@ -1983,7 +1980,7 @@ impl<'a> Parser for PostgreSQLParser<'a> {
         }
     }
 
-    fn expect_string(&mut self) -> Result<String> {
+    fn expect_string(&mut self) -> Result<Rc<str>> {
         let token = self.expect_some()?;
         match token.kind() {
             TokenKind::String => {
@@ -1994,7 +1991,7 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                         format!("expected: <string>, actual: {:?}", token.kind())
                     ));
                 };
-                Ok(value)
+                Ok(value.into())
             }
             TokenKind::EString => {
                 let Some(value) = parse_estring(self.get_source(token.cursor())) else {
@@ -2004,7 +2001,7 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                         format!("expected: <estring>, actual: {:?}", token.kind())
                     ));
                 };
-                Ok(value)
+                Ok(value.into())
             }
             TokenKind::UString => {
                 let Some(value) = parse_ustring(self.get_source(token.cursor())) else {
@@ -2024,11 +2021,11 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                         format!("illegal escape sequence in: {}", self.get_source(token.cursor()))
                     ));
                 };
-                Ok(value)
+                Ok(value.into())
             }
             TokenKind::DollarString => {
                 let value = self.get_source(token.cursor());
-                Ok(strip_dollar_string(value).to_owned())
+                Ok(strip_dollar_string(value).into())
             }
             _ => {
                 Err(Error::with_message(

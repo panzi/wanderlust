@@ -14,37 +14,37 @@ pub fn generate_migration(old: &DDL, new: &DDL) -> Vec<Statement> {
     let mut old_indices = HashMap::new();
     let mut new_indices = HashMap::new();
 
-    for (index, type_def) in old.types().iter().enumerate() {
-        old_types.insert(type_def.name(), index);
+    for type_def in old.types() {
+        old_types.insert(type_def.name(), type_def);
     }
 
-    for (index, type_def) in new.types().iter().enumerate() {
-        new_types.insert(type_def.name(), index);
+    for type_def in new.types() {
+        new_types.insert(type_def.name(), type_def);
     }
 
     // TODO: correlate unnamed indices somehow!
-    for (index, db_index) in old.indices().iter().enumerate() {
-        if let Some(name) = db_index.name() {
+    for index in old.indices().iter() {
+        if let Some(name) = index.name() {
             old_indices.insert(name, index);
         }
     }
 
-    for (index, db_index) in new.indices().iter().enumerate() {
-        if let Some(name) = db_index.name() {
+    for index in new.indices() {
+        if let Some(name) = index.name() {
             new_indices.insert(name, index);
         }
     }
 
-    for (index, table) in old.tables().iter().enumerate() {
-        old_tables.insert(table.name(), index);
+    for table in old.tables() {
+        old_tables.insert(table.name(), table);
     }
 
-    for (index, table) in new.tables().iter().enumerate() {
-        new_tables.insert(table.name(), index);
+    for table in new.tables() {
+        new_tables.insert(table.name(), table);
     }
 
     for type_def in new.types() {
-        if let Some(&old_type_def_index) = old_types.get(type_def.name()) {
+        if let Some(&old_type_def) = old_types.get(type_def.name()) {
             // TODO: migrate type, needs changes in all tables that use it
         } else {
             stmts.push(Statement::CreateType(type_def.clone()));
@@ -61,8 +61,7 @@ pub fn generate_migration(old: &DDL, new: &DDL) -> Vec<Statement> {
 
     for index in old.indices() {
         if let Some(name) = index.name() {
-            if let Some(&new_index_index) = new_indices.get(name) {
-                let new_index = &new.indices()[new_index_index];
+            if let Some(&new_index) = new_indices.get(name) {
                 if new_index != index {
                     stmts.push(Statement::drop_index(name.clone()));
                     create_indices.push(Statement::CreateIndex(new_index.clone()));
@@ -76,8 +75,7 @@ pub fn generate_migration(old: &DDL, new: &DDL) -> Vec<Statement> {
     }
 
     for table in new.tables() {
-        if let Some(&old_table_index) = old_tables.get(table.name()) {
-            let old_table = &old.tables()[old_table_index];
+        if let Some(&old_table) = old_tables.get(table.name()) {
             migrate_table(old_table, table, &mut stmts);
         } else {
             stmts.push(Statement::CreateTable(table.clone()));
@@ -108,17 +106,16 @@ fn migrate_table(old_table: &Table, new_table: &Table, stmts: &mut Vec<Statement
     let mut new_columns = HashMap::new();
     // TODO: constraints
 
-    for (index, column) in old_table.columns().iter().enumerate() {
-        old_columns.insert(column.name(), index);
+    for column in old_table.columns() {
+        old_columns.insert(column.name(), column);
     }
 
-    for (index, column) in new_table.columns().iter().enumerate() {
-        new_columns.insert(column.name(), index);
+    for column in new_table.columns() {
+        new_columns.insert(column.name(), column);
     }
 
     for column in old_table.columns() {
-        if let Some(&new_column_index) = new_columns.get(column.name()) {
-            let new_column = &new_table.columns()[new_column_index];
+        if let Some(&new_column) = new_columns.get(column.name()) {
             if column != new_column {
                 migrate_column(new_table.name(), column, new_column, stmts);
             }
@@ -151,7 +148,7 @@ fn migrate_column(table_name: &Name, old_column: &Column, new_column: &Column, s
         stmts.push(Statement::AlterTable(
             AlterTable::alter_column(table_name.clone(), AlterColumn::Type {
                 data_type: new_column.data_type().clone(),
-                collate: new_column.collate().map(str::to_owned),
+                collate: new_column.collate().map(Into::into),
                 using: None, // TODO: maybe cast?
             })
         ));

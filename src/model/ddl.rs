@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use super::index::CreateIndex;
 use super::table::CreateTable;
 use super::{index::Index, table::Table, types::TypeDef};
@@ -6,9 +8,9 @@ use super::words::*;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DDL {
-    types: Vec<TypeDef>,
-    tables: Vec<Table>,
-    indices: Vec<Index>,
+    types: Vec<Rc<TypeDef>>,
+    tables: Vec<Rc<Table>>,
+    indices: Vec<Rc<Index>>,
 }
 
 impl std::fmt::Display for DDL {
@@ -34,17 +36,17 @@ impl DDL {
     }
 
     #[inline]
-    pub fn types(&self) -> &[TypeDef] {
+    pub fn types(&self) -> &[Rc<TypeDef>] {
         &self.types
     }
 
     #[inline]
-    pub fn tables(&self) -> &[Table] {
+    pub fn tables(&self) -> &[Rc<Table>] {
         &self.tables
     }
 
     #[inline]
-    pub fn indices(&self) -> &[Index] {
+    pub fn indices(&self) -> &[Rc<Index>] {
         &self.indices
     }
 
@@ -77,7 +79,8 @@ impl DDL {
         true
     }
 
-    pub fn create_type(&mut self, type_def: TypeDef) -> bool {
+    pub fn create_type(&mut self, type_def: impl Into<Rc<TypeDef>>) -> bool {
+        let type_def = type_def.into();
         if self.types.iter().any(|t| t.name() == type_def.name()) {
             return false;
         }

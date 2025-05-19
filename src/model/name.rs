@@ -1,8 +1,8 @@
-use std::hash::Hash;
+use std::{hash::Hash, ops::Deref, rc::Rc};
 
 #[derive(Debug, Clone, Eq)]
 pub struct Name {
-    name: String,
+    name: Rc<str>,
     quoted: bool,
 }
 
@@ -16,19 +16,19 @@ impl Name {
     }
 
     #[inline]
-    pub fn new(name: impl Into<String>) -> Self {
-        let name: String = name.into();
+    pub fn new(name: impl Into<Rc<str>>) -> Self {
+        let name = name.into();
         let quoted = Self::needs_quoting(&name);
         Self { name, quoted }
     }
 
     #[inline]
-    pub fn new_quoted(name: impl Into<String>) -> Self {
+    pub fn new_quoted(name: impl Into<Rc<str>>) -> Self {
         Self { name: name.into(), quoted: true }
     }
 
     #[inline]
-    pub(crate) fn new_unquoted(name: impl Into<String>) -> Self {
+    pub(crate) fn new_unquoted(name: impl Into<Rc<str>>) -> Self {
         Self { name: name.into(), quoted: false }
     }
 
@@ -43,9 +43,9 @@ impl Name {
     }
 
     #[inline]
-    pub fn equals(&self, name: &impl AsRef<str>) -> bool {
+    pub fn equals(&self, name: impl AsRef<str>) -> bool {
         if self.quoted {
-            self.name == name.as_ref()
+            self.name.deref() == name.as_ref()
         } else {
             self.name.eq_ignore_ascii_case(name.as_ref())
         }

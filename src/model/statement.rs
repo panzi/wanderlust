@@ -1,13 +1,15 @@
+use std::rc::Rc;
+
 use super::{alter::{AlterTable, DropOption}, index::Index, name::Name, table::Table, types::TypeDef};
 
 use super::words::*;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
-    CreateTable(Table),
-    CreateType(TypeDef),
-    CreateIndex(Index),
-    AlterTable(AlterTable),
+    CreateTable(Rc<Table>),
+    CreateType(Rc<TypeDef>),
+    CreateIndex(Rc<Index>),
+    AlterTable(Rc<AlterTable>),
     DropTable { if_exists: bool, names: Vec<Name>, drop_option: Option<DropOption> },
     DropIndex { concurrently: bool, if_exists: bool, names: Vec<Name>, drop_option: Option<DropOption> },
     DropType { if_exists: bool, names: Vec<Name>, drop_option: Option<DropOption> },

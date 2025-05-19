@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use crate::format::{format_iso_string, write_paren_names, write_token_list};
 
 use super::{name::Name, token::ParsedToken, types::ColumnDataType};
@@ -8,8 +10,8 @@ use super::words::*;
 pub struct Column {
     name: Name,
     data_type: ColumnDataType,
-    collate: Option<String>,
-    constraints: Vec<ColumnConstraint>,
+    collate: Option<Rc<str>>,
+    constraints: Vec<Rc<ColumnConstraint>>,
 }
 
 impl std::fmt::Display for Column {
@@ -32,7 +34,7 @@ impl std::fmt::Display for Column {
 
 impl Column {
     #[inline]
-    pub fn new(name: Name, data_type: ColumnDataType, collate: Option<impl Into<String>>, constraints: Vec<ColumnConstraint>) -> Self {
+    pub fn new(name: Name, data_type: ColumnDataType, collate: Option<impl Into<Rc<str>>>, constraints: Vec<Rc<ColumnConstraint>>) -> Self {
         Self { name, data_type, collate: collate.map(|c| c.into()), constraints }
     }
 
@@ -52,12 +54,12 @@ impl Column {
     }
 
     #[inline]
-    pub fn constraints(&self) -> &[ColumnConstraint] {
+    pub fn constraints(&self) -> &[Rc<ColumnConstraint>] {
         &self.constraints
     }
 
     #[inline]
-    pub fn constraints_mut(&mut self) -> &mut Vec<ColumnConstraint> {
+    pub fn constraints_mut(&mut self) -> &mut Vec<Rc<ColumnConstraint>> {
         &mut self.constraints
     }
 
@@ -138,10 +140,10 @@ pub enum ColumnConstraintData {
     Null,
     NotNull,
     Check {
-        expr: Vec<ParsedToken>,
+        expr: Rc<[ParsedToken]>,
         inherit: bool,
     },
-    Default { value: Vec<ParsedToken> },
+    Default { value: Rc<[ParsedToken]> },
     Unique { nulls_distinct: Option<bool> },
     PrimaryKey,
     References {

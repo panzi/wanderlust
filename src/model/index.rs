@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use crate::format::{format_iso_string, write_token_list};
 
 use super::{name::Name, token::ParsedToken};
@@ -46,7 +48,7 @@ impl std::fmt::Display for NullsPosition {
 #[derive(Debug, Clone, PartialEq)]
 pub enum IndexItemData {
     Column(Name),
-    Expr(Vec<ParsedToken>),
+    Expr(Rc<[ParsedToken]>),
 }
 
 impl std::fmt::Display for IndexItemData {
@@ -66,7 +68,7 @@ impl std::fmt::Display for IndexItemData {
 #[derive(Debug, Clone, PartialEq)]
 pub struct IndexItem {
     data: IndexItemData,
-    collation: Option<String>,
+    collation: Option<Rc<str>>,
     direction: Option<Direction>,
     nulls_position: Option<NullsPosition>,
 }
@@ -96,11 +98,11 @@ impl IndexItem {
     #[inline]
     pub fn new(
         data: IndexItemData,
-        collation: Option<String>,
+        collation: Option<impl Into<Rc<str>>>,
         direction: Option<Direction>,
         nulls_position: Option<NullsPosition>,
     ) -> Self {
-        Self { data, collation, direction, nulls_position }
+        Self { data, collation: collation.map(Into::into), direction, nulls_position }
     }
 
     #[inline]
@@ -129,10 +131,10 @@ pub struct Index {
     unique: bool,
     name: Option<Name>,
     table_name: Name,
-    method: Option<String>,
-    items: Vec<IndexItem>,
+    method: Option<Rc<str>>,
+    items: Rc<[IndexItem]>,
     nulls_distinct: Option<bool>,
-    predicate: Option<Vec<ParsedToken>>,
+    predicate: Option<Rc<[ParsedToken]>>,
 }
 
 impl std::fmt::Display for Index {
@@ -155,12 +157,20 @@ impl Index {
         unique: bool,
         name: Option<Name>,
         table_name: Name,
-        method: Option<String>,
-        items: Vec<IndexItem>,
+        method: Option<impl Into<Rc<str>>>,
+        items: impl Into<Rc<[IndexItem]>>,
         nulls_distinct: Option<bool>,
-        predicate: Option<Vec<ParsedToken>>,
+        predicate: Option<impl Into<Rc<[ParsedToken]>>>,
     ) -> Self {
-        Self { unique, name, table_name, method, items, nulls_distinct, predicate }
+        Self {
+            unique,
+            name,
+            table_name,
+            method: method.map(Into::into),
+            items: items.into(),
+            nulls_distinct,
+            predicate: predicate.map(Into::into),
+        }
     }
 
     #[inline]
@@ -251,15 +261,15 @@ impl PartialEq for Index {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreateIndex {
-    index: Index,
+    index: Rc<Index>,
     concurrently: bool,
     if_not_exists: bool,
 }
 
 impl CreateIndex {
     #[inline]
-    pub fn new(index: Index, concurrently: bool, if_not_exists: bool) -> Self {
-        Self { index, concurrently, if_not_exists }
+    pub fn new(index: impl Into<Rc<Index>>, concurrently: bool, if_not_exists: bool) -> Self {
+        Self { index: index.into(), concurrently, if_not_exists }
     }
 
     #[inline]
@@ -268,7 +278,7 @@ impl CreateIndex {
     }
 
     #[inline]
-    pub fn into_index(self) -> Index {
+    pub fn into_index(self) -> Rc<Index> {
         self.index
     }
 
@@ -283,7 +293,7 @@ impl CreateIndex {
     }
 }
 
-impl From<CreateIndex> for Index {
+impl From<CreateIndex> for Rc<Index> {
     #[inline]
     fn from(value: CreateIndex) -> Self {
         value.index

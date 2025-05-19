@@ -1,4 +1,5 @@
 use std::num::NonZeroU32;
+use std::rc::Rc;
 
 use crate::format::format_iso_string;
 
@@ -25,6 +26,11 @@ impl TypeDef {
     }
 
     #[inline]
+    pub fn create_enum(name: Name, values: impl Into<Rc<[Rc<str>]>>) -> Self {
+        Self { name, data: TypeData::create_enum(values) }
+    }
+
+    #[inline]
     pub fn name(&self) -> &Name {
         &self.name
     }
@@ -37,8 +43,15 @@ impl TypeDef {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeData {
-    Enum { values: Vec<String> },
+    Enum { values: Rc<[Rc<str>]> },
     // TODO: more types
+}
+
+impl TypeData {
+    #[inline]
+    pub fn create_enum(values: impl Into<Rc<[Rc<str>]>>) -> Self {
+        Self::Enum { values: values.into() }
+    }
 }
 
 impl std::fmt::Display for TypeData {

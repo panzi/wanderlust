@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use crate::format::format_iso_string;
 
 use super::{name::Name, syntax::{Cursor, Locatable}};
@@ -63,9 +65,9 @@ impl Locatable for Token {
 pub enum ParsedToken {
     Integer(i64),
     Float(f64),
-    String(String),
+    String(Rc<str>),
     Name(Name),
-    Operator(String),
+    Operator(Rc<str>),
     LParen,
     RParen,
     LBracket,
@@ -79,17 +81,17 @@ pub enum ParsedToken {
 
 impl ParsedToken {
     #[inline]
-    pub fn from_string(value: impl Into<String>) -> Self {
+    pub fn from_string(value: impl Into<Rc<str>>) -> Self {
         Self::String(value.into())
     }
 
     #[inline]
-    pub fn from_name(name: impl Into<String>) -> Self {
+    pub fn from_name(name: impl Into<Rc<str>>) -> Self {
         Self::Name(Name::new(name))
     }
 
     #[inline]
-    pub fn from_operator(value: impl Into<String>) -> Self {
+    pub fn from_operator(value: impl Into<Rc<str>>) -> Self {
         Self::Operator(value.into())
     }
 }

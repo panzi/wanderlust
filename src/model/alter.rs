@@ -1,9 +1,10 @@
 use std::fmt::Debug;
+use std::rc::Rc;
 
 use crate::format::{format_iso_string, write_token_list};
 
 use super::types::ColumnDataType;
-use super::{column::Column, name::Name, table::TableConstraint, token::ParsedToken, types::DataType};
+use super::{column::Column, name::Name, table::TableConstraint, token::ParsedToken};
 
 use super::words::*;
 
@@ -27,33 +28,33 @@ impl AlterTable {
     }
 
     #[inline]
-    pub fn add_column(table_name: Name, column: Column) -> Self {
-        Self { table_name, data: AlterTableData::add_column(column) }
+    pub fn add_column(table_name: Name, column: Rc<Column>) -> Rc<Self> {
+        Rc::new(Self { table_name, data: AlterTableData::add_column(column) })
     }
 
     #[inline]
-    pub fn drop_column(table_name: Name, column_name: Name) -> Self {
-        Self { table_name, data: AlterTableData::drop_column(column_name) }
+    pub fn drop_column(table_name: Name, column_name: Name) -> Rc<Self> {
+        Rc::new(Self { table_name, data: AlterTableData::drop_column(column_name) })
     }
 
     #[inline]
-    pub fn alter_column(table_name: Name, alter_column: AlterColumn) -> Self {
-        Self { table_name, data: AlterTableData::alter_column(alter_column) }
+    pub fn alter_column(table_name: Name, alter_column: AlterColumn) -> Rc<Self> {
+        Rc::new(Self { table_name, data: AlterTableData::alter_column(alter_column) })
     }
 
     #[inline]
-    pub fn rename_table(table_name: Name, new_name: Name) -> Self {
-        Self { table_name, data: AlterTableData::rename_table(new_name) }
+    pub fn rename_table(table_name: Name, new_name: Name) -> Rc<Self> {
+        Rc::new(Self { table_name, data: AlterTableData::rename_table(new_name) })
     }
 
     #[inline]
-    pub fn rename_column(table_name: Name, column_name: Name, new_column_name: Name) -> Self {
-        Self { table_name, data: AlterTableData::rename_column(column_name, new_column_name) }
+    pub fn rename_column(table_name: Name, column_name: Name, new_column_name: Name) -> Rc<Self> {
+        Rc::new(Self { table_name, data: AlterTableData::rename_column(column_name, new_column_name) })
     }
 
     #[inline]
-    pub fn rename_constraint(table_name: Name, constraint_name: Name, new_constraint_name: Name) -> Self {
-        Self { table_name, data: AlterTableData::rename_constraint(constraint_name, new_constraint_name) }
+    pub fn rename_constraint(table_name: Name, constraint_name: Name, new_constraint_name: Name) -> Rc<Self> {
+        Rc::new(Self { table_name, data: AlterTableData::rename_constraint(constraint_name, new_constraint_name) })
     }
 
     #[inline]
@@ -69,7 +70,7 @@ impl AlterTable {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AlterTableData {
-    Actions { actions: Vec<AlterTableAction> },
+    Actions { actions: Rc<[AlterTableAction]> },
     RenameTable { new_name: Name },
     RenameColumn { column_name: Name, new_column_name: Name },
     RenameConstraint { constraint_name: Name, new_constraint_name: Name },
@@ -77,18 +78,18 @@ pub enum AlterTableData {
 
 impl AlterTableData {
     #[inline]
-    pub fn add_column(column: Column) -> Self {
-        Self::Actions { actions: vec![AlterTableAction::AddColumn { column }] }
+    pub fn add_column(column: Rc<Column>) -> Self {
+        Self::Actions { actions: [AlterTableAction::AddColumn { column }].into() }
     }
 
     #[inline]
     pub fn drop_column(column_name: Name) -> Self {
-        Self::Actions { actions: vec![AlterTableAction::DropColumn { column_name, drop_option: None }] }
+        Self::Actions { actions: [AlterTableAction::DropColumn { column_name, drop_option: None }].into() }
     }
 
     #[inline]
     pub fn alter_column(alter_column: AlterColumn) -> Self {
-        Self::Actions { actions: vec![AlterTableAction::AlterColumn { alter_column }] }
+        Self::Actions { actions: [AlterTableAction::AlterColumn { alter_column }].into() }
     }
 
     #[inline]
@@ -163,7 +164,7 @@ impl Default for DropOption {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AlterTableAction {
-    AddColumn { column: Column },
+    AddColumn { column: Rc<Column> },
     DropColumn { column_name: Name, drop_option: Option<DropOption> },
     AlterColumn { alter_column: AlterColumn },
     // TODO: more
@@ -194,8 +195,8 @@ impl std::fmt::Display for AlterTableAction {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AlterColumn {
-    Type { data_type: ColumnDataType, collate: Option<String>, using: Option<Vec<ParsedToken>> },
-    SetDefault { expr: Vec<ParsedToken> },
+    Type { data_type: ColumnDataType, collate: Option<Rc<str>>, using: Option<Rc<[ParsedToken]>> },
+    SetDefault { expr: Rc<[ParsedToken]> },
     DropDefault,
     SetNotNull,
     DropNotNull,
