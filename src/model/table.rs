@@ -5,6 +5,53 @@ use super::{column::{Column, ColumnMatch, ReferentialAction}, name::Name, token:
 use super::words::*;
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct CreateTable {
+    table: Table,
+    if_not_exists: bool,
+}
+
+impl CreateTable {
+    #[inline]
+    pub fn new(table: Table, if_not_exists: bool) -> Self {
+        Self { table, if_not_exists }
+    }
+
+    #[inline]
+    pub fn table(&self) -> &Table {
+        &self.table
+    }
+
+    #[inline]
+    pub fn into_table(self) -> Table {
+        self.table
+    }
+
+    #[inline]
+    pub fn if_not_exists(&self) -> bool {
+        self.if_not_exists
+    }
+}
+
+impl From<CreateTable> for Table {
+    #[inline]
+    fn from(value: CreateTable) -> Self {
+        value.table
+    }
+}
+
+impl std::fmt::Display for CreateTable {
+    #[inline]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.if_not_exists {
+            write!(f, "{CREATE} {TABLE} {IF} {NOT} {EXISTS} ")?;
+        } else {
+            write!(f, "{CREATE} {TABLE} ")?;
+        }
+        self.table.write(f)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Table {
     name: Name,
     columns: Vec<Column>,
@@ -12,8 +59,21 @@ pub struct Table {
 }
 
 impl std::fmt::Display for Table {
+    #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{CREATE} {TABLE} {} (\n", self.name)?;
+        write!(f, "{CREATE} {TABLE} ")?;
+        self.write(f)
+    }
+}
+
+impl Table {
+    #[inline]
+    pub fn new(name: Name) -> Self {
+        Self { name, columns: Vec::new(), constraints: Vec::new() }
+    }
+
+    fn write(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} (\n", self.name)?;
 
         let mut iter = self.columns.iter();
         if let Some(first) = iter.next() {
@@ -39,13 +99,6 @@ impl std::fmt::Display for Table {
         }
 
         write!(f, "\n);")
-    }
-}
-
-impl Table {
-    #[inline]
-    pub fn new(name: Name) -> Self {
-        Self { name, columns: Vec::new(), constraints: Vec::new() }
     }
 
     #[inline]

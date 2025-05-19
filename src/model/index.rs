@@ -137,7 +137,7 @@ pub struct Index {
 
 impl std::fmt::Display for Index {
     #[inline]
-    fn fmt(&self, mut f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(CREATE)?;
 
         if self.unique {
@@ -145,42 +145,7 @@ impl std::fmt::Display for Index {
         }
 
         write!(f, " {INDEX}")?;
-
-        if let Some(name) = &self.name {
-            write!(f, " {name}")?;
-        }
-
-        write!(f, " {ON} {}", self.table_name)?;
-
-        if let Some(method) = &self.method {
-            write!(f, " {USING} ")?;
-            format_iso_string(&mut f, method)?;
-        }
-
-        f.write_str(" (")?;
-        let mut iter = self.items.iter();
-        if let Some(first) = iter.next() {
-            first.fmt(f)?;
-            for item in iter {
-                write!(f, ", {item}")?;
-            }
-        }
-        f.write_str(")")?;
-
-        if let Some(nulls_distinct) = self.nulls_distinct {
-            if nulls_distinct {
-                write!(f, " {NULLS} {DISTINCT}")?;
-            } else {
-                write!(f, " {NULLS} {NOT} {DISTINCT}")?;
-            }
-        }
-
-        if let Some(predicate) = &self.predicate {
-            write!(f, " {WHERE} ")?;
-            write_token_list(predicate, f)?;
-        }
-
-        f.write_str(";")
+        self.write(f)
     }
 }
 
@@ -232,6 +197,44 @@ impl Index {
     pub fn predicate(&self) -> Option<&[ParsedToken]> {
         self.predicate.as_deref()
     }
+
+    fn write(&self, mut f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(name) = &self.name {
+            write!(f, " {name}")?;
+        }
+
+        write!(f, " {ON} {}", self.table_name)?;
+
+        if let Some(method) = &self.method {
+            write!(f, " {USING} ")?;
+            format_iso_string(&mut f, method)?;
+        }
+
+        f.write_str(" (")?;
+        let mut iter = self.items.iter();
+        if let Some(first) = iter.next() {
+            std::fmt::Display::fmt(first, f)?;
+            for item in iter {
+                write!(f, ", {item}")?;
+            }
+        }
+        f.write_str(")")?;
+
+        if let Some(nulls_distinct) = self.nulls_distinct {
+            if nulls_distinct {
+                write!(f, " {NULLS} {DISTINCT}")?;
+            } else {
+                write!(f, " {NULLS} {NOT} {DISTINCT}")?;
+            }
+        }
+
+        if let Some(predicate) = &self.predicate {
+            write!(f, " {WHERE} ")?;
+            write_token_list(predicate, f)?;
+        }
+
+        f.write_str(";")
+    }
 }
 
 impl PartialEq for Index {
@@ -243,5 +246,64 @@ impl PartialEq for Index {
         self.method == other.method &&
         self.nulls_distinct.unwrap_or(true) == other.nulls_distinct.unwrap_or(true) &&
         self.predicate == other.predicate
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CreateIndex {
+    index: Index,
+    concurrently: bool,
+    if_not_exists: bool,
+}
+
+impl CreateIndex {
+    #[inline]
+    pub fn new(index: Index, concurrently: bool, if_not_exists: bool) -> Self {
+        Self { index, concurrently, if_not_exists }
+    }
+
+    #[inline]
+    pub fn index(&self) -> &Index {
+        &self.index
+    }
+
+    #[inline]
+    pub fn into_index(self) -> Index {
+        self.index
+    }
+
+    #[inline]
+    pub fn if_not_exists(&self) -> bool {
+        self.if_not_exists
+    }
+
+    #[inline]
+    pub fn concurrently(&self) -> bool {
+        self.concurrently
+    }
+}
+
+impl From<CreateIndex> for Index {
+    #[inline]
+    fn from(value: CreateIndex) -> Self {
+        value.index
+    }
+}
+
+impl std::fmt::Display for CreateIndex {
+    #[inline]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{CREATE}")?;
+        if self.index.unique() {
+            write!(f, " {UNIQUE}")?;
+        }
+        write!(f, " {INDEX}")?;
+        if self.concurrently {
+            write!(f, " {CONCURRENTLY}")?;
+        }
+        if self.if_not_exists {
+            write!(f, " {IF} {NOT} {EXISTS}")?;
+        }
+        self.index.write(f)
     }
 }

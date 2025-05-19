@@ -1,3 +1,5 @@
+use super::index::CreateIndex;
+use super::table::CreateTable;
 use super::{index::Index, table::Table, types::TypeDef};
 
 use super::words::*;
@@ -46,18 +48,40 @@ impl DDL {
         &self.indices
     }
 
-    #[inline]
-    pub fn types_mut(&mut self) -> &mut Vec<TypeDef> {
-        &mut self.types
+    pub fn create_table(&mut self, create_table: CreateTable) -> bool {
+        // TODO: use some kind of ordered hashtable?
+        let exists = self.tables.iter().any(|t| t.name() == create_table.table().name());
+        if exists {
+            return create_table.if_not_exists();
+        }
+        self.tables.push(create_table.into());
+        true
     }
 
-    #[inline]
-    pub fn tables_mut(&mut self) -> &mut Vec<Table> {
-        &mut self.tables
+    pub fn create_index(&mut self, create_index: CreateIndex) -> bool {
+        let exists = if let Some(name) = create_index.index().name() {
+            self.indices.iter().any(|other|
+                if let Some(other_name) = other.name() {
+                    other_name == name
+                } else {
+                    false
+                }
+            )
+        } else {
+            false
+        };
+        if exists {
+            return create_index.if_not_exists();
+        }
+        self.indices.push(create_index.into());
+        true
     }
 
-    #[inline]
-    pub fn indices_mut(&mut self) -> &mut Vec<Index> {
-        &mut self.indices
+    pub fn create_type(&mut self, type_def: TypeDef) -> bool {
+        if self.types.iter().any(|t| t.name() == type_def.name()) {
+            return false;
+        }
+        self.types.push(type_def);
+        true
     }
 }

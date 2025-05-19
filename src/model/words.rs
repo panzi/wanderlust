@@ -21,6 +21,7 @@ pub const CIRCLE: &str = "CIRCLE";
 pub const COLLATE: &str = "COLLATE";
 pub const COLUMN: &str = "COLUMN";
 pub const COMMIT: &str = "COMMIT";
+pub const CONCURRENTLY: &str = "CONCURRENTLY";
 pub const CONSTRAINT: &str = "CONSTRAINT";
 pub const CREATE: &str = "CREATE";
 pub const DATE: &str = "DATE";

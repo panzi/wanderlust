@@ -5,7 +5,7 @@
 
 use std::num::NonZeroU32;
 
-use crate::{error::{Error, ErrorKind, Result}, model::{column::{Column, ColumnConstraint, ColumnConstraintData, ColumnMatch, ReferentialAction}, ddl::DDL, index::{Direction, Index, IndexItem, IndexItemData, NullsPosition}, integers::{Integer, SignedInteger, UnsignedInteger}, name::Name, syntax::{Cursor, Parser, SourceLocation, Tokenizer}, table::{Table, TableConstraint, TableConstraintData}, token::{ParsedToken, Token, TokenKind}, types::{ColumnDataType, DataType, IntervalFields, TypeData, TypeDef}}, peek_token};
+use crate::{error::{Error, ErrorKind, Result}, model::{column::{Column, ColumnConstraint, ColumnConstraintData, ColumnMatch, ReferentialAction}, ddl::DDL, index::{CreateIndex, Direction, Index, IndexItem, IndexItemData, NullsPosition}, integers::{Integer, SignedInteger, UnsignedInteger}, name::Name, syntax::{Cursor, Parser, SourceLocation, Tokenizer}, table::{CreateTable, Table, TableConstraint, TableConstraintData}, token::{ParsedToken, Token, TokenKind}, types::{ColumnDataType, DataType, IntervalFields, TypeData, TypeDef}}, peek_token};
 use crate::model::words::*;
 
 pub fn uunescape(string: &str, escape: char) -> Option<String> {
@@ -1469,12 +1469,14 @@ impl<'a> PostgreSQLParser<'a> {
         Ok(ColumnDataType::new(data_type, array_dimensions))
     }
 
-    fn parse_table_intern(&mut self) -> Result<Table> {
+    fn parse_table_intern(&mut self) -> Result<CreateTable> {
         // "CREATE TABLE" is already parsed
 
+        let mut if_not_exists = false;
         if self.parse_word(IF)? {
             self.expect_word(NOT)?;
             self.expect_word(EXISTS)?;
+            if_not_exists = true;
         }
         let table_name = self.expect_name()?;
         let mut columns = Vec::new();
@@ -1775,11 +1777,13 @@ impl<'a> PostgreSQLParser<'a> {
         self.expect_token(TokenKind::RParen)?;
         self.expect_semicolon_or_eof()?;
 
-        Ok(Table::with_all(
+        let table = Table::with_all(
             table_name,
             columns,
             table_constraints
-        ))
+        );
+
+        Ok(CreateTable::new(table, if_not_exists))
     }
 
     fn parse_index_item(&mut self) -> Result<IndexItem> {
@@ -1826,12 +1830,16 @@ impl<'a> PostgreSQLParser<'a> {
         Ok(IndexItem::new(data, collation, direction, nulls_position))
     }
 
-    fn parse_index_intern(&mut self, unique: bool) -> Result<Index> {
+    fn parse_index_intern(&mut self, unique: bool) -> Result<CreateIndex> {
         // "CREATE [UNIQUE] INDEX" is already parsed"
 
+        let concurrently = self.parse_word(CONCURRENTLY)?;
+
+        let mut if_not_exists = false;
         let index_name = if self.parse_word(IF)? {
             self.expect_word(NOT)?;
             self.expect_word(EXISTS)?;
+            if_not_exists = true;
             Some(self.expect_name()?)
         } else if peek_token!(self, TokenKind::Word | TokenKind::QIdent | TokenKind::UIdent)?.is_some() {
             Some(self.expect_name()?)
@@ -1877,7 +1885,7 @@ impl<'a> PostgreSQLParser<'a> {
 
         self.expect_semicolon_or_eof()?;
 
-        Ok(Index::new(
+        let index = Index::new(
             unique,
             index_name,
             table_name,
@@ -1885,7 +1893,9 @@ impl<'a> PostgreSQLParser<'a> {
             items,
             nulls_distinct,
             predicate,
-        ))
+        );
+
+        Ok(CreateIndex::new(index, concurrently, if_not_exists))
     }
 
     fn parse_type_def_intern(&mut self) -> Result<TypeDef> {
@@ -2035,27 +2045,49 @@ impl<'a> Parser for PostgreSQLParser<'a> {
         let mut ddl = DDL::new();
 
         while self.tokenizer.peek()?.is_some() {
-            self.expect_word(CREATE)?;
+            let start_offset = self.expect_word(CREATE)?.cursor().start_offset();
 
             if self.parse_word(TABLE)? {
-                ddl.tables_mut().push(self.parse_table_intern()?);
+                if !ddl.create_table(self.parse_table_intern()?) {
+                    return Err(Error::with_cursor(
+                        ErrorKind::TableExists,
+                        Cursor::new(start_offset, self.tokenizer.offset())
+                    ));
+                }
             } else if self.parse_word(INDEX)? {
-                ddl.indices_mut().push(self.parse_index_intern(false)?);
+                if !ddl.create_index(self.parse_index_intern(false)?) {
+                    return Err(Error::with_cursor(
+                        ErrorKind::IndexExists,
+                        Cursor::new(start_offset, self.tokenizer.offset())
+                    ));
+                }
             } else if self.parse_word(UNIQUE)? && self.parse_word(INDEX)? {
-                ddl.indices_mut().push(self.parse_index_intern(true)?);
+                if !ddl.create_index(self.parse_index_intern(true)?) {
+                    return Err(Error::with_cursor(
+                        ErrorKind::IndexExists,
+                        Cursor::new(start_offset, self.tokenizer.offset())
+                    ));
+                }
             } else if self.parse_word(TYPE)? {
-                ddl.types_mut().push(self.parse_type_def_intern()?);
+                if !ddl.create_type(self.parse_type_def_intern()?) {
+                    return Err(Error::with_cursor(
+                        ErrorKind::TypeExists,
+                        Cursor::new(start_offset, self.tokenizer.offset())
+                    ));
+                }
             } else if let Some(token) = self.tokenizer.next()? {
                 let actual = self.get_source(token.cursor());
                 return Err(Error::with_message(
                     ErrorKind::UnexpectedToken,
                     *token.cursor(),
-                    format!("expected one of: {TABLE}, [{UNIQUE}] {INDEX}, {TYPE}, actual: {actual}")));
+                    format!("expected one of: {TABLE}, [{UNIQUE}] {INDEX}, {TYPE}, actual: {actual}")
+                ));
             } else {
                 return Err(Error::with_message(
                     ErrorKind::UnexpectedEOF,
                     Cursor::new(self.tokenizer.offset(), self.tokenizer.offset() + 1),
-                    format!("expected one of: {TABLE}, [{UNIQUE}] {INDEX}, {TYPE}, actual: EOF")));
+                    format!("expected one of: {TABLE}, [{UNIQUE}] {INDEX}, {TYPE}, actual: EOF")
+                ));
             }
         }
 

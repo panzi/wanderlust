@@ -8,16 +8,23 @@ pub enum ErrorKind {
     /// not sure about that one
     UnknownType,
     UnexpectedEOF,
+
+    TableExists,
+    IndexExists,
+    TypeExists,
 }
 
 impl std::fmt::Display for ErrorKind {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::IllegalToken    => "Illegal Token".fmt(f),
-            Self::UnexpectedToken => "Unexpected Token".fmt(f),
-            Self::UnknownType     => "Unknown Type".fmt(f),
-            Self::UnexpectedEOF   => "Unexpected EOF".fmt(f),
+            Self::IllegalToken    => f.write_str("Illegal Token"),
+            Self::UnexpectedToken => f.write_str("Unexpected Token"),
+            Self::UnknownType     => f.write_str("Unknown Type"),
+            Self::UnexpectedEOF   => f.write_str("Unexpected EOF"),
+            Self::TableExists     => f.write_str("Table Exists"),
+            Self::IndexExists     => f.write_str("Index Exists"),
+            Self::TypeExists      => f.write_str("Type Exists"),
         }
     }
 }

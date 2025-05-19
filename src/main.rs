@@ -5,6 +5,7 @@ pub mod model;
 pub mod dialects;
 pub mod error;
 pub mod format;
+pub mod migration;
 
 fn main() {
     let mut args = std::env::args_os();
