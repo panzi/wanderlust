@@ -19,7 +19,7 @@ impl CreateTable {
     }
 
     #[inline]
-    pub fn table(&self) -> &Table {
+    pub fn table(&self) -> &Rc<Table> {
         &self.table
     }
 

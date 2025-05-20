@@ -111,8 +111,8 @@ impl IndexItem {
     }
 
     #[inline]
-    pub fn collation(&self) -> Option<&str> {
-        self.collation.as_deref()
+    pub fn collation(&self) -> Option<&Rc<str>> {
+        self.collation.as_ref()
     }
 
     #[inline]
@@ -273,7 +273,7 @@ impl CreateIndex {
     }
 
     #[inline]
-    pub fn index(&self) -> &Index {
+    pub fn index(&self) -> &Rc<Index> {
         &self.index
     }
 

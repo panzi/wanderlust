@@ -144,12 +144,12 @@ fn migrate_column(table_name: &Name, old_column: &Column, new_column: &Column, s
         ));
     }
 
-    if old_column.data_type() != new_column.data_type() || old_column.collate() != new_column.collate() {
+    if old_column.data_type() != new_column.data_type() || old_column.collation() != new_column.collation() {
         stmts.push(Statement::AlterTable(
             AlterTable::alter_column(table_name.clone(), AlterColumn::Type {
                 data_type: new_column.data_type().clone(),
-                collate: new_column.collate().map(Into::into),
-                using: None, // TODO: maybe cast?
+                collation: new_column.collation().map(Clone::clone),
+                using: Some(new_column.data_type().cast(new_column.name()).into())
             })
         ));
     }

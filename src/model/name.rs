@@ -33,7 +33,7 @@ impl Name {
     }
 
     #[inline]
-    pub fn name(&self) -> &str {
+    pub fn name(&self) -> &Rc<str> {
         &self.name
     }
 

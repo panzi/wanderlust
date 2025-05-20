@@ -2,8 +2,10 @@ use std::num::NonZeroU32;
 use std::rc::Rc;
 
 use crate::format::format_iso_string;
+use crate::make_tokens;
 
 use super::name::Name;
+use super::token::{ParsedToken, ToTokens};
 use super::words::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -94,6 +96,26 @@ pub enum IntervalFields {
     MinuteToSecond,
 }
 
+impl ToTokens for IntervalFields {
+    fn to_tokens_into(&self, tokens: &mut Vec<ParsedToken>) {
+        match self {
+            Self::Year           => make_tokens!(tokens, YEAR),
+            Self::Month          => make_tokens!(tokens, MONTH),
+            Self::Day            => make_tokens!(tokens, DAY),
+            Self::Hour           => make_tokens!(tokens, HOUR),
+            Self::Minute         => make_tokens!(tokens, MINUTE),
+            Self::Second         => make_tokens!(tokens, SECOND),
+            Self::YearToMonth    => make_tokens!(tokens, YEAR TO MONTH),
+            Self::DayToHour      => make_tokens!(tokens, DAY TO HOUR),
+            Self::DayToMinute    => make_tokens!(tokens, DAY TO MINUTE),
+            Self::DayToSecond    => make_tokens!(tokens, DAY TO SECOND),
+            Self::HourToMinute   => make_tokens!(tokens, HOUR TO MINUTE),
+            Self::HourToSecond   => make_tokens!(tokens, HOUR TO SECOND),
+            Self::MinuteToSecond => make_tokens!(tokens, MINUTE TO SECOND),
+        }
+    }
+}
+
 impl std::fmt::Display for IntervalFields {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -158,6 +180,120 @@ pub enum DataType {
     UUID,
     XML,
     UserDefined { name: Name },
+}
+
+impl ToTokens for DataType {
+    fn to_tokens_into(&self, tokens: &mut Vec<ParsedToken>) {
+        match self {
+            Self::Bigint => make_tokens!(tokens, BIGINT),
+            Self::BigSerial => make_tokens!(tokens, BIGSERIAL),
+            Self::Bit(p) => {
+                if let Some(p) = p {
+                    make_tokens!(tokens, BIT ({p}));
+                } else {
+                    make_tokens!(tokens, BIT);
+                }
+            },
+            Self::BitVarying(p) => {
+                if let Some(p) = p {
+                    make_tokens!(tokens, BIT VARYING ({p}));
+                } else {
+                    make_tokens!(tokens, BIT VARYING);
+                }
+            }
+            Self::Boolean => make_tokens!(tokens, BOOLEAN),
+            Self::Box => make_tokens!(tokens, BOX),
+            Self::ByteA => make_tokens!(tokens, BYTEA),
+            Self::Character(p) => {
+                if let Some(p) = p {
+                    make_tokens!(tokens, CHARACTER ({p}));
+                } else {
+                    make_tokens!(tokens, CHARACTER);
+                }
+            }
+            Self::CharacterVarying(p) => {
+                if let Some(p) = p {
+                    make_tokens!(tokens, CHARACTER VARYING ({p}));
+                } else {
+                    make_tokens!(tokens, CHARACTER VARYING);
+                }
+            }
+            Self::CIDR => make_tokens!(tokens, CIDR),
+            Self::Circle => make_tokens!(tokens, CIRCLE),
+            Self::Date => make_tokens!(tokens, DATE),
+            Self::DoublePrecision => make_tokens!(tokens, DOUBLE PRECISION),
+            Self::INet => make_tokens!(tokens, INET),
+            Self::Integer => make_tokens!(tokens, INTEGER),
+            Self::Interval { fields, precision } => {
+                make_tokens!(tokens, INTERVAL);
+
+                if let Some(fields) = fields {
+                    fields.to_tokens_into(tokens);
+                }
+
+                if let Some(precision) = precision {
+                    make_tokens!(tokens, ({precision}));
+                }
+
+            }
+            Self::JSON => make_tokens!(tokens, JSON),
+            Self::JSONB => make_tokens!(tokens, JSONB),
+            Self::Line => make_tokens!(tokens, LINE),
+            Self::LSeg => make_tokens!(tokens, LSEG),
+            Self::MacAddr => make_tokens!(tokens, MACADDR),
+            Self::MacAddr8 => make_tokens!(tokens, MACADDR8),
+            Self::Money => make_tokens!(tokens, MONEY),
+            Self::Numeric(p) => {
+                if let Some((p, s)) = p {
+                    make_tokens!(tokens, NUMERIC ({p}, {*s}));
+                } else {
+                    make_tokens!(tokens, NUMERIC);
+                }
+            }
+            Self::Path => make_tokens!(tokens, PATH),
+            Self::PgLSN => make_tokens!(tokens, PG_LSN),
+            Self::PgSnapshot => make_tokens!(tokens, PG_SNAPSHOT),
+            Self::Point => make_tokens!(tokens, POINT),
+            Self::Polygon => make_tokens!(tokens, POLYGON),
+            Self::Real => make_tokens!(tokens, REAL),
+            Self::SmallInt => make_tokens!(tokens, SMALLINT),
+            Self::SmallSerial => make_tokens!(tokens, SMALLSERIAL),
+            Self::Serial => make_tokens!(tokens, SERIAL),
+            Self::Text => make_tokens!(tokens, TEXT),
+            Self::Time { precision, with_time_zone } => {
+                make_tokens!(tokens, TIME);
+
+                if let Some(precision) = precision {
+                    make_tokens!(tokens, ({precision}));
+                }
+
+                if *with_time_zone {
+                    make_tokens!(tokens, WITH TIME ZONE);
+                } else {
+                    make_tokens!(tokens, WITHOUT TIME ZONE);
+                }
+            }
+            Self::Timestamp { precision, with_time_zone } => {
+                make_tokens!(tokens, TIMESTAMP);
+
+                if let Some(precision) = precision {
+                    make_tokens!(tokens, ({precision}));
+                }
+
+                if *with_time_zone {
+                    make_tokens!(tokens, WITH TIME ZONE);
+                } else {
+                    make_tokens!(tokens, WITHOUT TIME ZONE);
+                }
+            }
+            Self::TsQuery => make_tokens!(tokens, TSQUERY),
+            Self::TsVector => make_tokens!(tokens, TSVECTOR),
+            Self::TxIdSnapshot => make_tokens!(tokens, TXID_SNAPSHOT),
+            Self::UUID => make_tokens!(tokens, UUID),
+            Self::XML => make_tokens!(tokens, XML),
+            Self::UserDefined { name } => make_tokens!(tokens, {name}),
+        }
+    }
 }
 
 impl std::fmt::Display for DataType {
@@ -256,7 +392,7 @@ impl std::fmt::Display for DataType {
                 Ok(())
             }
             Self::Timestamp { precision, with_time_zone } => {
-                f.write_str(TIME)?;
+                f.write_str(TIMESTAMP)?;
 
                 if let Some(precision) = precision {
                     write!(f, " ({precision})")?;
@@ -310,6 +446,31 @@ impl ColumnDataType {
     #[inline]
     pub fn array_dimensions(&self) -> Option<&[Option<u32>]> {
         self.array_dimensions.as_deref()
+    }
+
+    pub fn cast(&self, value: impl ToTokens) -> Vec<ParsedToken> {
+        let mut expr = vec![ParsedToken::from_name(CAST), ParsedToken::LParen];
+        value.to_tokens_into(&mut expr);
+        expr.push(ParsedToken::from_name(AS));
+        self.to_tokens_into(&mut expr);
+        expr.push(ParsedToken::RParen);
+
+        expr
+    }
+}
+
+impl ToTokens for ColumnDataType {
+    fn to_tokens_into(&self, tokens: &mut Vec<ParsedToken>) {
+        self.data_type.to_tokens_into(tokens);
+        if let Some(array_dimensions) = &self.array_dimensions {
+            for dim in array_dimensions {
+                if let Some(dim) = dim {
+                    make_tokens!(tokens, [{*dim}]);
+                } else {
+                    make_tokens!(tokens, []);
+                }
+            }
+        }
     }
 }
 

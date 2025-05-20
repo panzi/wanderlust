@@ -9,8 +9,8 @@ use super::words::*;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Column {
     name: Name,
-    data_type: ColumnDataType,
-    collate: Option<Rc<str>>,
+    data_type: Rc<ColumnDataType>,
+    collation: Option<Rc<str>>,
     constraints: Vec<Rc<ColumnConstraint>>,
 }
 
@@ -19,7 +19,7 @@ impl std::fmt::Display for Column {
     fn fmt(&self, mut f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{} {}", self.name, self.data_type)?;
 
-        if let Some(collation) = &self.collate {
+        if let Some(collation) = &self.collation {
             write!(f, " {COLLATE} ")?;
             format_iso_string(&mut f, collation)?;
         }
@@ -34,8 +34,8 @@ impl std::fmt::Display for Column {
 
 impl Column {
     #[inline]
-    pub fn new(name: Name, data_type: ColumnDataType, collate: Option<impl Into<Rc<str>>>, constraints: Vec<Rc<ColumnConstraint>>) -> Self {
-        Self { name, data_type, collate: collate.map(|c| c.into()), constraints }
+    pub fn new(name: Name, data_type: impl Into<Rc<ColumnDataType>>, collation: Option<impl Into<Rc<str>>>, constraints: Vec<Rc<ColumnConstraint>>) -> Self {
+        Self { name, data_type: data_type.into(), collation: collation.map(|c| c.into()), constraints }
     }
 
     #[inline]
@@ -44,13 +44,13 @@ impl Column {
     }
 
     #[inline]
-    pub fn data_type(&self) -> &ColumnDataType {
+    pub fn data_type(&self) -> &Rc<ColumnDataType> {
         &self.data_type
     }
 
     #[inline]
-    pub fn collate(&self) -> Option<&str> {
-        self.collate.as_deref()
+    pub fn collation(&self) -> Option<&Rc<str>> {
+        self.collation.as_ref()
     }
 
     #[inline]

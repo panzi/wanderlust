@@ -13,6 +13,7 @@ pub const BOOLEAN: &str = "BOOLEAN";
 pub const BOX: &str = "BOX";
 pub const BYTEA: &str = "BYTEA";
 pub const CASCADE: &str = "CASCADE";
+pub const CAST: &str = "CAST";
 pub const CHAR: &str = "CHAR";
 pub const CHARACTER: &str = "CHARACTER";
 pub const CHECK: &str = "CHECK";

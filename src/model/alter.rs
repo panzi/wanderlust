@@ -195,7 +195,7 @@ impl std::fmt::Display for AlterTableAction {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AlterColumn {
-    Type { data_type: ColumnDataType, collate: Option<Rc<str>>, using: Option<Rc<[ParsedToken]>> },
+    Type { data_type: Rc<ColumnDataType>, collation: Option<Rc<str>>, using: Option<Rc<[ParsedToken]>> },
     SetDefault { expr: Rc<[ParsedToken]> },
     DropDefault,
     SetNotNull,
@@ -210,12 +210,12 @@ impl std::fmt::Display for AlterColumn {
     #[inline]
     fn fmt(&self, mut f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Type { data_type, collate, using } => {
+            Self::Type { data_type, collation, using } => {
                 write!(f, "{TYPE} {data_type}")?;
 
-                if let Some(collate) = collate {
+                if let Some(collation) = collation {
                     write!(f, " {COLLATE} ")?;
-                    format_iso_string(&mut f, collate)?;
+                    format_iso_string(&mut f, collation)?;
                 }
 
                 if let Some(using) = using {
