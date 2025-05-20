@@ -57,6 +57,22 @@ impl AlterTable {
         Rc::new(Self { table_name, data: AlterTableData::rename_constraint(constraint_name, new_constraint_name) })
     }
 
+
+    #[inline]
+    pub fn add_constraint(table_name: Name, constraint: TableConstraint) -> Rc<Self> {
+        Rc::new(Self { table_name, data: AlterTableData::add_constraint(constraint) })
+    }
+
+    #[inline]
+    pub fn alter_constraint(table_name: Name, constraint_name: Name, deferrable: Option<bool>, initially_deferred: Option<bool>) -> Rc<Self> {
+        Rc::new(Self { table_name, data: AlterTableData::alter_constraint(constraint_name, deferrable, initially_deferred) })
+    }
+
+    #[inline]
+    pub fn drop_constraint(table_name: Name, constraint_name: Name, drop_option: Option<DropOption>) -> Rc<Self> {
+        Rc::new(Self { table_name, data: AlterTableData::drop_constraint(constraint_name, drop_option) })
+    }
+
     #[inline]
     pub fn name(&self) -> &Name {
         &self.table_name
@@ -74,6 +90,9 @@ pub enum AlterTableData {
     RenameTable { new_name: Name },
     RenameColumn { column_name: Name, new_column_name: Name },
     RenameConstraint { constraint_name: Name, new_constraint_name: Name },
+    AddConstraint { constraint: TableConstraint },
+    AlterConstraint { constraint_name: Name, deferrable: Option<bool>, initially_deferred: Option<bool> },
+    DropConstraint { constraint_name: Name, drop_option: Option<DropOption> },
 }
 
 impl AlterTableData {
@@ -106,6 +125,21 @@ impl AlterTableData {
     pub fn rename_constraint(constraint_name: Name, new_constraint_name: Name) -> Self {
         Self::RenameConstraint { constraint_name, new_constraint_name }
     }
+
+    #[inline]
+    pub fn add_constraint(constraint: TableConstraint) -> Self {
+        Self::AddConstraint { constraint }
+    }
+
+    #[inline]
+    pub fn alter_constraint(constraint_name: Name, deferrable: Option<bool>, initially_deferred: Option<bool>) -> Self {
+        Self::AlterConstraint { constraint_name, deferrable, initially_deferred }
+    }
+
+    #[inline]
+    pub fn drop_constraint(constraint_name: Name, drop_option: Option<DropOption>) -> Self {
+        Self::DropConstraint { constraint_name, drop_option }
+    }
 }
 
 impl std::fmt::Display for AlterTableData {
@@ -134,6 +168,39 @@ impl std::fmt::Display for AlterTableData {
             },
             Self::RenameConstraint { constraint_name, new_constraint_name } => {
                 write!(f, "{RENAME} {CONSTRAINT} {constraint_name} {TO} {new_constraint_name}")
+            },
+            Self::AddConstraint { constraint } => {
+                write!(f, "{ADD} {constraint}")
+            },
+            Self::AlterConstraint { constraint_name, deferrable, initially_deferred } => {
+                write!(f, "{ALTER} {CONSTRAINT} {constraint_name}")?;
+
+                if let Some(deferrable) = deferrable {
+                    if *deferrable {
+                        write!(f, " {DEFERRABLE}")?;
+                    } else {
+                        write!(f, " {NOT} {DEFERRABLE}")?;
+                    }
+                }
+
+                if let Some(initially_deferred) = initially_deferred {
+                    if *initially_deferred {
+                        write!(f, " {INITIALLY} {DEFERRED}")?;
+                    } else {
+                        write!(f, " {INITIALLY} {IMMEDIATE}")?;
+                    }
+                }
+
+                Ok(())
+            },
+            Self::DropConstraint { constraint_name, drop_option } => {
+                write!(f, "{DROP} {CONSTRAINT} {constraint_name}")?;
+
+                if let Some(drop_option) = drop_option {
+                    write!(f, " {drop_option}")?;
+                }
+
+                Ok(())
             }
         }
     }
@@ -194,19 +261,71 @@ impl std::fmt::Display for AlterTableAction {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum AlterColumn {
+pub struct AlterColumn {
+    column_name: Name,
+    data: AlterColumnData,
+}
+
+impl AlterColumn {
+    #[inline]
+    pub fn new(column_name: Name, data: AlterColumnData) -> Self {
+        Self { column_name, data }
+    }
+
+    #[inline]
+    pub fn change_type(column_name: Name, data_type: Rc<ColumnDataType>, collation: Option<impl Into<Rc<str>>>, using: Option<Rc<[ParsedToken]>>) -> Self {
+        Self { column_name, data: AlterColumnData::Type { data_type, collation: collation.map(Into::into), using } }
+    }
+
+    #[inline]
+    pub fn set_default(column_name: Name, expr: Rc<[ParsedToken]>) -> Self {
+        Self { column_name, data: AlterColumnData::SetDefault { expr } }
+    }
+
+    #[inline]
+    pub fn drop_default(column_name: Name) -> Self {
+        Self { column_name, data: AlterColumnData::DropDefault }
+    }
+
+    #[inline]
+    pub fn set_not_null(column_name: Name) -> Self {
+        Self { column_name, data: AlterColumnData::SetNotNull }
+    }
+
+    #[inline]
+    pub fn drop_not_null(column_name: Name) -> Self {
+        Self { column_name, data: AlterColumnData::DropNotNull }
+    }
+
+    #[inline]
+    pub fn column_name(&self) -> &Name {
+        &self.column_name
+    }
+
+    #[inline]
+    pub fn data(&self) -> &AlterColumnData {
+        &self.data
+    }
+}
+
+impl std::fmt::Display for AlterColumn {
+    #[inline]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {}", self.column_name, self.data)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum AlterColumnData {
     Type { data_type: Rc<ColumnDataType>, collation: Option<Rc<str>>, using: Option<Rc<[ParsedToken]>> },
     SetDefault { expr: Rc<[ParsedToken]> },
     DropDefault,
     SetNotNull,
     DropNotNull,
-    AddConstraint { constraint: TableConstraint },
-    AlterConstraint { constraint_name: Name, deferrable: Option<bool>, initially_deferred: Option<bool> },
-    DropConstraint { constraint_name: Name, drop_option: Option<DropOption> },
     // TODO: more
 }
 
-impl std::fmt::Display for AlterColumn {
+impl std::fmt::Display for AlterColumnData {
     #[inline]
     fn fmt(&self, mut f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -240,39 +359,6 @@ impl std::fmt::Display for AlterColumn {
             Self::DropNotNull => {
                 write!(f, "{DROP} {NOT} {NULL}")
             },
-            Self::AddConstraint { constraint } => {
-                write!(f, "{ADD} {constraint}")
-            },
-            Self::AlterConstraint { constraint_name, deferrable, initially_deferred } => {
-                write!(f, "{ALTER} {constraint_name}")?;
-
-                if let Some(deferrable) = deferrable {
-                    if *deferrable {
-                        write!(f, " {DEFERRABLE}")?;
-                    } else {
-                        write!(f, " {NOT} {DEFERRABLE}")?;
-                    }
-                }
-
-                if let Some(initially_deferred) = initially_deferred {
-                    if *initially_deferred {
-                        write!(f, " {INITIALLY} {DEFERRED}")?;
-                    } else {
-                        write!(f, " {INITIALLY} {IMMEDIATE}")?;
-                    }
-                }
-
-                Ok(())
-            },
-            Self::DropConstraint { constraint_name, drop_option } => {
-                write!(f, "{DROP} {CONSTRAINT} {constraint_name}")?;
-
-                if let Some(drop_option) = drop_option {
-                    write!(f, " {drop_option}")?;
-                }
-
-                Ok(())
-            }
         }
     }
 }

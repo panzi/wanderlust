@@ -1532,7 +1532,7 @@ impl<'a> PostgreSQLParser<'a> {
                     }
                     self.expect_token(TokenKind::RParen)?;
 
-                    constraint_data = TableConstraintData::Unique { nulls_distinct, columns };
+                    constraint_data = TableConstraintData::Unique { nulls_distinct, columns: columns.into() };
                 } else if self.peek_word(PRIMARY)? {
                     self.expect_some()?;
                     self.expect_word(KEY)?;
@@ -1547,7 +1547,7 @@ impl<'a> PostgreSQLParser<'a> {
                     }
                     self.expect_token(TokenKind::RParen)?;
 
-                    constraint_data = TableConstraintData::PrimaryKey { columns };
+                    constraint_data = TableConstraintData::PrimaryKey { columns: columns.into() };
                 } else if self.peek_word(FOREIGN)? {
                     self.expect_some()?;
                     self.expect_word(KEY)?;
@@ -1576,7 +1576,7 @@ impl<'a> PostgreSQLParser<'a> {
                             }
                         }
                         self.expect_token(TokenKind::RParen)?;
-                        ref_columns = Some(refcolumns);
+                        ref_columns = Some(refcolumns.into());
                     }
 
                     let mut column_match = None;
@@ -1587,8 +1587,12 @@ impl<'a> PostgreSQLParser<'a> {
                     )?;
 
                     constraint_data = TableConstraintData::ForeignKey {
-                        columns, ref_table, ref_columns,
-                        column_match, on_update, on_delete,
+                        columns: columns.into(),
+                        ref_table,
+                        ref_columns,
+                        column_match,
+                        on_update,
+                        on_delete,
                     };
                 } else {
                     let token = self.expect_some()?;

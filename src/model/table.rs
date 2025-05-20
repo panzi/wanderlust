@@ -142,15 +142,15 @@ pub enum TableConstraintData {
     },
     Unique {
         nulls_distinct: Option<bool>,
-        columns: Vec<Name>,
+        columns: Rc<[Name]>,
     },
     PrimaryKey {
-        columns: Vec<Name>,
+        columns: Rc<[Name]>,
     },
     ForeignKey {
-        columns: Vec<Name>,
+        columns: Rc<[Name]>,
         ref_table: Name,
-        ref_columns: Option<Vec<Name>>,
+        ref_columns: Option<Rc<[Name]>>,
         column_match: Option<ColumnMatch>,
         on_delete: Option<ReferentialAction>,
         on_update: Option<ReferentialAction>,

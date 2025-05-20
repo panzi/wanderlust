@@ -1,6 +1,6 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, rc::Rc};
 
-use crate::model::{alter::{AlterColumn, AlterTable}, column::Column, ddl::DDL, name::Name, statement::Statement, table::Table};
+use crate::model::{alter::{AlterColumn, AlterTable}, column::{Column, ColumnConstraintData, ColumnMatch, ReferentialAction}, ddl::DDL, name::Name, statement::Statement, table::{Table, TableConstraint, TableConstraintData}, token::ParsedToken};
 
 pub fn generate_migration(old: &DDL, new: &DDL) -> Vec<Statement> {
     let mut stmts = Vec::new();
@@ -146,12 +146,213 @@ fn migrate_column(table_name: &Name, old_column: &Column, new_column: &Column, s
 
     if old_column.data_type() != new_column.data_type() || old_column.collation() != new_column.collation() {
         stmts.push(Statement::AlterTable(
-            AlterTable::alter_column(table_name.clone(), AlterColumn::Type {
-                data_type: new_column.data_type().clone(),
-                collation: new_column.collation().map(Clone::clone),
-                using: Some(new_column.data_type().cast(new_column.name()).into())
-            })
+            AlterTable::alter_column(table_name.clone(), AlterColumn::change_type(
+                new_column.name().clone(),
+                new_column.data_type().clone(),
+                new_column.collation().map(Clone::clone),
+                Some(new_column.data_type().cast(new_column.name()).into())
+            ))
         ));
+    }
+
+    #[derive(PartialEq)]
+    struct Check<'a> {
+        expr: &'a Rc<[ParsedToken]>,
+        inherit: bool,
+    }
+
+    #[derive(PartialEq)]
+    struct References<'a> {
+        ref_table: &'a Name,
+        ref_column: &'a Option<Name>,
+        column_match: &'a Option<ColumnMatch>,
+        on_delete: &'a Option<ReferentialAction>,
+        on_update: &'a Option<ReferentialAction>,
+    }
+
+    let mut old_constraints = HashMap::new();
+    let mut new_constraints = HashMap::new();
+
+    let mut old_primary_key = false;
+    let mut new_primary_key = false;
+
+    let mut old_null = true;
+    let mut new_null = true;
+
+    let mut old_foreign_key = None;
+    let mut new_foreign_key = None;
+
+    let mut old_default = None;
+    let mut new_default = None;
+
+    let mut old_check = None;
+    let mut new_check = None;
+
+    let mut old_unique = None;
+    let mut new_unique = None;
+
+    for constraint in old_column.constraints() {
+        if let Some(name) = constraint.name() {
+            old_constraints.insert(name, constraint);
+        }
+
+        match constraint.data() {
+            ColumnConstraintData::Null => {
+                old_null = true;
+            }
+            ColumnConstraintData::NotNull => {
+                old_null = false;
+            }
+            ColumnConstraintData::PrimaryKey => {
+                old_primary_key = true;
+            }
+            ColumnConstraintData::Check { expr, inherit } => {
+                old_check = Some(Check { expr, inherit: *inherit });
+            }
+            ColumnConstraintData::Default { value } => {
+                old_default = Some(value);
+            }
+            ColumnConstraintData::Unique { nulls_distinct } => {
+                old_unique = Some(nulls_distinct.unwrap_or(true));
+            }
+            ColumnConstraintData::References { ref_table, ref_column, column_match, on_delete, on_update } => {
+                old_foreign_key = Some(References { ref_table, ref_column, column_match, on_delete, on_update });
+            }
+        }
+    }
+
+    for constraint in new_column.constraints() {
+        if let Some(name) = constraint.name() {
+            new_constraints.insert(name, constraint);
+        }
+
+        if constraint.is_primary_key() {
+            new_primary_key = true;
+        }
+
+        match constraint.data() {
+            ColumnConstraintData::Null => {
+                new_null = true;
+            }
+            ColumnConstraintData::NotNull => {
+                new_null = false;
+            }
+            ColumnConstraintData::PrimaryKey => {
+                new_primary_key = true;
+            }
+            ColumnConstraintData::Check { expr, inherit } => {
+                new_check = Some(Check { expr, inherit: *inherit });
+            }
+            ColumnConstraintData::Default { value } => {
+                new_default = Some(value);
+            }
+            ColumnConstraintData::Unique { nulls_distinct } => {
+                new_unique = Some(nulls_distinct.unwrap_or(true));
+            }
+            ColumnConstraintData::References { ref_table, ref_column, column_match, on_delete, on_update } => {
+                new_foreign_key = Some(References { ref_table, ref_column, column_match, on_delete, on_update });
+            }
+        }
+    }
+
+    if old_null != new_null {
+        if new_null {
+            stmts.push(Statement::AlterTable(
+                AlterTable::alter_column(table_name.clone(), AlterColumn::drop_not_null(new_column.name().clone()))
+            ));
+        } else {
+            stmts.push(Statement::AlterTable(
+                AlterTable::alter_column(table_name.clone(), AlterColumn::set_not_null(new_column.name().clone()))
+            ));
+        }
+    }
+
+    if old_primary_key != new_primary_key {
+        if new_primary_key {
+            stmts.push(Statement::AlterTable(
+                AlterTable::add_constraint(
+                    table_name.clone(),
+                    TableConstraint::new(
+                        None,
+                        TableConstraintData::PrimaryKey {
+                            columns: [new_column.name().clone()].into(),
+                        },
+                        None,
+                        None
+                    )
+                )
+            ));
+        } else {
+            // TODO: how? I think all constraints get automatic names and need to be dropped with that?
+        }
+    }
+
+    if old_default != new_default {
+        if let Some(new_default) = new_default {
+            stmts.push(Statement::AlterTable(
+                AlterTable::alter_column(table_name.clone(), AlterColumn::set_default(new_column.name().clone(), new_default.clone()))
+            ));
+        } else {
+            stmts.push(Statement::AlterTable(
+                AlterTable::alter_column(table_name.clone(), AlterColumn::drop_default(new_column.name().clone()))
+            ));
+        }
+    }
+
+    if old_unique != new_unique {
+        if let Some(nulls_distinct) = new_unique {
+            stmts.push(Statement::AlterTable(
+                AlterTable::add_constraint(
+                    table_name.clone(),
+                    TableConstraint::new(
+                        None,
+                        TableConstraintData::Unique {
+                            nulls_distinct: Some(nulls_distinct),
+                            columns: [new_column.name().clone()].into(),
+                        },
+                        None,
+                        None
+                    )
+                )
+            ));
+        } else {
+            // TODO: how? I think all constraints get automatic names and need to be dropped with that?
+        }
+    }
+
+    if old_foreign_key != new_foreign_key {
+        if let Some(new_foreign_key) = new_foreign_key {
+            let ref_columns = if let Some(ref_column) = new_foreign_key.ref_column {
+                Some([ref_column.clone()].into())
+            } else {
+                None
+            };
+            stmts.push(Statement::AlterTable(
+                AlterTable::add_constraint(
+                    table_name.clone(),
+                    TableConstraint::new(
+                        None,
+                        TableConstraintData::ForeignKey {
+                            columns: [new_column.name().clone()].into(),
+                            ref_table: new_foreign_key.ref_table.clone(),
+                            ref_columns,
+                            column_match: *new_foreign_key.column_match,
+                            on_delete: new_foreign_key.on_delete.clone(),
+                            on_update: new_foreign_key.on_update.clone(),
+                        },
+                        None,
+                        None
+                    )
+                )
+            ));
+
+        } else {
+            // TODO: how? I think all constraints get automatic names and need to be dropped with that?
+        }
+    }
+
+    if old_check != new_check {
+
     }
 
     // TODO: constraints etc.

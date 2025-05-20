@@ -276,6 +276,43 @@ pub struct ColumnConstraint {
     initially_deferred: Option<bool>,
 }
 
+impl ColumnConstraint {
+    #[inline]
+    pub fn is_null(&self) -> bool {
+        matches!(self.data, ColumnConstraintData::Null)
+    }
+
+    #[inline]
+    pub fn is_not_null(&self) -> bool {
+        matches!(self.data, ColumnConstraintData::NotNull)
+    }
+
+    #[inline]
+    pub fn is_check(&self) -> bool {
+        matches!(self.data, ColumnConstraintData::Check { .. })
+    }
+
+    #[inline]
+    pub fn is_default(&self) -> bool {
+        matches!(self.data, ColumnConstraintData::Default { .. })
+    }
+
+    #[inline]
+    pub fn is_unique(&self) -> bool {
+        matches!(self.data, ColumnConstraintData::Unique { .. })
+    }
+
+    #[inline]
+    pub fn is_primary_key(&self) -> bool {
+        matches!(self.data, ColumnConstraintData::PrimaryKey)
+    }
+
+    #[inline]
+    pub fn is_foreign_key(&self) -> bool {
+        matches!(self.data, ColumnConstraintData::References { .. })
+    }
+}
+
 impl PartialEq for ColumnConstraint {
     fn eq(&self, other: &Self) -> bool {
         self.name == other.name &&
