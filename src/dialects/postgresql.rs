@@ -82,6 +82,12 @@ impl<'a> PostgreSQLTokenizer<'a> {
         SourceLocation::from_offset(self.offset, self.source)
     }
 
+    #[inline]
+    fn move_to(&mut self, offset: usize) {
+        self.offset = offset;
+        self.peeked = None;
+    }
+
     fn skip_ws(&mut self) -> Result<()> {
         while let Some(ch) = self.peek_char() {
             if ch.is_whitespace() {
@@ -1877,10 +1883,16 @@ impl<'a> PostgreSQLParser<'a> {
                     let mut deferrable = None;
                     if self.parse_word(DEFERRABLE)? {
                         deferrable = Some(true);
-                    } else if self.parse_word(NOT)? {
-                        // XXX: NOT NULL!
-                        self.expect_word(DEFERRABLE)?;
-                        deferrable = Some(false);
+                    } else if self.peek_word(NOT)? {
+                        let start_offset = self.expect_some()?.cursor().start_offset();
+
+                        // Might be NOT NULL!
+                        // I guess SQL needs more than one token lookahead!
+                        if self.parse_word(DEFERRABLE)? {
+                            deferrable = Some(false);
+                        } else {
+                            self.tokenizer.move_to(start_offset);
+                        }
                     }
 
                     let mut initially_deferred = None;
