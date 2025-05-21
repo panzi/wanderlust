@@ -108,7 +108,6 @@ impl Table {
         &self.name
     }
 
-
     #[inline]
     pub fn columns(&self) -> &[Rc<Column>] {
         &self.columns
@@ -127,6 +126,20 @@ impl Table {
     #[inline]
     pub fn constraints_mut(&mut self) -> &mut Vec<Rc<TableConstraint>> {
         &mut self.constraints
+    }
+
+    pub fn merged_constraints(&self) -> Vec<Rc<TableConstraint>> {
+        let mut merged = self.constraints.clone();
+
+        for column in &self.columns {
+            for constraint in column.constraints() {
+                if let Some(table_constraint) = constraint.to_table_constraint(column.name()) {
+                    merged.push(Rc::new(table_constraint));
+                }
+            }
+        }
+
+        merged
     }
 }
 

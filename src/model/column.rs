@@ -3,6 +3,7 @@ use std::rc::Rc;
 use crate::format::{format_iso_string, write_paren_names, write_token_list};
 
 use super::name::QName;
+use super::table::TableConstraint;
 use super::{name::Name, token::ParsedToken, types::ColumnDataType};
 
 use super::words::*;
@@ -311,6 +312,63 @@ impl ColumnConstraint {
     #[inline]
     pub fn is_foreign_key(&self) -> bool {
         matches!(self.data, ColumnConstraintData::References { .. })
+    }
+
+    pub fn to_table_constraint(&self, column_name: &Name) -> Option<TableConstraint> {
+        match self.data() {
+            ColumnConstraintData::Default { .. } => None,
+            ColumnConstraintData::NotNull => None,
+            ColumnConstraintData::Null => None,
+            ColumnConstraintData::Check { expr, inherit } => {
+                Some(TableConstraint::new(
+                    self.name.clone(),
+                    super::table::TableConstraintData::Check {
+                        expr: expr.clone(),
+                        inherit: *inherit,
+                    },
+                    self.deferrable,
+                    self.initially_deferred
+                ))
+            },
+            ColumnConstraintData::PrimaryKey => {
+                Some(TableConstraint::new(
+                    self.name.clone(),
+                    super::table::TableConstraintData::PrimaryKey {
+                        columns: [column_name.clone()].into()
+                    },
+                    self.deferrable,
+                    self.initially_deferred
+                ))
+            },
+            ColumnConstraintData::Unique { nulls_distinct } => {
+                Some(TableConstraint::new(
+                    self.name.clone(),
+                    super::table::TableConstraintData::Unique {
+                        columns: [column_name.clone()].into(),
+                        nulls_distinct: *nulls_distinct
+                    },
+                    self.deferrable,
+                    self.initially_deferred
+                ))
+            },
+            ColumnConstraintData::References { ref_table, ref_column, column_match, on_delete, on_update } => {
+                Some(TableConstraint::new(
+                    self.name.clone(),
+                    super::table::TableConstraintData::ForeignKey {
+                        columns: [column_name.clone()].into(),
+                        ref_table: ref_table.clone(),
+                        ref_columns: if let Some(ref_column) = ref_column {
+                            Some([ref_column.clone()].into())
+                        } else { None },
+                        column_match: *column_match,
+                        on_delete: on_delete.clone(),
+                        on_update: on_update.clone(),
+                    },
+                    self.deferrable,
+                    self.initially_deferred
+                ))
+            }
+        }
     }
 }
 
