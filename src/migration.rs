@@ -1,9 +1,10 @@
 use std::{collections::HashMap, rc::Rc};
 
-use crate::model::{alter::{AlterColumn, AlterTable}, column::{Column, ColumnConstraintData, ColumnMatch, ReferentialAction}, ddl::DDL, name::Name, statement::Statement, table::{Table, TableConstraint, TableConstraintData}, token::ParsedToken};
+use crate::model::{alter::{AlterColumn, AlterTable, AlterType}, column::{Column, ColumnConstraintData, ColumnMatch, ReferentialAction}, ddl::DDL, name::Name, statement::Statement, table::{Table, TableConstraint, TableConstraintData}, token::ParsedToken};
 
 pub fn generate_migration(old: &DDL, new: &DDL) -> Vec<Statement> {
     let mut stmts = Vec::new();
+    let mut create_indices = Vec::new();
 
     let mut old_tables = HashMap::new();
     let mut new_tables = HashMap::new();
@@ -43,12 +44,54 @@ pub fn generate_migration(old: &DDL, new: &DDL) -> Vec<Statement> {
         new_tables.insert(table.name(), table);
     }
 
+    let mut tmp_id = 0u64;
+
     for type_def in new.types() {
         if let Some(&old_type_def) = old_types.get(type_def.name()) {
-            // TODO: migrate type, needs changes in all tables that use it
+            if type_def != old_type_def {
+                if let Some(missing_values) = old_type_def.missing_enum_values(type_def) {
+                    // strictly only new values
+                    for (new_value, position) in missing_values {
+                        stmts.push(Statement::AlterType(
+                            AlterType::add_value(type_def.name().clone(), new_value, position)
+                        ));
+                    }
+                } else {
+                    let mut tmp_name = Name::new(format!("_wanderlust_tmp_type_{tmp_id}"));
+                    while old_types.contains_key(&tmp_name) {
+                        tmp_id += 1;
+                        tmp_name = Name::new(format!("_wanderlust_tmp_type_{tmp_id}"));
+                    }
+
+                    let tmp_type_def = type_def.with_name(tmp_name.clone());
+                    stmts.push(Statement::CreateType(tmp_type_def.into()));
+
+                    for (table_name, column) in old.find_columns_with_type(type_def.name()) {
+                        let new_type = column.data_type().with_user_type(tmp_name.clone());
+                        let using = new_type.cast(column.name());
+
+                        stmts.push(Statement::AlterTable(
+                            AlterTable::alter_column(
+                                table_name.clone(),
+                                AlterColumn::change_type(
+                                    column.name().clone(),
+                                    new_type.into(),
+                                    column.collation().cloned(),
+                                    Some(using.into())
+                                )
+                            )
+                        ));
+                    }
+
+                    stmts.push(Statement::drop_type(type_def.name().clone()));
+                    stmts.push(Statement::AlterType(
+                        AlterType::rename(tmp_name, type_def.name().clone())
+                    ));
+                }
+            }
         } else {
             stmts.push(Statement::CreateType(type_def.clone()));
-        } 
+        }
     }
 
     for table in old.tables() {
@@ -56,8 +99,6 @@ pub fn generate_migration(old: &DDL, new: &DDL) -> Vec<Statement> {
             stmts.push(Statement::drop_table(table.name().clone()));
         }
     }
-
-    let mut create_indices = Vec::new();
 
     for index in old.indices() {
         if let Some(name) = index.name() {
@@ -149,7 +190,7 @@ fn migrate_column(table_name: &Name, old_column: &Column, new_column: &Column, s
             AlterTable::alter_column(table_name.clone(), AlterColumn::change_type(
                 new_column.name().clone(),
                 new_column.data_type().clone(),
-                new_column.collation().map(Clone::clone),
+                new_column.collation().cloned(),
                 Some(new_column.data_type().cast(new_column.name()).into())
             ))
         ));

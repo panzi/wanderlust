@@ -1,7 +1,10 @@
 use std::rc::Rc;
 
+use super::column::Column;
 use super::index::CreateIndex;
+use super::name::Name;
 use super::table::CreateTable;
+use super::types::DataType;
 use super::{index::Index, table::Table, types::TypeDef};
 
 use super::words::*;
@@ -86,5 +89,21 @@ impl DDL {
         }
         self.types.push(type_def);
         true
+    }
+
+    pub fn find_columns_with_type(&self, type_name: &Name) -> Vec<(&Name, &Rc<Column>)> {
+        let mut found_columns = Vec::new();
+
+        for table in &self.tables {
+            for column in table.columns() {
+                if let DataType::UserDefined { name } = column.data_type().data_type() {
+                    if type_name == name {
+                        found_columns.push((table.name(), column));
+                    }
+                }
+            }
+        }
+
+        found_columns
     }
 }

@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use super::{alter::{AlterTable, DropOption}, index::Index, name::Name, table::Table, types::TypeDef};
+use super::{alter::{AlterTable, AlterType, DropOption}, index::Index, name::Name, table::Table, types::TypeDef};
 
 use super::words::*;
 
@@ -13,6 +13,7 @@ pub enum Statement {
     DropTable { if_exists: bool, names: Vec<Name>, drop_option: Option<DropOption> },
     DropIndex { concurrently: bool, if_exists: bool, names: Vec<Name>, drop_option: Option<DropOption> },
     DropType { if_exists: bool, names: Vec<Name>, drop_option: Option<DropOption> },
+    AlterType(Rc<AlterType>),
 }
 
 impl Statement {
@@ -39,6 +40,7 @@ impl std::fmt::Display for Statement {
             Self::CreateType(type_def) => type_def.fmt(f),
             Self::CreateIndex(index)   => index.fmt(f),
             Self::AlterTable(alter)    => alter.fmt(f),
+            Self::AlterType(alter)     => alter.fmt(f),
             Self::DropTable { if_exists, names, drop_option } => {
                 write!(f, "{DROP} {TABLE}")?;
                 if *if_exists {

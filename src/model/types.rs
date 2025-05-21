@@ -1,9 +1,11 @@
 use std::num::NonZeroU32;
+use std::ops::Deref;
 use std::rc::Rc;
 
 use crate::format::format_iso_string;
 use crate::make_tokens;
 
+use super::alter::ValuePosition;
 use super::name::Name;
 use super::token::{ParsedToken, ToTokens};
 use super::words::*;
@@ -28,6 +30,11 @@ impl TypeDef {
     }
 
     #[inline]
+    pub fn with_name(&self, name: Name) -> Self {
+        Self { name, data: self.data.clone() }
+    }
+
+    #[inline]
     pub fn create_enum(name: Name, values: impl Into<Rc<[Rc<str>]>>) -> Self {
         Self { name, data: TypeData::create_enum(values) }
     }
@@ -40,6 +47,43 @@ impl TypeDef {
     #[inline]
     pub fn data(&self) -> &TypeData {
         &self.data
+    }
+
+    pub fn missing_enum_values(&self, new_type_def: &TypeDef) -> Option<Vec<(Rc<str>, Option<ValuePosition>)>> {
+        match (self.data(), new_type_def.data()) {
+            (TypeData::Enum { values: old_values }, TypeData::Enum { values: new_values }) => {
+                for old_value in old_values.deref() {
+                    if !new_values.contains(old_value) {
+                        return None;
+                    }
+                }
+
+                let mut missing_values = Vec::new();
+
+                for (index, new_value) in new_values.deref().iter().enumerate() {
+                    if !old_values.contains(new_value) {
+                        if index > 0 {
+                            missing_values.push((
+                                new_value.clone(),
+                                Some(ValuePosition::after(new_values[index - 1].clone()))
+                            ));
+                        } else if let Some(new_first) = new_values.first() {
+                            missing_values.push((
+                                new_value.clone(),
+                                Some(ValuePosition::before(new_first.clone()))
+                            ));
+                        } else {
+                            missing_values.push((
+                                new_value.clone(),
+                                None
+                            ));
+                        }
+                    }
+                }
+
+                Some(missing_values)
+            }
+        }
     }
 }
 
@@ -419,13 +463,13 @@ impl std::fmt::Display for DataType {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ColumnDataType {
     data_type: DataType,
-    array_dimensions: Option<Box<[Option<u32>]>>,
+    array_dimensions: Option<Rc<[Option<u32>]>>,
 }
 
 impl ColumnDataType {
     #[inline]
-    pub fn new(data_type: DataType, array_dimensions: Option<Box<[Option<u32>]>>) -> Self {
-        Self { data_type, array_dimensions }
+    pub fn new(data_type: DataType, array_dimensions: Option<impl Into<Rc<[Option<u32>]>>>) -> Self {
+        Self { data_type, array_dimensions: array_dimensions.map(Into::into) }
     }
 
     #[inline]
@@ -434,8 +478,8 @@ impl ColumnDataType {
     }
 
     #[inline]
-    pub fn with_array(data_type: DataType, array_dimensions: Box<[Option<u32>]>) -> Self {
-        Self { data_type, array_dimensions: Some(array_dimensions) }
+    pub fn with_array(data_type: DataType, array_dimensions: impl Into<Rc<[Option<u32>]>>) -> Self {
+        Self { data_type, array_dimensions: Some(array_dimensions.into()) }
     }
 
     #[inline]
@@ -444,8 +488,21 @@ impl ColumnDataType {
     }
 
     #[inline]
-    pub fn array_dimensions(&self) -> Option<&[Option<u32>]> {
-        self.array_dimensions.as_deref()
+    pub fn array_dimensions(&self) -> Option<&Rc<[Option<u32>]>> {
+        self.array_dimensions.as_ref()
+    }
+
+    #[inline]
+    pub fn with_data_type(&self, data_type: DataType) -> Self {
+        Self { data_type, array_dimensions: self.array_dimensions.clone() }
+    }
+
+    #[inline]
+    pub fn with_user_type(&self, type_name: Name) -> Self {
+        Self {
+            data_type: DataType::UserDefined { name: type_name },
+            array_dimensions: self.array_dimensions.clone(),
+        }
     }
 
     pub fn cast(&self, value: impl ToTokens) -> Vec<ParsedToken> {
@@ -463,7 +520,7 @@ impl ToTokens for ColumnDataType {
     fn to_tokens_into(&self, tokens: &mut Vec<ParsedToken>) {
         self.data_type.to_tokens_into(tokens);
         if let Some(array_dimensions) = &self.array_dimensions {
-            for dim in array_dimensions {
+            for dim in array_dimensions.deref() {
                 if let Some(dim) = dim {
                     make_tokens!(tokens, [{*dim}]);
                 } else {
@@ -478,7 +535,7 @@ impl std::fmt::Display for ColumnDataType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.data_type.fmt(f)?;
         if let Some(dims) = &self.array_dimensions {
-            for dim in dims {
+            for dim in dims.deref() {
                 if let Some(dim) = dim {
                     write!(f, "[{dim}]")?;
                 } else {
