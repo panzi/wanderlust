@@ -6,13 +6,13 @@ use crate::format::format_iso_string;
 use crate::make_tokens;
 
 use super::alter::ValuePosition;
-use super::name::Name;
+use super::name::QName;
 use super::token::{ParsedToken, ToTokens};
 use super::words::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypeDef {
-    name: Name,
+    name: QName,
     data: TypeData,
 }
 
@@ -25,22 +25,22 @@ impl std::fmt::Display for TypeDef {
 
 impl TypeDef {
     #[inline]
-    pub fn new(name: Name, data: TypeData) -> Self {
+    pub fn new(name: QName, data: TypeData) -> Self {
         Self { name, data }
     }
 
     #[inline]
-    pub fn with_name(&self, name: Name) -> Self {
+    pub fn with_name(&self, name: QName) -> Self {
         Self { name, data: self.data.clone() }
     }
 
     #[inline]
-    pub fn create_enum(name: Name, values: impl Into<Rc<[Rc<str>]>>) -> Self {
+    pub fn create_enum(name: QName, values: impl Into<Rc<[Rc<str>]>>) -> Self {
         Self { name, data: TypeData::create_enum(values) }
     }
 
     #[inline]
-    pub fn name(&self) -> &Name {
+    pub fn name(&self) -> &QName {
         &self.name
     }
 
@@ -223,7 +223,7 @@ pub enum DataType {
     TxIdSnapshot,
     UUID,
     XML,
-    UserDefined { name: Name },
+    UserDefined { name: QName },
 }
 
 impl ToTokens for DataType {
@@ -498,7 +498,7 @@ impl ColumnDataType {
     }
 
     #[inline]
-    pub fn with_user_type(&self, type_name: Name) -> Self {
+    pub fn with_user_type(&self, type_name: QName) -> Self {
         Self {
             data_type: DataType::UserDefined { name: type_name },
             array_dimensions: self.array_dimensions.clone(),

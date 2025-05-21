@@ -3,6 +3,7 @@ use std::rc::Rc;
 
 use crate::format::{format_iso_string, write_token_list};
 
+use super::name::QName;
 use super::types::ColumnDataType;
 use super::{column::Column, name::Name, table::TableConstraint, token::ParsedToken};
 
@@ -10,7 +11,7 @@ use super::words::*;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AlterTable {
-    table_name: Name,
+    table_name: QName,
     data: AlterTableData,
 }
 
@@ -23,58 +24,58 @@ impl std::fmt::Display for AlterTable {
 
 impl AlterTable {
     #[inline]
-    pub fn new(table_name: Name, data: AlterTableData) -> Self {
+    pub fn new(table_name: QName, data: AlterTableData) -> Self {
         Self { table_name, data }
     }
 
     #[inline]
-    pub fn add_column(table_name: Name, column: Rc<Column>) -> Rc<Self> {
+    pub fn add_column(table_name: QName, column: Rc<Column>) -> Rc<Self> {
         Rc::new(Self { table_name, data: AlterTableData::add_column(column) })
     }
 
     #[inline]
-    pub fn drop_column(table_name: Name, column_name: Name) -> Rc<Self> {
+    pub fn drop_column(table_name: QName, column_name: Name) -> Rc<Self> {
         Rc::new(Self { table_name, data: AlterTableData::drop_column(column_name) })
     }
 
     #[inline]
-    pub fn alter_column(table_name: Name, alter_column: AlterColumn) -> Rc<Self> {
+    pub fn alter_column(table_name: QName, alter_column: AlterColumn) -> Rc<Self> {
         Rc::new(Self { table_name, data: AlterTableData::alter_column(alter_column) })
     }
 
     #[inline]
-    pub fn rename_table(table_name: Name, new_name: Name) -> Rc<Self> {
+    pub fn rename_table(table_name: QName, new_name: Name) -> Rc<Self> {
         Rc::new(Self { table_name, data: AlterTableData::rename_table(new_name) })
     }
 
     #[inline]
-    pub fn rename_column(table_name: Name, column_name: Name, new_column_name: Name) -> Rc<Self> {
+    pub fn rename_column(table_name: QName, column_name: Name, new_column_name: Name) -> Rc<Self> {
         Rc::new(Self { table_name, data: AlterTableData::rename_column(column_name, new_column_name) })
     }
 
     #[inline]
-    pub fn rename_constraint(table_name: Name, constraint_name: Name, new_constraint_name: Name) -> Rc<Self> {
+    pub fn rename_constraint(table_name: QName, constraint_name: Name, new_constraint_name: Name) -> Rc<Self> {
         Rc::new(Self { table_name, data: AlterTableData::rename_constraint(constraint_name, new_constraint_name) })
     }
 
 
     #[inline]
-    pub fn add_constraint(table_name: Name, constraint: TableConstraint) -> Rc<Self> {
+    pub fn add_constraint(table_name: QName, constraint: TableConstraint) -> Rc<Self> {
         Rc::new(Self { table_name, data: AlterTableData::add_constraint(constraint) })
     }
 
     #[inline]
-    pub fn alter_constraint(table_name: Name, constraint_name: Name, deferrable: Option<bool>, initially_deferred: Option<bool>) -> Rc<Self> {
+    pub fn alter_constraint(table_name: QName, constraint_name: Name, deferrable: Option<bool>, initially_deferred: Option<bool>) -> Rc<Self> {
         Rc::new(Self { table_name, data: AlterTableData::alter_constraint(constraint_name, deferrable, initially_deferred) })
     }
 
     #[inline]
-    pub fn drop_constraint(table_name: Name, constraint_name: Name, drop_option: Option<DropOption>) -> Rc<Self> {
+    pub fn drop_constraint(table_name: QName, constraint_name: Name, drop_option: Option<DropOption>) -> Rc<Self> {
         Rc::new(Self { table_name, data: AlterTableData::drop_constraint(constraint_name, drop_option) })
     }
 
     #[inline]
-    pub fn name(&self) -> &Name {
+    pub fn name(&self) -> &QName {
         &self.table_name
     }
 
@@ -365,33 +366,33 @@ impl std::fmt::Display for AlterColumnData {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AlterType {
-    type_name: Name,
+    type_name: QName,
     data: AlterTypeData,
 }
 
 impl AlterType {
     #[inline]
-    pub fn new(type_name: Name, data: AlterTypeData) -> Self {
+    pub fn new(type_name: QName, data: AlterTypeData) -> Self {
         Self { type_name, data }
     }
 
     #[inline]
-    pub fn rename(type_name: Name, new_name: Name) -> Rc<Self> {
+    pub fn rename(type_name: QName, new_name: QName) -> Rc<Self> {
         Rc::new(Self { type_name, data: AlterTypeData::Rename { new_name } })
     }
 
     #[inline]
-    pub fn add_value(type_name: Name, value: impl Into<Rc<str>>, position: Option<ValuePosition>) -> Rc<Self> {
+    pub fn add_value(type_name: QName, value: impl Into<Rc<str>>, position: Option<ValuePosition>) -> Rc<Self> {
         Rc::new(Self { type_name, data: AlterTypeData::AddValue { if_not_exists: true, value: value.into(), position } })
     }
 
     #[inline]
-    pub fn rename_value(type_name: Name, existing_value: impl Into<Rc<str>>, new_value: impl Into<Rc<str>>) -> Rc<Self> {
+    pub fn rename_value(type_name: QName, existing_value: impl Into<Rc<str>>, new_value: impl Into<Rc<str>>) -> Rc<Self> {
         Rc::new(Self { type_name, data: AlterTypeData::RenameValue { existing_value: existing_value.into(), new_value: new_value.into() } })
     }
 
     #[inline]
-    pub fn type_name(&self) -> &Name {
+    pub fn type_name(&self) -> &QName {
         &self.type_name
     }
 
@@ -410,7 +411,7 @@ impl std::fmt::Display for AlterType {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AlterTypeData {
-    Rename { new_name: Name },
+    Rename { new_name: QName },
     AddValue { if_not_exists: bool, value: Rc<str>, position: Option<ValuePosition> },
     RenameValue { existing_value: Rc<str>, new_value: Rc<str> },
 }

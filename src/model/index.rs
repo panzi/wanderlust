@@ -2,6 +2,7 @@ use std::rc::Rc;
 
 use crate::format::{format_iso_string, write_token_list};
 
+use super::name::QName;
 use super::{name::Name, token::ParsedToken};
 
 use super::words::*;
@@ -129,8 +130,8 @@ impl IndexItem {
 #[derive(Debug, Clone)]
 pub struct Index {
     unique: bool,
-    name: Option<Name>,
-    table_name: Name,
+    name: Option<QName>,
+    table_name: QName,
     method: Option<Rc<str>>,
     items: Rc<[IndexItem]>,
     nulls_distinct: Option<bool>,
@@ -155,8 +156,8 @@ impl Index {
     #[inline]
     pub fn new(
         unique: bool,
-        name: Option<Name>,
-        table_name: Name,
+        name: Option<QName>,
+        table_name: QName,
         method: Option<impl Into<Rc<str>>>,
         items: impl Into<Rc<[IndexItem]>>,
         nulls_distinct: Option<bool>,
@@ -179,12 +180,12 @@ impl Index {
     }
 
     #[inline]
-    pub fn name(&self) -> Option<&Name> {
+    pub fn name(&self) -> Option<&QName> {
         self.name.as_ref()
     }
 
     #[inline]
-    pub fn table_name(&self) -> &Name {
+    pub fn table_name(&self) -> &QName {
         &self.table_name
     }
 

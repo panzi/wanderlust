@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use super::column::Column;
 use super::index::CreateIndex;
-use super::name::Name;
+use super::name::QName;
 use super::table::CreateTable;
 use super::types::DataType;
 use super::{index::Index, table::Table, types::TypeDef};
@@ -91,7 +91,7 @@ impl DDL {
         true
     }
 
-    pub fn find_columns_with_type(&self, type_name: &Name) -> Vec<(&Name, &Rc<Column>)> {
+    pub fn find_columns_with_type(&self, type_name: &QName) -> Vec<(&QName, &Rc<Column>)> {
         let mut found_columns = Vec::new();
 
         for table in &self.tables {

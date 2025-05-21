@@ -2,7 +2,7 @@ use std::{num::NonZeroU32, rc::Rc};
 
 use crate::format::format_iso_string;
 
-use super::{name::Name, syntax::{Cursor, Locatable}};
+use super::{name::{Name, QName}, syntax::{Cursor, Locatable}};
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum TokenKind {
@@ -305,6 +305,17 @@ impl ToTokens for Name {
     #[inline]
     fn to_tokens_into(&self, tokens: &mut Vec<ParsedToken>) {
         tokens.push(self.into());
+    }
+}
+
+impl ToTokens for QName {
+    #[inline]
+    fn to_tokens_into(&self, tokens: &mut Vec<ParsedToken>) {
+        if let Some(schema) = self.schema() {
+            tokens.push(schema.into());
+            tokens.push(ParsedToken::Period);
+        }
+        tokens.push(self.name().into());
     }
 }
 

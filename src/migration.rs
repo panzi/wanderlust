@@ -1,8 +1,10 @@
 use std::{collections::HashMap, rc::Rc};
 
-use crate::model::{alter::{AlterColumn, AlterTable, AlterType}, column::{Column, ColumnConstraintData, ColumnMatch, ReferentialAction}, ddl::DDL, name::Name, statement::Statement, table::{Table, TableConstraint, TableConstraintData}, token::ParsedToken};
+use crate::model::{alter::{AlterColumn, AlterTable, AlterType}, column::{Column, ColumnConstraintData, ColumnMatch, ReferentialAction}, ddl::DDL, name::{Name, QName}, statement::Statement, table::{Table, TableConstraint, TableConstraintData}, token::ParsedToken};
 
 pub fn generate_migration(old: &DDL, new: &DDL) -> Vec<Statement> {
+    let public = Name::new("public");
+
     let mut stmts = Vec::new();
     let mut create_indices = Vec::new();
 
@@ -37,11 +39,11 @@ pub fn generate_migration(old: &DDL, new: &DDL) -> Vec<Statement> {
     }
 
     for table in old.tables() {
-        old_tables.insert(table.name(), table);
+        old_tables.insert(table.name().with_default_schema(&public), table);
     }
 
     for table in new.tables() {
-        new_tables.insert(table.name(), table);
+        new_tables.insert(table.name().with_default_schema(&public), table);
     }
 
     let mut tmp_id = 0u64;
@@ -57,10 +59,10 @@ pub fn generate_migration(old: &DDL, new: &DDL) -> Vec<Statement> {
                         ));
                     }
                 } else {
-                    let mut tmp_name = Name::new(format!("_wanderlust_tmp_type_{tmp_id}"));
+                    let mut tmp_name = QName::unqual(format!("_wanderlust_tmp_type_{tmp_id}"));
                     while old_types.contains_key(&tmp_name) {
                         tmp_id += 1;
-                        tmp_name = Name::new(format!("_wanderlust_tmp_type_{tmp_id}"));
+                        tmp_name = QName::unqual(format!("_wanderlust_tmp_type_{tmp_id}"));
                     }
 
                     let tmp_type_def = type_def.with_name(tmp_name.clone());
@@ -95,7 +97,7 @@ pub fn generate_migration(old: &DDL, new: &DDL) -> Vec<Statement> {
     }
 
     for table in old.tables() {
-        if !new_tables.contains_key(table.name()) {
+        if !new_tables.contains_key(&table.name().with_default_schema(&public)) {
             stmts.push(Statement::drop_table(table.name().clone()));
         }
     }
@@ -116,7 +118,7 @@ pub fn generate_migration(old: &DDL, new: &DDL) -> Vec<Statement> {
     }
 
     for table in new.tables() {
-        if let Some(&old_table) = old_tables.get(table.name()) {
+        if let Some(&old_table) = old_tables.get(&table.name().with_default_schema(&public)) {
             migrate_table(old_table, table, &mut stmts);
         } else {
             stmts.push(Statement::CreateTable(table.clone()));
@@ -178,7 +180,7 @@ fn migrate_table(old_table: &Table, new_table: &Table, stmts: &mut Vec<Statement
     // TODO
 }
 
-fn migrate_column(table_name: &Name, old_column: &Column, new_column: &Column, stmts: &mut Vec<Statement>) {
+fn migrate_column(table_name: &QName, old_column: &Column, new_column: &Column, stmts: &mut Vec<Statement>) {
     if old_column.name() != new_column.name() {
         stmts.push(Statement::AlterTable(
             AlterTable::rename_column(table_name.clone(), old_column.name().clone(), new_column.name().clone())
@@ -204,7 +206,7 @@ fn migrate_column(table_name: &Name, old_column: &Column, new_column: &Column, s
 
     #[derive(PartialEq)]
     struct References<'a> {
-        ref_table: &'a Name,
+        ref_table: &'a QName,
         ref_column: &'a Option<Name>,
         column_match: &'a Option<ColumnMatch>,
         on_delete: &'a Option<ReferentialAction>,

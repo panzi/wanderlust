@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use crate::format::{write_paren_names, write_token_list};
 
-use super::{column::{Column, ColumnMatch, ReferentialAction}, name::Name, token::ParsedToken};
+use super::{column::{Column, ColumnMatch, ReferentialAction}, name::{Name, QName}, token::ParsedToken};
 
 use super::words::*;
 
@@ -55,7 +55,7 @@ impl std::fmt::Display for CreateTable {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Table {
-    name: Name,
+    name: QName,
     columns: Vec<Rc<Column>>,
     constraints: Vec<Rc<TableConstraint>>,
 }
@@ -70,8 +70,8 @@ impl std::fmt::Display for Table {
 
 impl Table {
     #[inline]
-    pub fn new(name: Name) -> Self {
-        Self { name, columns: Vec::new(), constraints: Vec::new() }
+    pub fn new(name: QName, columns: Vec<Rc<Column>>, constraints: Vec<Rc<TableConstraint>>) -> Self {
+        Self { name, columns, constraints }
     }
 
     fn write(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -104,14 +104,10 @@ impl Table {
     }
 
     #[inline]
-    pub fn with_all(name: Name, columns: Vec<Rc<Column>>, constraints: Vec<Rc<TableConstraint>>) -> Self {
-        Self { name, columns, constraints }
-    }
-
-    #[inline]
-    pub fn name(&self) -> &Name {
+    pub fn name(&self) -> &QName {
         &self.name
     }
+
 
     #[inline]
     pub fn columns(&self) -> &[Rc<Column>] {
@@ -149,7 +145,7 @@ pub enum TableConstraintData {
     },
     ForeignKey {
         columns: Rc<[Name]>,
-        ref_table: Name,
+        ref_table: QName,
         ref_columns: Option<Rc<[Name]>>,
         column_match: Option<ColumnMatch>,
         on_delete: Option<ReferentialAction>,

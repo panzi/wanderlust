@@ -126,3 +126,78 @@ impl Hash for Name {
         }
     }
 }
+
+impl From<Name> for QName {
+    #[inline]
+    fn from(value: Name) -> Self {
+        QName::new(None, value)
+    }
+}
+
+impl From<&Name> for QName {
+    #[inline]
+    fn from(value: &Name) -> Self {
+        QName::new(None, value.clone())
+    }
+}
+
+#[derive(Debug, Clone, Hash, Eq)]
+pub struct QName {
+    schema: Option<Name>,
+    name: Name,
+}
+
+impl QName {
+    #[inline]
+    pub fn new(schema: Option<Name>, name: Name) -> Self {
+        Self { schema, name }
+    }
+
+    #[inline]
+    pub fn unqual(name: impl Into<Rc<str>>) -> Self {
+        Self { schema: None, name: Name::new(name) }
+    }
+
+    #[inline]
+    pub fn schema(&self) -> Option<&Name> {
+        self.schema.as_ref()
+    }
+
+    #[inline]
+    pub fn name(&self) -> &Name {
+        &self.name
+    }
+
+    #[inline]
+    pub fn with_default_schema(&self, default_schema: &Name) -> Self {
+        Self {
+            schema: if let Some(schema) = &self.schema {
+                Some(schema.clone())
+            } else {
+                Some(default_schema.clone())
+            },
+            name: self.name.clone(),
+        }
+    }
+}
+
+impl std::fmt::Display for QName {
+    #[inline]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(schema) = &self.schema {
+            write!(f, "{schema}.")?;
+        }
+        self.name.fmt(f)
+    }
+}
+
+impl PartialEq for QName {
+    fn eq(&self, other: &Self) -> bool {
+        self.name() == other.name() &&
+        (if let Some(schema) = self.schema() {
+            if let Some(other_schema) = other.schema() {
+                schema == other_schema
+            } else { true }
+        } else { true })
+    }
+}

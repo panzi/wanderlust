@@ -2,6 +2,7 @@ use std::rc::Rc;
 
 use crate::format::{format_iso_string, write_paren_names, write_token_list};
 
+use super::name::QName;
 use super::{name::Name, token::ParsedToken, types::ColumnDataType};
 
 use super::words::*;
@@ -147,7 +148,7 @@ pub enum ColumnConstraintData {
     Unique { nulls_distinct: Option<bool> },
     PrimaryKey,
     References {
-        ref_table: Name,
+        ref_table: QName,
         ref_column: Option<Name>,
         column_match: Option<ColumnMatch>,
         on_delete: Option<ReferentialAction>,

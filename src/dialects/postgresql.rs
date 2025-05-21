@@ -5,7 +5,7 @@
 
 use std::{num::NonZeroU32, rc::Rc};
 
-use crate::{error::{Error, ErrorKind, Result}, model::{column::{Column, ColumnConstraint, ColumnConstraintData, ColumnMatch, ReferentialAction}, ddl::DDL, index::{CreateIndex, Direction, Index, IndexItem, IndexItemData, NullsPosition}, integers::{Integer, SignedInteger, UnsignedInteger}, name::Name, syntax::{Cursor, Parser, SourceLocation, Tokenizer}, table::{CreateTable, Table, TableConstraint, TableConstraintData}, token::{ParsedToken, Token, TokenKind}, types::{ColumnDataType, DataType, IntervalFields, TypeDef}}, peek_token};
+use crate::{error::{Error, ErrorKind, Result}, model::{column::{Column, ColumnConstraint, ColumnConstraintData, ColumnMatch, ReferentialAction}, ddl::DDL, index::{CreateIndex, Direction, Index, IndexItem, IndexItemData, NullsPosition}, integers::{Integer, SignedInteger, UnsignedInteger}, name::{Name, QName}, syntax::{Cursor, Parser, SourceLocation, Tokenizer}, table::{CreateTable, Table, TableConstraint, TableConstraintData}, token::{ParsedToken, Token, TokenKind}, types::{ColumnDataType, DataType, IntervalFields, TypeDef}}, peek_token};
 use crate::model::words::*;
 
 pub fn uunescape(string: &str, escape: char) -> Option<String> {
@@ -1418,22 +1418,27 @@ impl<'a> PostgreSQLParser<'a> {
                 } else if word.eq_ignore_ascii_case(XML) {
                     DataType::XML
                 } else {
-                    DataType::UserDefined { name: Name::new_unquoted(word) }
+                    let name = Name::new_unquoted(word);
+                    let name = self.parse_qual_name_tail(name)?;
+
+                    DataType::UserDefined { name }
                 }
             }
             TokenKind::QIdent => {
                 let name = self.parse_qname(token.cursor())?;
+                let name = self.parse_qual_name_tail(name)?;
 
                 DataType::UserDefined { name }
             }
             TokenKind::UIdent => {
                 let name = self.parse_uname(token.cursor())?;
+                let name = self.parse_qual_name_tail(name)?;
 
                 DataType::UserDefined { name }
             }
             _ => {
                 let actual = self.get_source(token.cursor());
-                
+
                 return Err(Error::with_message(
                     ErrorKind::IllegalToken,
                     *token.cursor(),
@@ -1469,6 +1474,24 @@ impl<'a> PostgreSQLParser<'a> {
         Ok(ColumnDataType::new(data_type, array_dimensions))
     }
 
+    #[inline]
+    fn parse_qual_name(&mut self) -> Result<QName> {
+        let name = self.expect_name()?;
+        self.parse_qual_name_tail(name)
+    }
+
+    fn parse_qual_name_tail(&mut self, mut name: Name) -> Result<QName> {
+        let mut schema = None;
+
+        if self.parse_token(TokenKind::Period)? {
+            let mut temp = self.expect_name()?;
+            std::mem::swap(&mut temp, &mut name);
+            schema = Some(temp);
+        }
+
+        Ok(QName::new(schema, name))
+    }
+
     fn parse_table_intern(&mut self) -> Result<CreateTable> {
         // "CREATE TABLE" is already parsed
 
@@ -1478,7 +1501,7 @@ impl<'a> PostgreSQLParser<'a> {
             self.expect_word(EXISTS)?;
             if_not_exists = true;
         }
-        let table_name = self.expect_name()?;
+        let table_name = self.parse_qual_name()?;
         let mut columns = Vec::new();
         let mut table_constraints = Vec::new();
 
@@ -1564,7 +1587,7 @@ impl<'a> PostgreSQLParser<'a> {
 
                     self.expect_word(REFERENCES)?;
 
-                    let ref_table = self.expect_name()?;
+                    let ref_table = self.parse_qual_name()?;
                     let mut ref_columns = None;
 
                     if self.parse_token(TokenKind::LParen)? {
@@ -1704,7 +1727,8 @@ impl<'a> PostgreSQLParser<'a> {
                         constraint_data = ColumnConstraintData::PrimaryKey;
                     } else if self.peek_word(REFERENCES)? {
                         self.expect_some()?;
-                        let ref_table = self.expect_name()?;
+                        let ref_table = self.parse_qual_name()?;
+
                         let mut ref_column = None;
                         if self.parse_token(TokenKind::LParen)? {
                             ref_column = Some(self.expect_name()?);
@@ -1781,7 +1805,7 @@ impl<'a> PostgreSQLParser<'a> {
         self.expect_token(TokenKind::RParen)?;
         self.expect_semicolon_or_eof()?;
 
-        let table = Table::with_all(
+        let table = Table::new(
             table_name,
             columns,
             table_constraints
@@ -1844,16 +1868,16 @@ impl<'a> PostgreSQLParser<'a> {
             self.expect_word(NOT)?;
             self.expect_word(EXISTS)?;
             if_not_exists = true;
-            Some(self.expect_name()?)
+            Some(self.parse_qual_name()?)
         } else if peek_token!(self, TokenKind::Word | TokenKind::QIdent | TokenKind::UIdent)?.is_some() {
-            Some(self.expect_name()?)
+            Some(self.parse_qual_name()?)
         } else {
             None
         };
 
         self.expect_word(ON)?;
 
-        let table_name = self.expect_name()?;
+        let table_name = self.parse_qual_name()?;
 
         let method = if self.parse_word(USING)? {
             Some(self.expect_string()?)
@@ -1905,7 +1929,7 @@ impl<'a> PostgreSQLParser<'a> {
     fn parse_type_def_intern(&mut self) -> Result<TypeDef> {
         // "CREATE TYPE" is already parsed
         // TODO: other types
-        let type_name = self.expect_name()?;
+        let type_name = self.parse_qual_name()?;
         self.expect_word(AS)?;
         self.expect_word(ENUM)?;
         self.expect_token(TokenKind::LParen)?;

@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use super::{alter::{AlterTable, AlterType, DropOption}, index::Index, name::Name, table::Table, types::TypeDef};
+use super::{alter::{AlterTable, AlterType, DropOption}, index::Index, name::QName, table::Table, types::TypeDef};
 
 use super::words::*;
 
@@ -10,25 +10,25 @@ pub enum Statement {
     CreateType(Rc<TypeDef>),
     CreateIndex(Rc<Index>),
     AlterTable(Rc<AlterTable>),
-    DropTable { if_exists: bool, names: Vec<Name>, drop_option: Option<DropOption> },
-    DropIndex { concurrently: bool, if_exists: bool, names: Vec<Name>, drop_option: Option<DropOption> },
-    DropType { if_exists: bool, names: Vec<Name>, drop_option: Option<DropOption> },
+    DropTable { if_exists: bool, names: Vec<QName>, drop_option: Option<DropOption> },
+    DropIndex { concurrently: bool, if_exists: bool, names: Vec<QName>, drop_option: Option<DropOption> },
+    DropType { if_exists: bool, names: Vec<QName>, drop_option: Option<DropOption> },
     AlterType(Rc<AlterType>),
 }
 
 impl Statement {
     #[inline]
-    pub fn drop_table(name: Name) -> Self {
+    pub fn drop_table(name: QName) -> Self {
         Self::DropTable { if_exists: false, names: vec![name], drop_option: None }
     }
 
     #[inline]
-    pub fn drop_index(name: Name) -> Self {
+    pub fn drop_index(name: QName) -> Self {
         Self::DropIndex { concurrently: false, if_exists: false, names: vec![name], drop_option: None }
     }
 
     #[inline]
-    pub fn drop_type(name: Name) -> Self {
+    pub fn drop_type(name: QName) -> Self {
         Self::DropType { if_exists: false, names: vec![name], drop_option: None }
     }
 }
