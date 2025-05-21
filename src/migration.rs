@@ -69,7 +69,7 @@ pub fn generate_migration(old: &DDL, new: &DDL) -> Vec<Statement> {
                     stmts.push(Statement::CreateType(tmp_type_def.into()));
 
                     for (table_name, column) in old.find_columns_with_type(type_def.name()) {
-                        let new_type = column.data_type().with_user_type(tmp_name.clone());
+                        let new_type = column.data_type().with_user_type(tmp_name.clone(), None);
                         let using = new_type.cast(column.name());
 
                         stmts.push(Statement::AlterTable(

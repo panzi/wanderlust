@@ -312,7 +312,7 @@ pub trait Parser {
                 return Err(Error::with_message(
                     ErrorKind::UnexpectedToken,
                     *token.cursor(),
-                    format!("expected: ; or EOF, actual: {actual}")
+                    format!("expected: ; or <EOF>, actual: {actual}")
                 ));
             }
             self.expect_some()?;

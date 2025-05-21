@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use super::column::Column;
 use super::index::CreateIndex;
-use super::name::QName;
+use super::name::{Name, QName};
 use super::table::CreateTable;
 use super::types::DataType;
 use super::{index::Index, table::Table, types::TypeDef};
@@ -14,6 +14,7 @@ pub struct DDL {
     types: Vec<Rc<TypeDef>>,
     tables: Vec<Rc<Table>>,
     indices: Vec<Rc<Index>>,
+    search_path: Vec<Name>,
 }
 
 impl std::fmt::Display for DDL {
@@ -34,8 +35,13 @@ impl std::fmt::Display for DDL {
 
 impl DDL {
     #[inline]
-    pub fn new() -> Self {
-        Self { types: Vec::new(), tables: Vec::new(), indices: Vec::new() }
+    pub fn new(search_path: impl Into<Vec<Name>>) -> Self {
+        Self {
+            types: Vec::new(),
+            tables: Vec::new(),
+            indices: Vec::new(),
+            search_path: search_path.into(),
+        }
     }
 
     #[inline]
@@ -51,6 +57,16 @@ impl DDL {
     #[inline]
     pub fn indices(&self) -> &[Rc<Index>] {
         &self.indices
+    }
+
+    #[inline]
+    pub fn search_path(&self) -> &[Name] {
+        &self.search_path
+    }
+
+    #[inline]
+    pub fn search_path_mut(&mut self) -> &mut Vec<Name> {
+        &mut self.search_path
     }
 
     pub fn create_table(&mut self, create_table: CreateTable) -> bool {
@@ -96,7 +112,7 @@ impl DDL {
 
         for table in &self.tables {
             for column in table.columns() {
-                if let DataType::UserDefined { name } = column.data_type().data_type() {
+                if let DataType::UserDefined { name, .. } = column.data_type().data_type() {
                     if type_name == name {
                         found_columns.push((table.name(), column));
                     }

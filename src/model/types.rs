@@ -180,7 +180,7 @@ impl std::fmt::Display for IntervalFields {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum DataType {
     Bigint,
     BigSerial,
@@ -223,7 +223,61 @@ pub enum DataType {
     TxIdSnapshot,
     UUID,
     XML,
-    UserDefined { name: QName },
+    UserDefined { name: QName, parameters: Option<Rc<[Value]>> },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Value {
+    String(Rc<str>),
+    Integer(i64),
+    Float(f64),
+    // maybe names?
+    // hope there can't be arrays
+}
+
+impl Value {
+    #[inline]
+    pub fn to_parsed_token(&self) -> ParsedToken {
+        match self {
+            Value::String(value) => ParsedToken::String(value.clone()),
+            Value::Integer(value) => ParsedToken::Integer(value.clone()),
+            Value::Float(value) => ParsedToken::Float(value.clone()),
+        }
+    }
+
+    #[inline]
+    pub fn into_parsed_token(self) -> ParsedToken {
+        match self {
+            Value::String(value) => ParsedToken::String(value),
+            Value::Integer(value) => ParsedToken::Integer(value),
+            Value::Float(value) => ParsedToken::Float(value),
+        }
+    }
+}
+
+impl std::fmt::Display for Value {
+    #[inline]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Value::String(value) => format_iso_string(f, value),
+            Value::Integer(value) => write!(f, "{value}"),
+            Value::Float(value) => write!(f, "{value:?}"),
+        }
+    }
+}
+
+impl From<Value> for ParsedToken {
+    #[inline]
+    fn from(value: Value) -> Self {
+        value.into_parsed_token()
+    }
+}
+
+impl ToTokens for Value {
+    #[inline]
+    fn to_tokens_into(&self, tokens: &mut Vec<ParsedToken>) {
+        tokens.push(self.to_parsed_token());
+    }
 }
 
 impl ToTokens for DataType {
@@ -335,7 +389,21 @@ impl ToTokens for DataType {
             Self::TxIdSnapshot => make_tokens!(tokens, TXID_SNAPSHOT),
             Self::UUID => make_tokens!(tokens, UUID),
             Self::XML => make_tokens!(tokens, XML),
-            Self::UserDefined { name } => make_tokens!(tokens, {name}),
+            Self::UserDefined { name, parameters } => {
+                make_tokens!(tokens, {name});
+                if let Some(parameters) = parameters {
+                    tokens.push(ParsedToken::LParen);
+                    let mut iter = parameters.iter();
+                    if let Some(first) = iter.next() {
+                        make_tokens!(tokens, {first});
+
+                        for value in iter {
+                            make_tokens!(tokens, , {value});
+                        }
+                    }
+                    tokens.push(ParsedToken::RParen);
+                }
+            },
         }
     }
 }
@@ -455,12 +523,29 @@ impl std::fmt::Display for DataType {
             Self::TxIdSnapshot => TXID_SNAPSHOT.fmt(f),
             Self::UUID => UUID.fmt(f),
             Self::XML => XML.fmt(f),
-            Self::UserDefined { name } => name.fmt(f),
+            Self::UserDefined { name, parameters } => {
+                name.fmt(f)?;
+
+                if let Some(parameters) = parameters {
+                    write!(f, "(")?;
+                    let mut iter = parameters.iter();
+                    if let Some(first) = iter.next() {
+                        first.fmt(f)?;
+                        for value in iter {
+                            write!(f, ", ")?;
+                            value.fmt(f)?;
+                        }
+                    }
+                    write!(f, ")")?;
+                }
+
+                Ok(())
+            },
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ColumnDataType {
     data_type: DataType,
     array_dimensions: Option<Rc<[Option<u32>]>>,
@@ -498,9 +583,9 @@ impl ColumnDataType {
     }
 
     #[inline]
-    pub fn with_user_type(&self, type_name: QName) -> Self {
+    pub fn with_user_type(&self, type_name: QName, parameters: Option<Rc<[Value]>>) -> Self {
         Self {
-            data_type: DataType::UserDefined { name: type_name },
+            data_type: DataType::UserDefined { name: type_name, parameters },
             array_dimensions: self.array_dimensions.clone(),
         }
     }

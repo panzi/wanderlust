@@ -29,6 +29,7 @@ pub enum TokenKind {
     Colon,
     SemiColon,
     Period,
+    Equal,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -77,6 +78,7 @@ pub enum ParsedToken {
     DoubleColon,
     SemiColon,
     Period,
+    Equal,
 }
 
 impl ParsedToken {
@@ -119,6 +121,7 @@ impl std::fmt::Display for ParsedToken {
             Self::DoubleColon   => f.write_str("::"),
             Self::SemiColon     => f.write_str(";"),
             Self::Period        => f.write_str("."),
+            Self::Equal         => f.write_str("="),
         }
     }
 }
@@ -439,6 +442,10 @@ macro_rules! make_tokens {
         $out.push(ParsedToken::Period);
         make_tokens!(@make ($out) $($tail)*);
     };
+    (@make ($out:expr) = $($tail:tt)*) => {
+        $out.push(ParsedToken::Equal);
+        make_tokens!(@make ($out) $($tail)*);
+    };
     (@make ($out:expr) + $($tail:tt)*) => {
         $out.push(ParsedToken::Operator("+".into()));
         make_tokens!(@make ($out) $($tail)*);
@@ -493,6 +500,22 @@ macro_rules! make_tokens {
     };
     (@make ($out:expr) ^ $($tail:tt)*) => {
         $out.push(ParsedToken::Operator("^".into()));
+        make_tokens!(@make ($out) $($tail)*);
+    };
+    (@make ($out:expr) <= $($tail:tt)*) => {
+        $out.push(ParsedToken::Operator("<=".into()));
+        make_tokens!(@make ($out) $($tail)*);
+    };
+    (@make ($out:expr) >= $($tail:tt)*) => {
+        $out.push(ParsedToken::Operator(">=".into()));
+        make_tokens!(@make ($out) $($tail)*);
+    };
+    (@make ($out:expr) < $($tail:tt)*) => {
+        $out.push(ParsedToken::Operator("<".into()));
+        make_tokens!(@make ($out) $($tail)*);
+    };
+    (@make ($out:expr) > $($tail:tt)*) => {
+        $out.push(ParsedToken::Operator(">".into()));
         make_tokens!(@make ($out) $($tail)*);
     };
 }

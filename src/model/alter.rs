@@ -18,7 +18,11 @@ pub struct AlterTable {
 impl std::fmt::Display for AlterTable {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{ALTER} {TABLE} {} {};", self.table_name, self.data)
+        if self.data.only() {
+            write!(f, "{ALTER} {TABLE} {ONLY} {} {};", self.table_name, self.data)
+        } else {
+            write!(f, "{ALTER} {TABLE} {} {};", self.table_name, self.data)
+        }
     }
 }
 
@@ -87,10 +91,10 @@ impl AlterTable {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AlterTableData {
-    Actions { actions: Rc<[AlterTableAction]> },
+    Actions { only: bool, actions: Rc<[AlterTableAction]> },
     RenameTable { new_name: Name },
-    RenameColumn { column_name: Name, new_column_name: Name },
-    RenameConstraint { constraint_name: Name, new_constraint_name: Name },
+    RenameColumn { only: bool, column_name: Name, new_column_name: Name },
+    RenameConstraint { only: bool, constraint_name: Name, new_constraint_name: Name },
     AddConstraint { constraint: TableConstraint },
     AlterConstraint { constraint_name: Name, deferrable: Option<bool>, initially_deferred: Option<bool> },
     DropConstraint { constraint_name: Name, drop_option: Option<DropOption> },
@@ -99,17 +103,17 @@ pub enum AlterTableData {
 impl AlterTableData {
     #[inline]
     pub fn add_column(column: Rc<Column>) -> Self {
-        Self::Actions { actions: [AlterTableAction::AddColumn { column }].into() }
+        Self::Actions { only: false, actions: [AlterTableAction::AddColumn { column }].into() }
     }
 
     #[inline]
     pub fn drop_column(column_name: Name) -> Self {
-        Self::Actions { actions: [AlterTableAction::DropColumn { column_name, drop_option: None }].into() }
+        Self::Actions { only: false, actions: [AlterTableAction::DropColumn { column_name, drop_option: None }].into() }
     }
 
     #[inline]
     pub fn alter_column(alter_column: AlterColumn) -> Self {
-        Self::Actions { actions: [AlterTableAction::AlterColumn { alter_column }].into() }
+        Self::Actions { only: false, actions: [AlterTableAction::AlterColumn { alter_column }].into() }
     }
 
     #[inline]
@@ -119,12 +123,12 @@ impl AlterTableData {
 
     #[inline]
     pub fn rename_column(column_name: Name, new_column_name: Name) -> Self {
-        Self::RenameColumn { column_name, new_column_name }
+        Self::RenameColumn { only: false, column_name, new_column_name }
     }
 
     #[inline]
     pub fn rename_constraint(constraint_name: Name, new_constraint_name: Name) -> Self {
-        Self::RenameConstraint { constraint_name, new_constraint_name }
+        Self::RenameConstraint { only: false, constraint_name, new_constraint_name }
     }
 
     #[inline]
@@ -141,12 +145,21 @@ impl AlterTableData {
     pub fn drop_constraint(constraint_name: Name, drop_option: Option<DropOption>) -> Self {
         Self::DropConstraint { constraint_name, drop_option }
     }
+
+    #[inline]
+    pub fn only(&self) -> bool {
+        matches!(self,
+            Self::Actions { only: true, .. } |
+            Self::RenameColumn { only: true, .. } |
+            Self::RenameConstraint { only: true, .. }
+        )
+    }
 }
 
 impl std::fmt::Display for AlterTableData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Actions { actions } => {
+            Self::Actions { only: _, actions } => {
                 if actions.len() > 1 {
                     let mut iter = actions.iter();
                     if let Some(first) = iter.next() {
@@ -164,10 +177,10 @@ impl std::fmt::Display for AlterTableData {
             Self::RenameTable { new_name } => {
                 write!(f, "{RENAME} {TO} {new_name}")
             },
-            Self::RenameColumn { column_name, new_column_name } => {
+            Self::RenameColumn { only: _, column_name, new_column_name } => {
                 write!(f, "{RENAME} {COLUMN} {column_name} {TO} {new_column_name}")
             },
-            Self::RenameConstraint { constraint_name, new_constraint_name } => {
+            Self::RenameConstraint { only: _, constraint_name, new_constraint_name } => {
                 write!(f, "{RENAME} {CONSTRAINT} {constraint_name} {TO} {new_constraint_name}")
             },
             Self::AddConstraint { constraint } => {

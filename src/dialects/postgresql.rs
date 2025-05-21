@@ -5,7 +5,7 @@
 
 use std::{num::NonZeroU32, rc::Rc};
 
-use crate::{error::{Error, ErrorKind, Result}, model::{column::{Column, ColumnConstraint, ColumnConstraintData, ColumnMatch, ReferentialAction}, ddl::DDL, index::{CreateIndex, Direction, Index, IndexItem, IndexItemData, NullsPosition}, integers::{Integer, SignedInteger, UnsignedInteger}, name::{Name, QName}, syntax::{Cursor, Parser, SourceLocation, Tokenizer}, table::{CreateTable, Table, TableConstraint, TableConstraintData}, token::{ParsedToken, Token, TokenKind}, types::{ColumnDataType, DataType, IntervalFields, TypeDef}}, peek_token};
+use crate::{error::{Error, ErrorKind, Result}, model::{column::{Column, ColumnConstraint, ColumnConstraintData, ColumnMatch, ReferentialAction}, ddl::DDL, index::{CreateIndex, Direction, Index, IndexItem, IndexItemData, NullsPosition}, integers::{Integer, SignedInteger, UnsignedInteger}, name::{Name, QName}, syntax::{Cursor, Parser, SourceLocation, Tokenizer}, table::{CreateTable, Table, TableConstraint, TableConstraintData}, token::{ParsedToken, Token, TokenKind}, types::{ColumnDataType, DataType, IntervalFields, TypeDef, Value}}, peek_token};
 use crate::model::words::*;
 
 pub fn uunescape(string: &str, escape: char) -> Option<String> {
@@ -116,7 +116,7 @@ impl<'a> PostgreSQLTokenizer<'a> {
                     return Err(Error::with_message(
                         ErrorKind::UnexpectedEOF,
                         Cursor::new(start_offset, end_offset),
-                        format!("actual: EOF, expected: */")
+                        format!("actual: <EOF>, expected: */")
                     ));
                 }
             } else {
@@ -155,7 +155,7 @@ impl<'a> PostgreSQLTokenizer<'a> {
                 return Err(Error::with_message(
                     ErrorKind::IllegalToken,
                     Cursor::new(self.offset, self.offset + len),
-                    format!("expected: <string>, actual: EOF")
+                    format!("expected: <string>, actual: <EOF>")
                 ));
             };
 
@@ -191,7 +191,7 @@ impl<'a> PostgreSQLTokenizer<'a> {
                 return Err(Error::with_message(
                     ErrorKind::IllegalToken,
                     Cursor::new(self.offset, self.offset + len),
-                    format!("expected: <quoted name>, actual: EOF")
+                    format!("expected: <quoted name>, actual: <EOF>")
                 ));
             };
 
@@ -227,7 +227,7 @@ impl<'a> PostgreSQLTokenizer<'a> {
                 return Err(Error::with_message(
                     ErrorKind::IllegalToken,
                     Cursor::new(self.offset, self.offset + len),
-                    format!("expected: <estring>, actual: EOF")
+                    format!("expected: <estring>, actual: <EOF>")
                 ));
             };
 
@@ -243,7 +243,7 @@ impl<'a> PostgreSQLTokenizer<'a> {
                     return Err(Error::with_message(
                         ErrorKind::IllegalToken,
                         Cursor::new(self.offset, self.offset + len),
-                        format!("expected: <estring>, actual: EOF")
+                        format!("expected: <estring>, actual: <EOF>")
                     ));
                 }
                 slice = &slice[2..];
@@ -272,7 +272,7 @@ impl<'a> PostgreSQLTokenizer<'a> {
                     return Err(Error::with_message(
                         ErrorKind::IllegalToken,
                         *next.cursor(),
-                        format!("expected: <single char string>, actual: EOF")
+                        format!("expected: <single char string>, actual: <EOF>")
                     ));
                 };
 
@@ -439,6 +439,7 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
             TokenKind::Colon => Ok(ParsedToken::Colon),
             TokenKind::SemiColon => Ok(ParsedToken::SemiColon),
             TokenKind::Period => Ok(ParsedToken::Period),
+            TokenKind::Equal => Ok(ParsedToken::Equal),
         }
     }
 
@@ -773,6 +774,15 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                     Cursor::new(start_offset, self.offset),
                 )));
             }
+            '=' if !self.source[self.offset + 1..].starts_with(|c: char| is_operator!(c)) => {
+                // equal
+                let start_offset = self.offset;
+                self.offset += 1;
+                return Ok(Some(Token::new(
+                    TokenKind::Equal,
+                    Cursor::new(start_offset, self.offset))
+                ));
+            }
             operators!() => {
                 // operator
                 let start_offset = self.offset;
@@ -801,13 +811,21 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PostgreSQLParser<'a> {
     tokenizer: PostgreSQLTokenizer<'a>,
-    // TODO: search_path: Vec<Name>,
+    default_schema: Name,
 }
 
 impl<'a> PostgreSQLParser<'a> {
     #[inline]
     pub fn new(source: &'a str) -> Self {
-        Self { tokenizer: PostgreSQLTokenizer::new(source) }
+        Self {
+            tokenizer: PostgreSQLTokenizer::new(source),
+            default_schema: Name::new("public"),
+        }
+    }
+
+    #[inline]
+    pub fn default_schema(&self) -> &Name {
+        &self.default_schema
     }
 
     fn parse_quot_name(&self, cursor: &Cursor) -> Result<Name> {
@@ -860,7 +878,7 @@ impl<'a> PostgreSQLParser<'a> {
             return Err(Error::with_message(
                 ErrorKind::UnexpectedEOF,
                 Cursor::new(self.tokenizer.offset(), self.tokenizer.offset()),
-                format!("expected: <expression>, actual: EOF")));
+                format!("expected: <expression>, actual: <EOF>")));
         };
 
         match token.kind() {
@@ -897,7 +915,7 @@ impl<'a> PostgreSQLParser<'a> {
                         return Err(Error::with_message(
                             ErrorKind::UnexpectedEOF,
                             Cursor::new(self.tokenizer.offset(), self.tokenizer.offset()),
-                            format!("expected: expression, actual: EOF")));
+                            format!("expected: expression, actual: <EOF>")));
                     };
 
                     if next.kind() == TokenKind::LParen {
@@ -988,7 +1006,7 @@ impl<'a> PostgreSQLParser<'a> {
             return Err(Error::with_message(
                 ErrorKind::UnexpectedEOF,
                 Cursor::new(self.tokenizer.offset(), self.tokenizer.offset()),
-                format!("expected: {}, actual: EOF", br.closing())
+                format!("expected: {}, actual: <EOF>", br.closing())
             ))
         }
 
@@ -1119,6 +1137,109 @@ impl<'a> PostgreSQLParser<'a> {
         }
 
         Ok(())
+    }
+
+    fn parse_value(&mut self) -> Result<Value> {
+        let Some(token) = self.tokenizer.next()? else {
+            return Err(Error::with_cursor(
+                ErrorKind::UnexpectedEOF,
+                Cursor::new(self.tokenizer.offset(), self.tokenizer.offset())
+            ));
+        };
+        let source = self.tokenizer.get(token.cursor());
+        match token.kind() {
+            TokenKind::BinInt | TokenKind::OctInt | TokenKind::DecInt | TokenKind::HexInt => {
+                let value = parse_int(&token, source)?;
+                Ok(Value::Integer(value))
+            },
+            TokenKind::Float => {
+                let stripped = source.replace("_", "");
+                let Ok(value) = stripped.parse() else {
+                    return Err(Error::with_message(
+                        ErrorKind::IllegalToken,
+                        *token.cursor(),
+                        format!("expected: <floating point number>, actual: {source}")
+                    ));
+                };
+                Ok(Value::Float(value))
+            },
+            TokenKind::String => {
+                let Some(value) = parse_string(source) else {
+                    return Err(Error::with_message(
+                        ErrorKind::UnexpectedToken,
+                        *token.cursor(),
+                        format!("expected: <string>, actual: {:?}", token.kind())
+                    ));
+                };
+                Ok(Value::String(value.into()))
+            },
+            TokenKind::UString => {
+                let start_offset = token.cursor().start_offset();
+                let Some(value) = parse_ustring(source) else {
+                    return Err(Error::with_message(
+                        ErrorKind::UnexpectedToken,
+                        *token.cursor(),
+                        format!("expected: <unicode string>, actual: {:?}", token.kind())
+                    ));
+                };
+
+                let escape = self.tokenizer.parse_uescape()?;
+                let end_offset = self.tokenizer.offset();
+                let Some(value) = uunescape(&value, escape) else {
+                    let source = self.tokenizer.get(token.cursor());
+                    return Err(Error::with_message(
+                        ErrorKind::IllegalToken,
+                        Cursor::new(start_offset, end_offset),
+                        format!("illegal escape sequence in: {source}")
+                    ));
+                };
+
+                Ok(Value::String(value.into()))
+            },
+            TokenKind::EString => {
+                let Some(value) = parse_estring(source) else {
+                    return Err(Error::with_message(
+                        ErrorKind::UnexpectedToken,
+                        *token.cursor(),
+                        format!("expected: <estring>, actual: {:?}", token.kind())
+                    ));
+                };
+                Ok(Value::String(value.into()))
+            },
+            TokenKind::DollarString => {
+                Ok(Value::String(strip_dollar_string(source).into()))
+            },
+            _ => {
+                return Err(Error::with_message(
+                    ErrorKind::UnexpectedToken,
+                    *token.cursor(),
+                    format!("expected: <string>, <integer>, or <float>, actual: {source}")
+                ));
+            }
+        }
+    }
+
+    fn parse_type_params(&mut self) -> Result<Option<Rc<[Value]>>> {
+        if self.peek_kind(TokenKind::LParen)? {
+            self.tokenizer.next()?;
+            let mut params = Vec::new();
+
+            if !self.peek_kind(TokenKind::RParen)? {
+                loop {
+                    let value = self.parse_value()?;
+                    params.push(value);
+
+                    if !self.parse_token(TokenKind::Comma)? {
+                        break;
+                    }
+                }
+            }
+
+            self.expect_token(TokenKind::RParen)?;
+            Ok(Some(params.into()))
+        } else {
+            Ok(None)
+        }
     }
 
     fn parse_column_data_type(&mut self) -> Result<ColumnDataType> {
@@ -1363,17 +1484,13 @@ impl<'a> PostgreSQLParser<'a> {
                         self.expect_token(TokenKind::RParen)?;
                     }
 
-                    let token = self.expect_token(TokenKind::Word)?;
-                    let word = self.get_source(token.cursor());
                     let mut with_time_zone = false;
 
-                    if word.eq_ignore_ascii_case(WITH) {
-                        self.tokenizer.next()?;
+                    if self.parse_word(WITH)? {
                         self.expect_word(TIME)?;
                         self.expect_word(ZONE)?;
                         with_time_zone = true;
-                    } else if word.eq_ignore_ascii_case(WITHOUT) {
-                        self.tokenizer.next()?;
+                    } else if self.parse_word(WITHOUT)? {
                         self.expect_word(TIME)?;
                         self.expect_word(ZONE)?;
                         with_time_zone = false;
@@ -1389,17 +1506,13 @@ impl<'a> PostgreSQLParser<'a> {
                         self.expect_token(TokenKind::RParen)?;
                     }
 
-                    let token = self.expect_token(TokenKind::Word)?;
-                    let word = self.get_source(token.cursor());
                     let mut with_time_zone = false;
 
-                    if word.eq_ignore_ascii_case(WITH) {
-                        self.tokenizer.next()?;
+                    if self.parse_word(WITH)? {
                         self.expect_word(TIME)?;
                         self.expect_word(ZONE)?;
                         with_time_zone = true;
-                    } else if word.eq_ignore_ascii_case(WITHOUT) {
-                        self.tokenizer.next()?;
+                    } else if self.parse_word(WITHOUT)? {
                         self.expect_word(TIME)?;
                         self.expect_word(ZONE)?;
                         with_time_zone = false;
@@ -1421,21 +1534,24 @@ impl<'a> PostgreSQLParser<'a> {
                 } else {
                     let name = Name::new_unquoted(word);
                     let name = self.parse_qual_name_tail(name)?;
+                    let parameters = self.parse_type_params()?;
 
-                    DataType::UserDefined { name }
+                    DataType::UserDefined { name, parameters }
                 }
             }
             TokenKind::QuotName => {
                 let name = self.parse_quot_name(token.cursor())?;
                 let name = self.parse_qual_name_tail(name)?;
+                let parameters = self.parse_type_params()?;
 
-                DataType::UserDefined { name }
+                DataType::UserDefined { name, parameters }
             }
             TokenKind::UName => {
                 let name = self.parse_uname(token.cursor())?;
                 let name = self.parse_qual_name_tail(name)?;
+                let parameters = self.parse_type_params()?;
 
-                DataType::UserDefined { name }
+                DataType::UserDefined { name, parameters }
             }
             _ => {
                 let actual = self.get_source(token.cursor());
@@ -1482,12 +1598,14 @@ impl<'a> PostgreSQLParser<'a> {
     }
 
     fn parse_qual_name_tail(&mut self, mut name: Name) -> Result<QName> {
-        let mut schema = None;
+        let schema;
 
         if self.parse_token(TokenKind::Period)? {
             let mut temp = self.expect_name()?;
             std::mem::swap(&mut temp, &mut name);
             schema = Some(temp);
+        } else {
+            schema = Some(self.default_schema.clone());
         }
 
         Ok(QName::new(schema, name))
@@ -1628,11 +1746,9 @@ impl<'a> PostgreSQLParser<'a> {
                 }
 
                 let mut deferrable = None;
-                if self.peek_word(DEFERRABLE)? {
-                    self.expect_some()?;
+                if self.parse_word(DEFERRABLE)? {
                     deferrable = Some(true);
-                } else if self.peek_word(NOT)? {
-                    self.expect_some()?;
+                } else if self.parse_word(NOT)? {
                     self.expect_word(DEFERRABLE)?;
                     deferrable = Some(false);
                 }
@@ -1641,8 +1757,7 @@ impl<'a> PostgreSQLParser<'a> {
                 if self.peek_word(INITIALLY)? {
                     self.expect_some()?;
 
-                    if self.peek_word(DEFERRED)? {
-                        self.expect_some()?;
+                    if self.parse_word(DEFERRED)? {
                         initially_deferred = Some(true);
                     } else {
                         self.expect_word(IMMEDIATE)?;
@@ -1760,11 +1875,10 @@ impl<'a> PostgreSQLParser<'a> {
                     }
 
                     let mut deferrable = None;
-                    if self.peek_word(DEFERRABLE)? {
-                        self.expect_some()?;
+                    if self.parse_word(DEFERRABLE)? {
                         deferrable = Some(true);
-                    } else if self.peek_word(NOT)? {
-                        self.expect_some()?;
+                    } else if self.parse_word(NOT)? {
+                        // XXX: NOT NULL!
                         self.expect_word(DEFERRABLE)?;
                         deferrable = Some(false);
                     }
@@ -1773,8 +1887,7 @@ impl<'a> PostgreSQLParser<'a> {
                     if self.peek_word(INITIALLY)? {
                         self.expect_some()?;
 
-                        if self.peek_word(DEFERRED)? {
-                            self.expect_some()?;
+                        if self.parse_word(DEFERRED)? {
                             initially_deferred = Some(true);
                         } else {
                             self.expect_word(IMMEDIATE)?;
@@ -2063,56 +2176,121 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                     format!("expected: <string>, actual: {:?}", token.kind())
                 ))
             }
-
         }
     }
 
     fn parse(&mut self) -> Result<DDL> {
-        let mut ddl = DDL::new();
+        let mut ddl = DDL::new(vec![Name::new("public")]);
 
-        while self.tokenizer.peek()?.is_some() {
-            let start_offset = self.expect_word(CREATE)?.cursor().start_offset();
+        while let Some(token) = self.tokenizer.peek()? {
+            let start_offset = token.cursor().start_offset();
 
-            if self.parse_word(TABLE)? {
-                if !ddl.create_table(self.parse_table_intern()?) {
-                    return Err(Error::with_cursor(
-                        ErrorKind::TableExists,
-                        Cursor::new(start_offset, self.tokenizer.offset())
+            if self.parse_word(SET)? {
+                let name = self.expect_name()?;
+                self.expect_token(TokenKind::Equal)?;
+
+                if name.name().eq_ignore_ascii_case("search_path") {
+                    let search_path = ddl.search_path_mut();
+                    search_path.clear();
+                    loop {
+                        let name = self.expect_name()?;
+                        search_path.push(name);
+
+                        if !self.parse_token(TokenKind::Comma)? {
+                            break;
+                        }
+                    }
+                } else {
+                    // ignored. store it somewhere?
+                    self.parse_token_list(true)?;
+                }
+
+                self.expect_semicolon_or_eof()?;
+            } else if self.parse_word(CREATE)? {
+                if self.parse_word(TABLE)? {
+                    if !ddl.create_table(self.parse_table_intern()?) {
+                        return Err(Error::with_cursor(
+                            ErrorKind::TableExists,
+                            Cursor::new(start_offset, self.tokenizer.offset())
+                        ));
+                    }
+                } else if self.parse_word(INDEX)? {
+                    if !ddl.create_index(self.parse_index_intern(false)?) {
+                        return Err(Error::with_cursor(
+                            ErrorKind::IndexExists,
+                            Cursor::new(start_offset, self.tokenizer.offset())
+                        ));
+                    }
+                } else if self.parse_word(UNIQUE)? && self.parse_word(INDEX)? {
+                    if !ddl.create_index(self.parse_index_intern(true)?) {
+                        return Err(Error::with_cursor(
+                            ErrorKind::IndexExists,
+                            Cursor::new(start_offset, self.tokenizer.offset())
+                        ));
+                    }
+                } else if self.parse_word(TYPE)? {
+                    if !ddl.create_type(self.parse_type_def_intern()?) {
+                        return Err(Error::with_cursor(
+                            ErrorKind::TypeExists,
+                            Cursor::new(start_offset, self.tokenizer.offset())
+                        ));
+                    }
+                } else if self.parse_word(SEQUENCE)? {
+                    self.parse_token_list(true)?;
+                    self.expect_semicolon_or_eof()?;
+
+                    let end_offset = self.tokenizer.offset();
+                    let source = self.tokenizer.get_offset(start_offset, end_offset);
+
+                    eprintln!("TODO: parse CREATE SEQUENCE statements: {source}");
+                } else if self.parse_word(EXTENSION)? {
+                    self.parse_token_list(true)?;
+                    self.expect_semicolon_or_eof()?;
+
+                    let end_offset = self.tokenizer.offset();
+                    let source = self.tokenizer.get_offset(start_offset, end_offset);
+
+                    eprintln!("TODO: parse CREATE EXTENSION statements: {source}");
+                } else if let Some(token) = self.tokenizer.next()? {
+                    let actual = self.get_source(token.cursor());
+                    return Err(Error::with_message(
+                        ErrorKind::UnexpectedToken,
+                        *token.cursor(),
+                        format!("expected one of: {TABLE}, [{UNIQUE}] {INDEX}, {TYPE}, actual: {actual}")
+                    ));
+                } else {
+                    return Err(Error::with_message(
+                        ErrorKind::UnexpectedEOF,
+                        Cursor::new(self.tokenizer.offset(), self.tokenizer.offset() + 1),
+                        format!("expected one of: {TABLE}, [{UNIQUE}] {INDEX}, {TYPE}, actual: <EOF>")
                     ));
                 }
-            } else if self.parse_word(INDEX)? {
-                if !ddl.create_index(self.parse_index_intern(false)?) {
-                    return Err(Error::with_cursor(
-                        ErrorKind::IndexExists,
-                        Cursor::new(start_offset, self.tokenizer.offset())
-                    ));
-                }
-            } else if self.parse_word(UNIQUE)? && self.parse_word(INDEX)? {
-                if !ddl.create_index(self.parse_index_intern(true)?) {
-                    return Err(Error::with_cursor(
-                        ErrorKind::IndexExists,
-                        Cursor::new(start_offset, self.tokenizer.offset())
-                    ));
-                }
-            } else if self.parse_word(TYPE)? {
-                if !ddl.create_type(self.parse_type_def_intern()?) {
-                    return Err(Error::with_cursor(
-                        ErrorKind::TypeExists,
-                        Cursor::new(start_offset, self.tokenizer.offset())
-                    ));
-                }
-            } else if let Some(token) = self.tokenizer.next()? {
+            } else if self.parse_word(SELECT)? {
+                // ignore
+                self.parse_token_list(true)?;
+                self.expect_semicolon_or_eof()?;
+            } else if self.parse_word(ALTER)? {
+                self.parse_token_list(true)?;
+                self.expect_semicolon_or_eof()?;
+
+                let end_offset = self.tokenizer.offset();
+                let source = self.tokenizer.get_offset(start_offset, end_offset);
+
+                eprintln!("TODO: parse ALTER statements: {source}");
+            } else if self.parse_word(COMMENT)? {
+                self.parse_token_list(true)?;
+                self.expect_semicolon_or_eof()?;
+
+                let end_offset = self.tokenizer.offset();
+                let source = self.tokenizer.get_offset(start_offset, end_offset);
+
+                eprintln!("TODO: parse COMMENT statements: {source}");
+            } else {
                 let actual = self.get_source(token.cursor());
                 return Err(Error::with_message(
                     ErrorKind::UnexpectedToken,
                     *token.cursor(),
-                    format!("expected one of: {TABLE}, [{UNIQUE}] {INDEX}, {TYPE}, actual: {actual}")
-                ));
-            } else {
-                return Err(Error::with_message(
-                    ErrorKind::UnexpectedEOF,
-                    Cursor::new(self.tokenizer.offset(), self.tokenizer.offset() + 1),
-                    format!("expected one of: {TABLE}, [{UNIQUE}] {INDEX}, {TYPE}, actual: EOF")
+                    format!("expected one of: {CREATE}, {SET}, {SELECT}, actual: {actual}")
                 ));
             }
         }
