@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::format::{format_iso_string, write_token_list};
+use crate::format::write_token_list;
 
 use super::name::QName;
 use super::{name::Name, token::ParsedToken};
@@ -69,7 +69,7 @@ impl std::fmt::Display for IndexItemData {
 #[derive(Debug, Clone, PartialEq)]
 pub struct IndexItem {
     data: IndexItemData,
-    collation: Option<Rc<str>>,
+    collation: Option<Name>,
     direction: Option<Direction>,
     nulls_position: Option<NullsPosition>,
 }
@@ -99,11 +99,11 @@ impl IndexItem {
     #[inline]
     pub fn new(
         data: IndexItemData,
-        collation: Option<impl Into<Rc<str>>>,
+        collation: Option<Name>,
         direction: Option<Direction>,
         nulls_position: Option<NullsPosition>,
     ) -> Self {
-        Self { data, collation: collation.map(Into::into), direction, nulls_position }
+        Self { data, collation, direction, nulls_position }
     }
 
     #[inline]
@@ -112,7 +112,7 @@ impl IndexItem {
     }
 
     #[inline]
-    pub fn collation(&self) -> Option<&Rc<str>> {
+    pub fn collation(&self) -> Option<&Name> {
         self.collation.as_ref()
     }
 
@@ -132,7 +132,7 @@ pub struct Index {
     unique: bool,
     name: Option<QName>,
     table_name: QName,
-    method: Option<Rc<str>>,
+    method: Option<Name>,
     items: Rc<[IndexItem]>,
     nulls_distinct: Option<bool>,
     predicate: Option<Rc<[ParsedToken]>>,
@@ -158,7 +158,7 @@ impl Index {
         unique: bool,
         name: Option<QName>,
         table_name: QName,
-        method: Option<impl Into<Rc<str>>>,
+        method: Option<Name>,
         items: impl Into<Rc<[IndexItem]>>,
         nulls_distinct: Option<bool>,
         predicate: Option<impl Into<Rc<[ParsedToken]>>>,
@@ -167,7 +167,7 @@ impl Index {
             unique,
             name,
             table_name,
-            method: method.map(Into::into),
+            method,
             items: items.into(),
             nulls_distinct,
             predicate: predicate.map(Into::into),
@@ -195,8 +195,8 @@ impl Index {
     }
 
     #[inline]
-    pub fn method(&self) -> Option<&str> {
-        self.method.as_deref()
+    pub fn method(&self) -> Option<&Name> {
+        self.method.as_ref()
     }
 
     #[inline]
@@ -209,7 +209,7 @@ impl Index {
         self.predicate.as_deref()
     }
 
-    fn write(&self, mut f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn write(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some(name) = &self.name {
             write!(f, " {name}")?;
         }
@@ -217,8 +217,7 @@ impl Index {
         write!(f, " {ON} {}", self.table_name)?;
 
         if let Some(method) = &self.method {
-            write!(f, " {USING} ")?;
-            format_iso_string(&mut f, method)?;
+            write!(f, " {USING} {method}")?;
         }
 
         f.write_str(" (")?;

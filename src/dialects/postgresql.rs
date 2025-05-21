@@ -173,7 +173,7 @@ impl<'a> PostgreSQLTokenizer<'a> {
         return Ok(self.offset + len);
     }
 
-    fn find_qname_end(&mut self) -> Result<usize> {
+    fn find_quot_name_end(&mut self) -> Result<usize> {
         let slice = &self.source[self.offset..];
         if !slice.starts_with('"') {
             return Err(Error::with_message(
@@ -397,8 +397,8 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                 Ok(ParsedToken::String(strip_dollar_string(source).into()))
             },
             TokenKind::Word => Ok(ParsedToken::Name(Name::new_unquoted(source))),
-            TokenKind::QIdent => {
-                let Some(value) = parse_qname(source) else {
+            TokenKind::QuotName => {
+                let Some(value) = parse_quot_name(source) else {
                     return Err(Error::with_message(
                         ErrorKind::UnexpectedToken,
                         *token.cursor(),
@@ -407,7 +407,7 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                 };
                 Ok(ParsedToken::Name(Name::new_quoted(value)))
             },
-            TokenKind::UIdent => {
+            TokenKind::UName => {
                 let start_offset = token.cursor().start_offset();
                 let Some(value) = parse_uname(source) else {
                     return Err(Error::with_message(
@@ -609,11 +609,11 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                 // U& identifier
                 let start_offset = self.offset;
                 self.offset += 2;
-                let end_offset = self.find_qname_end()?;
+                let end_offset = self.find_quot_name_end()?;
                 self.offset = end_offset;
 
                 return Ok(Some(Token::new(
-                    TokenKind::UIdent,
+                    TokenKind::UName,
                     Cursor::new(start_offset, end_offset)
                 )));
             }
@@ -644,11 +644,11 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
             '"' => {
                 // quoted identifier
                 let start_offset = self.offset;
-                let end_offset = self.find_qname_end()?;
+                let end_offset = self.find_quot_name_end()?;
                 self.offset = end_offset;
 
                 return Ok(Some(Token::new(
-                    TokenKind::QIdent,
+                    TokenKind::QuotName,
                     Cursor::new(start_offset, end_offset)
                 )));
             }
@@ -801,6 +801,7 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PostgreSQLParser<'a> {
     tokenizer: PostgreSQLTokenizer<'a>,
+    // TODO: search_path: Vec<Name>,
 }
 
 impl<'a> PostgreSQLParser<'a> {
@@ -809,10 +810,10 @@ impl<'a> PostgreSQLParser<'a> {
         Self { tokenizer: PostgreSQLTokenizer::new(source) }
     }
 
-    fn parse_qname(&self, cursor: &Cursor) -> Result<Name> {
+    fn parse_quot_name(&self, cursor: &Cursor) -> Result<Name> {
         // assumes that the quoted name is syntactically correct
         let source = cursor.get(self.tokenizer.source());
-        let Some(value) = parse_qname(source) else {
+        let Some(value) = parse_quot_name(source) else {
             return Err(Error::with_message(
                 ErrorKind::IllegalToken,
                 *cursor,
@@ -1424,13 +1425,13 @@ impl<'a> PostgreSQLParser<'a> {
                     DataType::UserDefined { name }
                 }
             }
-            TokenKind::QIdent => {
-                let name = self.parse_qname(token.cursor())?;
+            TokenKind::QuotName => {
+                let name = self.parse_quot_name(token.cursor())?;
                 let name = self.parse_qual_name_tail(name)?;
 
                 DataType::UserDefined { name }
             }
-            TokenKind::UIdent => {
+            TokenKind::UName => {
                 let name = self.parse_uname(token.cursor())?;
                 let name = self.parse_qual_name_tail(name)?;
 
@@ -1664,7 +1665,7 @@ impl<'a> PostgreSQLParser<'a> {
 
                 if self.peek_word(COLLATE)? {
                     self.expect_some()?;
-                    collation = Some(self.expect_string()?);
+                    collation = Some(self.expect_name()?);
                 }
 
                 let mut column_constraints = Vec::new();
@@ -1827,7 +1828,7 @@ impl<'a> PostgreSQLParser<'a> {
 
         let mut collation = None;
         if self.parse_word(COLLATE)? {
-            collation = Some(self.expect_string()?);
+            collation = Some(self.expect_name()?);
         }
 
         let mut direction = None;
@@ -1869,7 +1870,7 @@ impl<'a> PostgreSQLParser<'a> {
             self.expect_word(EXISTS)?;
             if_not_exists = true;
             Some(self.parse_qual_name()?)
-        } else if peek_token!(self, TokenKind::Word | TokenKind::QIdent | TokenKind::UIdent)?.is_some() {
+        } else if peek_token!(self, TokenKind::Word | TokenKind::QuotName | TokenKind::UName)?.is_some() {
             Some(self.parse_qual_name()?)
         } else {
             None
@@ -1880,7 +1881,7 @@ impl<'a> PostgreSQLParser<'a> {
         let table_name = self.parse_qual_name()?;
 
         let method = if self.parse_word(USING)? {
-            Some(self.expect_string()?)
+            Some(self.expect_name()?)
         } else {
             None
         };
@@ -1992,10 +1993,10 @@ impl<'a> Parser for PostgreSQLParser<'a> {
             TokenKind::Word => {
                 Ok(self.parse_name(token.cursor()))
             }
-            TokenKind::QIdent => {
-                Ok(self.parse_qname(token.cursor())?)
+            TokenKind::QuotName => {
+                self.parse_quot_name(token.cursor())
             }
-            TokenKind::UIdent => {
+            TokenKind::UName => {
                 self.parse_uname(token.cursor())
             }
             _ => {
@@ -2283,7 +2284,7 @@ pub fn parse_string(source: &str) -> Option<String> {
     Some(value)
 }
 
-pub fn parse_qname(source: &str) -> Option<String> {
+pub fn parse_quot_name(source: &str) -> Option<String> {
     if !source.starts_with("\"") || !source.ends_with("\"") || source.len() < 2 {
         return None;
     }

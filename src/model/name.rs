@@ -143,6 +143,7 @@ impl From<&Name> for QName {
 
 #[derive(Debug, Clone, Hash, Eq)]
 pub struct QName {
+    // actually there would also be: database: Option<Name>
     schema: Option<Name>,
     name: Name,
 }

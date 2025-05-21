@@ -274,8 +274,8 @@ impl AlterColumn {
     }
 
     #[inline]
-    pub fn change_type(column_name: Name, data_type: Rc<ColumnDataType>, collation: Option<impl Into<Rc<str>>>, using: Option<Rc<[ParsedToken]>>) -> Self {
-        Self { column_name, data: AlterColumnData::Type { data_type, collation: collation.map(Into::into), using } }
+    pub fn change_type(column_name: Name, data_type: Rc<ColumnDataType>, collation: Option<Name>, using: Option<Rc<[ParsedToken]>>) -> Self {
+        Self { column_name, data: AlterColumnData::Type { data_type, collation, using } }
     }
 
     #[inline]
@@ -318,7 +318,7 @@ impl std::fmt::Display for AlterColumn {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AlterColumnData {
-    Type { data_type: Rc<ColumnDataType>, collation: Option<Rc<str>>, using: Option<Rc<[ParsedToken]>> },
+    Type { data_type: Rc<ColumnDataType>, collation: Option<Name>, using: Option<Rc<[ParsedToken]>> },
     SetDefault { expr: Rc<[ParsedToken]> },
     DropDefault,
     SetNotNull,
@@ -328,14 +328,13 @@ pub enum AlterColumnData {
 
 impl std::fmt::Display for AlterColumnData {
     #[inline]
-    fn fmt(&self, mut f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Type { data_type, collation, using } => {
                 write!(f, "{TYPE} {data_type}")?;
 
                 if let Some(collation) = collation {
-                    write!(f, " {COLLATE} ")?;
-                    format_iso_string(&mut f, collation)?;
+                    write!(f, " {COLLATE} {collation}")?;
                 }
 
                 if let Some(using) = using {
