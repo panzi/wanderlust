@@ -5,7 +5,7 @@
 
 use std::{num::NonZeroU32, rc::Rc};
 
-use crate::{error::{Error, ErrorKind, Result}, model::{column::{Column, ColumnConstraint, ColumnConstraintData, ColumnMatch, ReferentialAction}, ddl::DDL, index::{CreateIndex, Direction, Index, IndexItem, IndexItemData, NullsPosition}, integers::{Integer, SignedInteger, UnsignedInteger}, name::{Name, QName}, syntax::{Cursor, Parser, SourceLocation, Tokenizer}, table::{CreateTable, Table, TableConstraint, TableConstraintData}, token::{ParsedToken, Token, TokenKind}, types::{ColumnDataType, DataType, IntervalFields, TypeDef, Value}}, peek_token};
+use crate::{error::{Error, ErrorKind, Result}, model::{column::{Column, ColumnConstraint, ColumnConstraintData, ColumnMatch, ReferentialAction}, ddl::DDL, index::{CreateIndex, Direction, Index, IndexItem, IndexItemData, NullsPosition}, integers::{Integer, SignedInteger, UnsignedInteger}, name::{Name, QName}, syntax::{Cursor, Parser, SourceLocation, Tokenizer}, table::{CreateTable, Table, TableConstraint, TableConstraintData}, token::{ParsedToken, ToTokens, Token, TokenKind}, types::{ColumnDataType, DataType, IntervalFields, TypeDef, Value}}, peek_token};
 use crate::model::words::*;
 
 pub fn uunescape(string: &str, escape: char) -> Option<String> {
@@ -907,6 +907,13 @@ impl<'a> PostgreSQLParser<'a> {
             match next.kind() {
                 TokenKind::Comma | TokenKind::SemiColon | TokenKind::RParen | TokenKind::RBracket => {
                     break;
+                }
+                TokenKind::DoubleColon => {
+                    expr.push(self.tokenizer.parse()?);
+
+                    let data_type = self.parse_column_data_type()?;
+                    data_type.to_tokens_into(&mut expr);
+                    continue;
                 }
                 TokenKind::Word if !matches!(token.kind(), TokenKind::Period | TokenKind::Operator | TokenKind::DoubleColon) => {
                     break;

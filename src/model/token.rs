@@ -137,12 +137,6 @@ pub trait ToTokens {
     fn to_tokens_into(&self, tokens: &mut Vec<ParsedToken>);
 }
 
-impl<T> From<&T> for ParsedToken where T: From<T> {
-    fn from(value: &T) -> Self {
-        value.into()
-    }
-}
-
 impl From<Rc<str>> for ParsedToken {
     #[inline]
     fn from(value: Rc<str>) -> Self {
@@ -244,70 +238,70 @@ impl From<NonZeroU32> for ParsedToken {
 impl ToTokens for u8 {
     #[inline]
     fn to_tokens_into(&self, tokens: &mut Vec<ParsedToken>) {
-        tokens.push(self.into());
+        tokens.push((*self).into());
     }
 }
 
 impl ToTokens for u16 {
     #[inline]
     fn to_tokens_into(&self, tokens: &mut Vec<ParsedToken>) {
-        tokens.push(self.into());
+        tokens.push((*self).into());
     }
 }
 
 impl ToTokens for u32 {
     #[inline]
     fn to_tokens_into(&self, tokens: &mut Vec<ParsedToken>) {
-        tokens.push(self.into());
+        tokens.push((*self).into());
     }
 }
 
 impl ToTokens for i8 {
     #[inline]
     fn to_tokens_into(&self, tokens: &mut Vec<ParsedToken>) {
-        tokens.push(self.into());
+        tokens.push((*self).into());
     }
 }
 
 impl ToTokens for i16 {
     #[inline]
     fn to_tokens_into(&self, tokens: &mut Vec<ParsedToken>) {
-        tokens.push(self.into());
+        tokens.push((*self).into());
     }
 }
 
 impl ToTokens for i32 {
     #[inline]
     fn to_tokens_into(&self, tokens: &mut Vec<ParsedToken>) {
-        tokens.push(self.into());
+        tokens.push((*self).into());
     }
 }
 
 impl ToTokens for i64 {
     #[inline]
     fn to_tokens_into(&self, tokens: &mut Vec<ParsedToken>) {
-        tokens.push(self.into());
+        tokens.push((*self).into());
     }
 }
 
 impl ToTokens for f32 {
     #[inline]
     fn to_tokens_into(&self, tokens: &mut Vec<ParsedToken>) {
-        tokens.push(self.into());
+        tokens.push((*self).into());
     }
 }
 
 impl ToTokens for f64 {
     #[inline]
     fn to_tokens_into(&self, tokens: &mut Vec<ParsedToken>) {
-        tokens.push(self.into());
+        tokens.push((*self).into());
     }
 }
 
 impl ToTokens for Name {
     #[inline]
     fn to_tokens_into(&self, tokens: &mut Vec<ParsedToken>) {
-        tokens.push(self.into());
+        tokens.push(ParsedToken::Name(self.clone()));
     }
 }
 
@@ -315,38 +309,38 @@ impl ToTokens for QName {
     #[inline]
     fn to_tokens_into(&self, tokens: &mut Vec<ParsedToken>) {
         if let Some(schema) = self.schema() {
-            tokens.push(schema.into());
+            tokens.push(ParsedToken::Name(schema.clone()));
             tokens.push(ParsedToken::Period);
         }
-        tokens.push(self.name().into());
+        tokens.push(ParsedToken::Name(self.name().clone()));
     }
 }
 
 impl ToTokens for NonZeroU32 {
     #[inline]
     fn to_tokens_into(&self, tokens: &mut Vec<ParsedToken>) {
-        tokens.push(self.into());
+        tokens.push((*self).into());
     }
 }
 
 impl ToTokens for Rc<str> {
     #[inline]
     fn to_tokens_into(&self, tokens: &mut Vec<ParsedToken>) {
-        tokens.push(self.into());
+        tokens.push(ParsedToken::String(self.clone()));
     }
 }
 
-impl ToTokens for &str {
+impl ToTokens for str {
     #[inline]
     fn to_tokens_into(&self, tokens: &mut Vec<ParsedToken>) {
-        tokens.push(self.into());
+        tokens.push(ParsedToken::String(self.into()));
     }
 }
 
 impl ToTokens for String {
     #[inline]
     fn to_tokens_into(&self, tokens: &mut Vec<ParsedToken>) {
-        tokens.push(self.into());
+        tokens.push(ParsedToken::String(self.as_str().into()));
     }
 }
 
