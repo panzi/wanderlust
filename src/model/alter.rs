@@ -90,6 +90,26 @@ impl AlterTable {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum Owner {
+    User(Name),
+    CurrentRole,
+    CurrentUser,
+    SessionUser,
+}
+
+impl std::fmt::Display for Owner {
+    #[inline]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::User(name) => std::fmt::Display::fmt(&name, f),
+            Self::CurrentRole => f.write_str(CURRENT_ROLE),
+            Self::CurrentUser => f.write_str(CURRENT_USER),
+            Self::SessionUser => f.write_str(SESSION_USER),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum AlterTableData {
     Actions { only: bool, actions: Rc<[AlterTableAction]> },
     RenameTable { new_name: Name },
@@ -98,6 +118,7 @@ pub enum AlterTableData {
     AddConstraint { constraint: Rc<TableConstraint> },
     AlterConstraint { constraint_name: Name, deferrable: Option<bool>, initially_deferred: Option<bool> },
     DropConstraint { constraint_name: Name, drop_option: Option<DropOption> },
+    OwnerTo { new_owner: Owner },
 }
 
 impl AlterTableData {
@@ -144,6 +165,11 @@ impl AlterTableData {
     #[inline]
     pub fn drop_constraint(constraint_name: Name, drop_option: Option<DropOption>) -> Self {
         Self::DropConstraint { constraint_name, drop_option }
+    }
+
+    #[inline]
+    pub fn owner_to(new_owner: Owner) -> Self {
+        Self::OwnerTo { new_owner }
     }
 
     #[inline]
@@ -215,6 +241,9 @@ impl std::fmt::Display for AlterTableData {
                 }
 
                 Ok(())
+            },
+            Self::OwnerTo { new_owner } => {
+                write!(f, "{OWNER} {TO} {new_owner}")
             }
         }
     }
@@ -404,6 +433,11 @@ impl AlterType {
     }
 
     #[inline]
+    pub fn owner_to(type_name: QName, new_owner: Owner) -> Rc<Self> {
+        Rc::new(Self { type_name, data: AlterTypeData::OwnerTo { new_owner } })
+    }
+
+    #[inline]
     pub fn type_name(&self) -> &QName {
         &self.type_name
     }
@@ -426,6 +460,7 @@ pub enum AlterTypeData {
     Rename { new_name: QName },
     AddValue { if_not_exists: bool, value: Rc<str>, position: Option<ValuePosition> },
     RenameValue { existing_value: Rc<str>, new_value: Rc<str> },
+    OwnerTo { new_owner: Owner },
 }
 
 impl std::fmt::Display for AlterTypeData {
@@ -454,6 +489,9 @@ impl std::fmt::Display for AlterTypeData {
                 format_iso_string(&mut f, existing_value)?;
                 write!(f, " {TO} ")?;
                 format_iso_string(&mut f, new_value)
+            }
+            Self::OwnerTo { new_owner } => {
+                write!(f, "{OWNER} {TO} {new_owner}")
             }
         }
     }

@@ -5,7 +5,7 @@
 
 use std::{num::NonZeroU32, rc::Rc};
 
-use crate::{error::{Error, ErrorKind, Result}, model::{column::{Column, ColumnConstraint, ColumnConstraintData, ColumnMatch, ReferentialAction}, ddl::DDL, index::{CreateIndex, Direction, Index, IndexItem, IndexItemData, NullsPosition}, integers::{Integer, SignedInteger, UnsignedInteger}, name::{Name, QName}, syntax::{Cursor, Parser, SourceLocation, Tokenizer}, table::{CreateTable, Table, TableConstraint, TableConstraintData}, token::{ParsedToken, ToTokens, Token, TokenKind}, types::{ColumnDataType, DataType, IntervalFields, TypeDef, Value}}, peek_token};
+use crate::{error::{Error, ErrorKind, Result}, model::{alter::{AlterTable, AlterType, AlterTypeData, Owner, ValuePosition}, column::{Column, ColumnConstraint, ColumnConstraintData, ColumnMatch, ReferentialAction}, ddl::DDL, index::{CreateIndex, Direction, Index, IndexItem, IndexItemData, NullsPosition}, integers::{Integer, SignedInteger, UnsignedInteger}, name::{Name, QName}, syntax::{Cursor, Parser, SourceLocation, Tokenizer}, table::{CreateTable, Table, TableConstraint, TableConstraintData}, token::{ParsedToken, ToTokens, Token, TokenKind}, types::{ColumnDataType, DataType, IntervalFields, TypeDef, Value}}, peek_token};
 use crate::model::words::*;
 
 pub fn uunescape(string: &str, escape: char) -> Option<String> {
@@ -2082,6 +2082,85 @@ impl<'a> PostgreSQLParser<'a> {
 
         Ok(TypeDef::create_enum(type_name, values))
     }
+
+    fn parse_alter_table_intern(&mut self) -> Result<Rc<AlterTable>> {
+        // "ALTER TABLE" is already parsed
+        let only = self.parse_word(ONLY)?;
+        let table_name = self.parse_qual_name()?;
+        unimplemented!() // TODO
+    }
+
+    fn parse_alter_type_intern(&mut self) -> Result<Rc<AlterType>> {
+        // "ALTER TYPE" is already parsed
+        let type_name = self.parse_qual_name()?;
+
+        if self.parse_word(OWNER)? {
+            self.expect_word(TO)?;
+
+            let new_owner = if self.parse_word(CURRENT_ROLE)? {
+                Owner::CurrentRole
+            } else if self.parse_word(CURRENT_USER)? {
+                Owner::CurrentUser
+            } else {
+                let username = self.expect_name()?;
+                Owner::User(username)
+            };
+
+            self.expect_semicolon_or_eof()?;
+
+            Ok(AlterType::owner_to(type_name, new_owner))
+        } else if self.parse_word(RENAME)? {
+            if self.parse_word(TO)? {
+                let new_name = self.parse_qual_name()?;
+                self.expect_semicolon_or_eof()?;
+
+                Ok(AlterType::rename(type_name, new_name))
+            } else {
+                self.expect_word(VALUE)?;
+
+                let existing_value = self.expect_string()?;
+                self.expect_word(TO)?;
+                let new_value = self.expect_string()?;
+
+                Ok(AlterType::rename_value(type_name, existing_value, new_value))
+            }
+        } else if self.parse_word(ADD)? {
+            self.expect_word(VALUE)?;
+
+            let mut if_not_exists = false;
+            if self.parse_word(IF)? {
+                self.expect_word(NOT)?;
+                self.expect_word(EXISTS)?;
+                if_not_exists = true;
+            }
+
+            let value = self.expect_string()?;
+            let mut position = None;
+
+            if self.parse_word(BEFORE)? {
+                let other_value = self.expect_string()?;
+                position = Some(ValuePosition::Before(other_value));
+            } else if self.parse_word(AFTER)? {
+                let other_value = self.expect_string()?;
+                position = Some(ValuePosition::After(other_value));
+            }
+
+            Ok(Rc::new(AlterType::new(type_name, AlterTypeData::AddValue { if_not_exists, value, position })))
+        } else if let Some(token) = self.peek_token()? {
+            let actual = self.get_source(token.cursor());
+            Err(Error::with_message(
+                ErrorKind::UnexpectedToken,
+                *token.cursor(),
+                format!("expected one of: {OWNER}, {RENAME}, {ADD}, actual: {actual}")
+            ))
+        } else {
+            Err(Error::with_message(
+                ErrorKind::UnexpectedToken,
+                Cursor::new(self.tokenizer.offset(), self.tokenizer.offset()),
+                format!("expected one of: {OWNER}, {RENAME}, {ADD}, actual: <EOF>")
+            ))
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2295,13 +2374,23 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                 // TODO: ALTER
                 // This is important if the output of pg_dump should be supported,
                 // because it adds constraints at the end via ALTER statements.
-                self.parse_token_list(true)?;
-                self.expect_semicolon_or_eof()?;
 
-                let end_offset = self.tokenizer.offset();
-                let source = self.tokenizer.get_offset(start_offset, end_offset);
+                //if self.parse_word(TABLE)? {
+                //    let alter_table = self.parse_alter_table_intern()?;
+                //    // TODO: evaluate
+                //} else
+                if self.parse_word(TYPE)? {
+                    let alter_type = self.parse_alter_type_intern()?;
+                    // TODO: evaluate
+                } else {
+                    self.parse_token_list(true)?;
+                    self.expect_semicolon_or_eof()?;
 
-                eprintln!("TODO: parse ALTER statements: {source}");
+                    let end_offset = self.tokenizer.offset();
+                    let source = self.tokenizer.get_offset(start_offset, end_offset);
+
+                    eprintln!("TODO: parse ALTER statements: {source}");
+                }
             } else if self.parse_word(COMMENT)? {
                 // ignore COMMENT?
                 self.parse_token_list(true)?;
@@ -2311,6 +2400,32 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                 let source = self.tokenizer.get_offset(start_offset, end_offset);
 
                 eprintln!("TODO: parse COMMENT statements: {source}");
+            } else if self.parse_word(BEGIN)? {
+                let _ = self.parse_word(TRANSACTION)? || self.parse_word(WORK)?;
+                self.expect_semicolon_or_eof()?;
+            } else if self.parse_word(START)? {
+                self.expect_word(TRANSACTION)?;
+                self.expect_semicolon_or_eof()?;
+            } else if self.parse_word(COMMIT)? {
+                let _ = self.parse_word(TRANSACTION)? || self.parse_word(WORK)?;
+                if self.parse_word(AND)? {
+                    self.parse_word(NO)?;
+                    self.expect_word(CHAIN)?;
+                }
+                self.expect_semicolon_or_eof()?;
+            } else if self.parse_word(ROLLBACK)? {
+                let _ = self.parse_word(TRANSACTION)? || self.parse_word(WORK)?;
+                if self.parse_word(AND)? {
+                    self.parse_word(NO)?;
+                    self.expect_word(CHAIN)?;
+                }
+                self.expect_semicolon_or_eof()?;
+
+                return Err(Error::with_message(
+                    ErrorKind::UnexpectedToken,
+                    Cursor::new(start_offset, self.tokenizer.offset()),
+                    format!("transaction rollback is not supported")
+                ));
             } else {
                 let actual = self.get_source(token.cursor());
                 return Err(Error::with_message(
