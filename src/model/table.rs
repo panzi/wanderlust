@@ -226,13 +226,28 @@ impl std::fmt::Display for TableConstraintData {
     }
 }
 
+fn eq_expr(lhs: &[ParsedToken], rhs: &[ParsedToken]) -> bool {
+    if lhs.len() < rhs.len() {
+        rhs.starts_with(&[ParsedToken::LParen]) &&
+        rhs.ends_with(&[ParsedToken::RParen]) &&
+        lhs == &rhs[1..rhs.len() - 1]
+    } else if lhs.len() > rhs.len() {
+        lhs.starts_with(&[ParsedToken::LParen]) &&
+        lhs.ends_with(&[ParsedToken::RParen]) &&
+        &lhs[1..rhs.len() - 1] == rhs
+    } else {
+        lhs == rhs
+    }
+}
+
 impl PartialEq for TableConstraintData {
     fn eq(&self, other: &Self) -> bool {
         match self {
             Self::Check { expr, inherit } => {
                 match other {
                     Self::Check { expr: other_expr, inherit: other_inherit } => {
-                        inherit == other_inherit && expr == other_expr
+                        *inherit == *other_inherit &&
+                        eq_expr(expr, other_expr)
                     }
                     _ => false
                 }
@@ -266,7 +281,7 @@ impl PartialEq for TableConstraintData {
                     } => {
                         ref_table == other_ref_table &&
                         columns == other_columns &&
-                        ref_columns == other_ref_columns && // XXX: false negatives if only one side uses the default
+                        ref_columns.as_ref().unwrap_or(columns) == other_ref_columns.as_ref().unwrap_or(columns) &&
                         column_match.unwrap_or_default() == other_column_match.unwrap_or_default() &&
                         on_delete.as_ref().unwrap_or(&ReferentialAction::NoAction) == other_on_delete.as_ref().unwrap_or(&ReferentialAction::NoAction) &&
                         on_update.as_ref().unwrap_or(&ReferentialAction::NoAction) == other_on_update.as_ref().unwrap_or(&ReferentialAction::NoAction)
@@ -362,5 +377,20 @@ impl TableConstraint {
     #[inline]
     pub fn default_initially_deferred(&self) -> bool {
         self.initially_deferred.unwrap_or(false)
+    }
+
+    pub fn matches(&self, other: &TableConstraint) -> bool {
+        self.data == other.data &&
+        self.default_deferrable() == other.default_deferrable() &&
+        self.default_initially_deferred() == other.default_initially_deferred()
+    }
+
+    pub fn columns(&self) -> Option<&Rc<[Name]>> {
+        match self.data() {
+            TableConstraintData::Check { .. } => None,
+            TableConstraintData::Unique { columns, .. } => Some(columns),
+            TableConstraintData::PrimaryKey { columns, .. } => Some(columns),
+            TableConstraintData::ForeignKey { columns, .. } => Some(columns),
+        }
     }
 }

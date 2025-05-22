@@ -64,7 +64,7 @@ impl AlterTable {
 
 
     #[inline]
-    pub fn add_constraint(table_name: QName, constraint: TableConstraint) -> Rc<Self> {
+    pub fn add_constraint(table_name: QName, constraint: impl Into<Rc<TableConstraint>>) -> Rc<Self> {
         Rc::new(Self { table_name, data: AlterTableData::add_constraint(constraint) })
     }
 
@@ -95,7 +95,7 @@ pub enum AlterTableData {
     RenameTable { new_name: Name },
     RenameColumn { only: bool, column_name: Name, new_column_name: Name },
     RenameConstraint { only: bool, constraint_name: Name, new_constraint_name: Name },
-    AddConstraint { constraint: TableConstraint },
+    AddConstraint { constraint: Rc<TableConstraint> },
     AlterConstraint { constraint_name: Name, deferrable: Option<bool>, initially_deferred: Option<bool> },
     DropConstraint { constraint_name: Name, drop_option: Option<DropOption> },
 }
@@ -132,8 +132,8 @@ impl AlterTableData {
     }
 
     #[inline]
-    pub fn add_constraint(constraint: TableConstraint) -> Self {
-        Self::AddConstraint { constraint }
+    pub fn add_constraint(constraint: impl Into<Rc<TableConstraint>>) -> Self {
+        Self::AddConstraint { constraint: constraint.into() }
     }
 
     #[inline]

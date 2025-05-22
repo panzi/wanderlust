@@ -32,6 +32,36 @@ pub enum TokenKind {
     Equal,
 }
 
+impl std::fmt::Display for TokenKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TokenKind::BinInt       => f.write_str("<binary integer>"),
+            TokenKind::OctInt       => f.write_str("<octal integer>"),
+            TokenKind::DecInt       => f.write_str("<decimal integer>"),
+            TokenKind::HexInt       => f.write_str("<hexa-decimal integer>"),
+            TokenKind::Float        => f.write_str("<floating-point number>"),
+            TokenKind::String       => f.write_str("<string>"),
+            TokenKind::UString      => f.write_str("<unicode string>"),
+            TokenKind::EString      => f.write_str("<estring>"),
+            TokenKind::DollarString => f.write_str("<dollar string>"),
+            TokenKind::Word         => f.write_str("<word>"),
+            TokenKind::QuotName     => f.write_str("<quoted name>"),
+            TokenKind::UName        => f.write_str("<unicode name>"),
+            TokenKind::Operator     => f.write_str("<operator>"),
+            TokenKind::LParen       => f.write_str("("),
+            TokenKind::RParen       => f.write_str(")"),
+            TokenKind::LBracket     => f.write_str("["),
+            TokenKind::RBracket     => f.write_str("]"),
+            TokenKind::Comma        => f.write_str(","),
+            TokenKind::DoubleColon  => f.write_str("::"),
+            TokenKind::Colon        => f.write_str(":"),
+            TokenKind::SemiColon    => f.write_str(";"),
+            TokenKind::Period       => f.write_str("."),
+            TokenKind::Equal        => f.write_str("="),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Token {
     kind: TokenKind,

@@ -64,6 +64,22 @@ impl Column {
         &mut self.constraints
     }
 
+    pub fn without_table_constraints(self: &Rc<Self>) -> Rc<Self> {
+        if self.constraints.iter().find(|&constraint| constraint.is_table_constraint()).is_none() {
+            return self.clone();
+        }
+
+        Rc::new(Self {
+            name: self.name.clone(),
+            data_type: self.data_type.clone(),
+            collation: self.collation.clone(),
+            constraints: self.constraints.iter()
+                .filter(|&constraint| !constraint.is_table_constraint())
+                .cloned()
+                .collect()
+        })
+    }
+
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -311,6 +327,16 @@ impl ColumnConstraint {
     #[inline]
     pub fn is_foreign_key(&self) -> bool {
         matches!(self.data, ColumnConstraintData::References { .. })
+    }
+
+    #[inline]
+    pub fn is_table_constraint(&self) -> bool {
+        matches!(self.data,
+            ColumnConstraintData::Check { .. } |
+            ColumnConstraintData::Unique { .. } |
+            ColumnConstraintData::PrimaryKey |
+            ColumnConstraintData::References { .. }
+        )
     }
 
     pub fn to_table_constraint(&self, column_name: &Name) -> Option<TableConstraint> {

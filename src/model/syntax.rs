@@ -298,7 +298,7 @@ pub trait Parser {
             return Err(Error::with_message(
                 ErrorKind::UnexpectedToken,
                 *token.cursor(),
-                format!("expected: {kind:?}, actual: {actual}")
+                format!("expected: {kind}, actual: {actual}")
             ));
         }
 

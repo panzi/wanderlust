@@ -1,6 +1,6 @@
-use std::{collections::HashMap, rc::Rc};
+use std::collections::HashMap;
 
-use crate::model::{alter::{AlterColumn, AlterTable, AlterType}, column::{Column, ColumnConstraintData, ColumnMatch, ReferentialAction}, ddl::DDL, name::{Name, QName}, statement::Statement, table::{Table, TableConstraint, TableConstraintData}, token::ParsedToken};
+use crate::model::{alter::{AlterColumn, AlterTable, AlterType}, column::{Column, ColumnConstraintData}, ddl::DDL, name::{Name, QName}, statement::Statement, table::Table};
 
 pub fn generate_migration(old: &DDL, new: &DDL) -> Vec<Statement> {
     let public = Name::new("public");
@@ -147,7 +147,6 @@ pub fn generate_migration(old: &DDL, new: &DDL) -> Vec<Statement> {
 fn migrate_table(old_table: &Table, new_table: &Table, stmts: &mut Vec<Statement>) {
     let mut old_columns = HashMap::new();
     let mut new_columns = HashMap::new();
-    // TODO: constraints
 
     for column in old_table.columns() {
         old_columns.insert(column.name(), column);
@@ -169,15 +168,63 @@ fn migrate_table(old_table: &Table, new_table: &Table, stmts: &mut Vec<Statement
         }
     }
 
+    let mut new_columns = HashMap::new();
+
     for column in new_table.columns() {
         if !old_columns.contains_key(column.name()) {
             stmts.push(Statement::AlterTable(
-                AlterTable::add_column(new_table.name().clone(), column.clone())
+                AlterTable::add_column(new_table.name().clone(), column.without_table_constraints())
             ));
+            new_columns.insert(column.name(), column);
         }
     }
 
-    // TODO
+    // constraints
+    let old_merged_constraints = old_table.merged_constraints();
+    let new_merged_constraints = new_table.merged_constraints();
+
+    for constraint in &old_merged_constraints {
+        if let Some(old_name) = constraint.name() {
+            if let Some(new_constraint) = new_merged_constraints.iter().find(|other| other.matches(constraint)) {
+                if let Some(new_name) = new_constraint.name() {
+                    if old_name != new_name {
+                        stmts.push(Statement::AlterTable(
+                            AlterTable::rename_constraint(new_table.name().clone(), old_name.clone(), new_name.clone())
+                        ));
+                    }
+                }
+            } else if let Some(new_constraint) = new_merged_constraints.iter().find(|other| other.data() == constraint.data()) {
+                stmts.push(Statement::AlterTable(
+                    AlterTable::alter_constraint(
+                        new_table.name().clone(),
+                        old_name.clone(),
+                        Some(new_constraint.default_deferrable()),
+                        Some(new_constraint.default_initially_deferred())
+                    )
+                ));
+
+                if let Some(new_name) = new_constraint.name() {
+                    if old_name != new_name {
+                        stmts.push(Statement::AlterTable(
+                            AlterTable::rename_constraint(new_table.name().clone(), old_name.clone(), new_name.clone())
+                        ));
+                    }
+                }
+            } else {
+                stmts.push(Statement::AlterTable(
+                    AlterTable::drop_constraint(new_table.name().clone(), old_name.clone(), None)
+                ));
+            }
+        }
+    }
+
+    for constraint in &new_merged_constraints {
+        if old_merged_constraints.iter().find(|other| other.data() == constraint.data()).is_none() {
+            stmts.push(Statement::AlterTable(
+                AlterTable::add_constraint(new_table.name().clone(), constraint.clone())
+            ));
+        }
+    }
 }
 
 fn migrate_column(table_name: &QName, old_column: &Column, new_column: &Column, stmts: &mut Vec<Statement>) {
@@ -198,41 +245,14 @@ fn migrate_column(table_name: &QName, old_column: &Column, new_column: &Column, 
         ));
     }
 
-    #[derive(PartialEq)]
-    struct Check<'a> {
-        expr: &'a Rc<[ParsedToken]>,
-        inherit: bool,
-    }
-
-    #[derive(PartialEq)]
-    struct References<'a> {
-        ref_table: &'a QName,
-        ref_column: &'a Option<Name>,
-        column_match: &'a Option<ColumnMatch>,
-        on_delete: &'a Option<ReferentialAction>,
-        on_update: &'a Option<ReferentialAction>,
-    }
-
     let mut old_constraints = HashMap::new();
     let mut new_constraints = HashMap::new();
-
-    let mut old_primary_key = false;
-    let mut new_primary_key = false;
 
     let mut old_null = true;
     let mut new_null = true;
 
-    let mut old_foreign_key = None;
-    let mut new_foreign_key = None;
-
     let mut old_default = None;
     let mut new_default = None;
-
-    let mut old_check = None;
-    let mut new_check = None;
-
-    let mut old_unique = None;
-    let mut new_unique = None;
 
     for constraint in old_column.constraints() {
         if let Some(name) = constraint.name() {
@@ -246,31 +266,20 @@ fn migrate_column(table_name: &QName, old_column: &Column, new_column: &Column, 
             ColumnConstraintData::NotNull => {
                 old_null = false;
             }
-            ColumnConstraintData::PrimaryKey => {
-                old_primary_key = true;
-            }
-            ColumnConstraintData::Check { expr, inherit } => {
-                old_check = Some(Check { expr, inherit: *inherit });
-            }
             ColumnConstraintData::Default { value } => {
                 old_default = Some(value);
             }
-            ColumnConstraintData::Unique { nulls_distinct } => {
-                old_unique = Some(nulls_distinct.unwrap_or(true));
-            }
-            ColumnConstraintData::References { ref_table, ref_column, column_match, on_delete, on_update } => {
-                old_foreign_key = Some(References { ref_table, ref_column, column_match, on_delete, on_update });
-            }
+            // these are converted into table constraints and thus done in migrate_table()
+            ColumnConstraintData::Check { .. } => {}
+            ColumnConstraintData::PrimaryKey => {}
+            ColumnConstraintData::Unique { .. } => {}
+            ColumnConstraintData::References { .. } => {}
         }
     }
 
     for constraint in new_column.constraints() {
         if let Some(name) = constraint.name() {
             new_constraints.insert(name, constraint);
-        }
-
-        if constraint.is_primary_key() {
-            new_primary_key = true;
         }
 
         match constraint.data() {
@@ -280,21 +289,13 @@ fn migrate_column(table_name: &QName, old_column: &Column, new_column: &Column, 
             ColumnConstraintData::NotNull => {
                 new_null = false;
             }
-            ColumnConstraintData::PrimaryKey => {
-                new_primary_key = true;
-            }
-            ColumnConstraintData::Check { expr, inherit } => {
-                new_check = Some(Check { expr, inherit: *inherit });
-            }
             ColumnConstraintData::Default { value } => {
                 new_default = Some(value);
             }
-            ColumnConstraintData::Unique { nulls_distinct } => {
-                new_unique = Some(nulls_distinct.unwrap_or(true));
-            }
-            ColumnConstraintData::References { ref_table, ref_column, column_match, on_delete, on_update } => {
-                new_foreign_key = Some(References { ref_table, ref_column, column_match, on_delete, on_update });
-            }
+            ColumnConstraintData::Check { .. } => {}
+            ColumnConstraintData::PrimaryKey => {}
+            ColumnConstraintData::Unique { .. } => {}
+            ColumnConstraintData::References { .. } => {}
         }
     }
 
@@ -310,26 +311,6 @@ fn migrate_column(table_name: &QName, old_column: &Column, new_column: &Column, 
         }
     }
 
-    if old_primary_key != new_primary_key {
-        if new_primary_key {
-            stmts.push(Statement::AlterTable(
-                AlterTable::add_constraint(
-                    table_name.clone(),
-                    TableConstraint::new(
-                        None,
-                        TableConstraintData::PrimaryKey {
-                            columns: [new_column.name().clone()].into(),
-                        },
-                        None,
-                        None
-                    )
-                )
-            ));
-        } else {
-            // TODO: how? I think all constraints get automatic names and need to be dropped with that?
-        }
-    }
-
     if old_default != new_default {
         if let Some(new_default) = new_default {
             stmts.push(Statement::AlterTable(
@@ -341,62 +322,4 @@ fn migrate_column(table_name: &QName, old_column: &Column, new_column: &Column, 
             ));
         }
     }
-
-    if old_unique != new_unique {
-        if let Some(nulls_distinct) = new_unique {
-            stmts.push(Statement::AlterTable(
-                AlterTable::add_constraint(
-                    table_name.clone(),
-                    TableConstraint::new(
-                        None,
-                        TableConstraintData::Unique {
-                            nulls_distinct: Some(nulls_distinct),
-                            columns: [new_column.name().clone()].into(),
-                        },
-                        None,
-                        None
-                    )
-                )
-            ));
-        } else {
-            // TODO: how? I think all constraints get automatic names and need to be dropped with that?
-        }
-    }
-
-    if old_foreign_key != new_foreign_key {
-        if let Some(new_foreign_key) = new_foreign_key {
-            let ref_columns = if let Some(ref_column) = new_foreign_key.ref_column {
-                Some([ref_column.clone()].into())
-            } else {
-                None
-            };
-            stmts.push(Statement::AlterTable(
-                AlterTable::add_constraint(
-                    table_name.clone(),
-                    TableConstraint::new(
-                        None,
-                        TableConstraintData::ForeignKey {
-                            columns: [new_column.name().clone()].into(),
-                            ref_table: new_foreign_key.ref_table.clone(),
-                            ref_columns,
-                            column_match: *new_foreign_key.column_match,
-                            on_delete: new_foreign_key.on_delete.clone(),
-                            on_update: new_foreign_key.on_update.clone(),
-                        },
-                        None,
-                        None
-                    )
-                )
-            ));
-
-        } else {
-            // TODO: how? I think all constraints get automatic names and need to be dropped with that?
-        }
-    }
-
-    if old_check != new_check {
-
-    }
-
-    // TODO: constraints etc.
 }

@@ -362,7 +362,7 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                     return Err(Error::with_message(
                         ErrorKind::UnexpectedToken,
                         *token.cursor(),
-                        format!("expected: <string>, actual: {:?}", token.kind())
+                        format!("expected: <string>, actual: {}", token.kind())
                     ));
                 };
                 Ok(ParsedToken::String(value.into()))
@@ -373,7 +373,7 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                     return Err(Error::with_message(
                         ErrorKind::UnexpectedToken,
                         *token.cursor(),
-                        format!("expected: <unicode string>, actual: {:?}", token.kind())
+                        format!("expected: <unicode string>, actual: {}", token.kind())
                     ));
                 };
 
@@ -394,7 +394,7 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                     return Err(Error::with_message(
                         ErrorKind::UnexpectedToken,
                         *token.cursor(),
-                        format!("expected: <estring>, actual: {:?}", token.kind())
+                        format!("expected: <estring>, actual: {}", token.kind())
                     ));
                 };
                 Ok(ParsedToken::String(value.into()))
@@ -408,7 +408,7 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                     return Err(Error::with_message(
                         ErrorKind::UnexpectedToken,
                         *token.cursor(),
-                        format!("expected: <quoted name>, actual: {:?}", token.kind())
+                        format!("expected: <quoted name>, actual: {}", token.kind())
                     ));
                 };
                 Ok(ParsedToken::Name(Name::new_quoted(value)))
@@ -419,7 +419,7 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                     return Err(Error::with_message(
                         ErrorKind::UnexpectedToken,
                         *token.cursor(),
-                        format!("expected: <unicode name>, actual: {:?}", token.kind())
+                        format!("expected: <unicode name>, actual: {}", token.kind())
                     ));
                 };
 
@@ -540,7 +540,7 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                     )));
                 } else {
                     let mut end_offset = if let Some(index) = self.source[self.offset..].find(|c: char| !c.is_ascii_digit() && c != '_') {
-                        start_offset + index
+                        self.offset + index
                     } else {
                         self.source.len()
                     };
@@ -552,7 +552,7 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                         float = true;
                         end_offset += 1;
                         end_offset = if let Some(index) = self.source[end_offset..].find(|c: char| !c.is_ascii_digit() && c != '_') {
-                            start_offset + index
+                            end_offset + index
                         } else {
                             self.source.len()
                         };
@@ -569,10 +569,11 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                         }
                         let exp_start = end_offset;
                         end_offset = if let Some(index) = self.source[end_offset..].find(|c: char| !c.is_ascii_digit() && c != '_') {
-                            start_offset + index
+                            end_offset + index
                         } else {
                             self.source.len()
                         };
+
                         if end_offset == exp_start {
                             return Err(Error::with_cursor(
                                 ErrorKind::IllegalToken,
@@ -1181,7 +1182,7 @@ impl<'a> PostgreSQLParser<'a> {
                     return Err(Error::with_message(
                         ErrorKind::UnexpectedToken,
                         *token.cursor(),
-                        format!("expected: <string>, actual: {:?}", token.kind())
+                        format!("expected: <string>, actual: {}", token.kind())
                     ));
                 };
                 Ok(Value::String(value.into()))
@@ -1192,7 +1193,7 @@ impl<'a> PostgreSQLParser<'a> {
                     return Err(Error::with_message(
                         ErrorKind::UnexpectedToken,
                         *token.cursor(),
-                        format!("expected: <unicode string>, actual: {:?}", token.kind())
+                        format!("expected: <unicode string>, actual: {}", token.kind())
                     ));
                 };
 
@@ -1214,7 +1215,7 @@ impl<'a> PostgreSQLParser<'a> {
                     return Err(Error::with_message(
                         ErrorKind::UnexpectedToken,
                         *token.cursor(),
-                        format!("expected: <estring>, actual: {:?}", token.kind())
+                        format!("expected: <estring>, actual: {}", token.kind())
                     ));
                 };
                 Ok(Value::String(value.into()))
@@ -1754,7 +1755,7 @@ impl<'a> PostgreSQLParser<'a> {
                     return Err(Error::with_message(
                         ErrorKind::UnexpectedToken,
                         *token.cursor(),
-                        format!("expected: <column constraint>, actual: {:?}", token.kind())
+                        format!("expected: <column constraint>, actual: {}", token.kind())
                     ));
                 }
 
@@ -1881,7 +1882,7 @@ impl<'a> PostgreSQLParser<'a> {
                             return Err(Error::with_message(
                                 ErrorKind::UnexpectedToken,
                                 *token.cursor(),
-                                format!("expected: <column constraint>, actual: {:?}", token.kind())
+                                format!("expected: <column constraint>, actual: {}", token.kind())
                             ));
                         }
                         break;
@@ -2135,7 +2136,7 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                 Err(Error::with_message(
                     ErrorKind::UnexpectedToken,
                     *token.cursor(),
-                    format!("expected: <name>, actual: {:?}", token.kind())
+                    format!("expected: <name>, actual: {}", token.kind())
                 ))
             }
         }
@@ -2149,7 +2150,7 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                     return Err(Error::with_message(
                         ErrorKind::UnexpectedToken,
                         *token.cursor(),
-                        format!("expected: <string>, actual: {:?}", token.kind())
+                        format!("expected: <string>, actual: {}", token.kind())
                     ));
                 };
                 Ok(value.into())
@@ -2159,7 +2160,7 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                     return Err(Error::with_message(
                         ErrorKind::UnexpectedToken,
                         *token.cursor(),
-                        format!("expected: <estring>, actual: {:?}", token.kind())
+                        format!("expected: <estring>, actual: {}", token.kind())
                     ));
                 };
                 Ok(value.into())
@@ -2169,7 +2170,7 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                     return Err(Error::with_message(
                         ErrorKind::UnexpectedToken,
                         *token.cursor(),
-                        format!("expected: <unicode string>, actual: {:?}", token.kind())
+                        format!("expected: <unicode string>, actual: {}", token.kind())
                     ));
                 };
 
@@ -2192,7 +2193,7 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                 Err(Error::with_message(
                     ErrorKind::UnexpectedToken,
                     *token.cursor(),
-                    format!("expected: <string>, actual: {:?}", token.kind())
+                    format!("expected: <string>, actual: {}", token.kind())
                 ))
             }
         }
@@ -2255,6 +2256,7 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                         ));
                     }
                 } else if self.parse_word(SEQUENCE)? {
+                    // TODO: CREATE SEQUENCE?
                     self.parse_token_list(true)?;
                     self.expect_semicolon_or_eof()?;
 
@@ -2263,6 +2265,7 @@ impl<'a> Parser for PostgreSQLParser<'a> {
 
                     eprintln!("TODO: parse CREATE SEQUENCE statements: {source}");
                 } else if self.parse_word(EXTENSION)? {
+                    // TODO: CREATE EXTENSION?
                     self.parse_token_list(true)?;
                     self.expect_semicolon_or_eof()?;
 
@@ -2285,10 +2288,13 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                     ));
                 }
             } else if self.parse_word(SELECT)? {
-                // ignore
+                // ignore SELECT
                 self.parse_token_list(true)?;
                 self.expect_semicolon_or_eof()?;
             } else if self.parse_word(ALTER)? {
+                // TODO: ALTER
+                // This is important if the output of pg_dump should be supported,
+                // because it adds constraints at the end via ALTER statements.
                 self.parse_token_list(true)?;
                 self.expect_semicolon_or_eof()?;
 
@@ -2297,6 +2303,7 @@ impl<'a> Parser for PostgreSQLParser<'a> {
 
                 eprintln!("TODO: parse ALTER statements: {source}");
             } else if self.parse_word(COMMENT)? {
+                // ignore COMMENT?
                 self.parse_token_list(true)?;
                 self.expect_semicolon_or_eof()?;
 
