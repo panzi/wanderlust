@@ -1,4 +1,4 @@
-pub mod ddl;
+pub mod schema;
 pub mod token;
 pub mod table;
 pub mod column;

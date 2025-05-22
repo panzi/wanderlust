@@ -10,14 +10,14 @@ use super::{index::Index, table::Table, types::TypeDef};
 use super::words::*;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct DDL {
+pub struct Schema {
     types: Vec<Rc<TypeDef>>,
     tables: Vec<Rc<Table>>,
     indices: Vec<Rc<Index>>,
     search_path: Vec<Name>,
 }
 
-impl std::fmt::Display for DDL {
+impl std::fmt::Display for Schema {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{BEGIN};\n")?;
         for type_def in &self.types {
@@ -33,7 +33,7 @@ impl std::fmt::Display for DDL {
     }
 }
 
-impl DDL {
+impl Schema {
     #[inline]
     pub fn new(search_path: impl Into<Vec<Name>>) -> Self {
         Self {

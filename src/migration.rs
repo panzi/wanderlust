@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-use crate::model::{alter::{AlterColumn, AlterTable, AlterType}, column::{Column, ColumnConstraintData}, ddl::DDL, name::{Name, QName}, statement::Statement, table::Table};
+use crate::model::{alter::{AlterColumn, AlterTable, AlterType}, column::{Column, ColumnConstraintData}, schema::Schema, name::{Name, QName}, statement::Statement, table::Table};
 
-pub fn generate_migration(old: &DDL, new: &DDL) -> Vec<Statement> {
+pub fn generate_migration(old: &Schema, new: &Schema) -> Vec<Statement> {
     let public = Name::new("public");
 
     let mut stmts = Vec::new();

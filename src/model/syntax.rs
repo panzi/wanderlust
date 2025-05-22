@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use crate::error::{Error, ErrorKind, Result};
 
-use super::{ddl::DDL, name::Name, token::{ParsedToken, Token, TokenKind}};
+use super::{schema::Schema, name::Name, token::{ParsedToken, Token, TokenKind}};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Cursor {
@@ -286,7 +286,7 @@ macro_rules! peek_token {
 pub trait Parser {
     fn get_source(&self, cursor: &Cursor) -> &str;
 
-    fn parse(&mut self) -> Result<DDL>;
+    fn parse(&mut self) -> Result<Schema>;
 
     fn expect_some(&mut self) -> Result<Token>;
 

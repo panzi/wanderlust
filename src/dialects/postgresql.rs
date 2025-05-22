@@ -5,7 +5,7 @@
 
 use std::{num::NonZeroU32, rc::Rc};
 
-use crate::{error::{Error, ErrorKind, Result}, model::{alter::{AlterTable, AlterType, AlterTypeData, Owner, ValuePosition}, column::{Column, ColumnConstraint, ColumnConstraintData, ColumnMatch, ReferentialAction}, ddl::DDL, index::{CreateIndex, Direction, Index, IndexItem, IndexItemData, NullsPosition}, integers::{Integer, SignedInteger, UnsignedInteger}, name::{Name, QName}, syntax::{Cursor, Parser, SourceLocation, Tokenizer}, table::{CreateTable, Table, TableConstraint, TableConstraintData}, token::{ParsedToken, ToTokens, Token, TokenKind}, types::{ColumnDataType, DataType, IntervalFields, TypeDef, Value}}, peek_token};
+use crate::{error::{Error, ErrorKind, Result}, model::{alter::{AlterTable, AlterType, AlterTypeData, Owner, ValuePosition}, column::{Column, ColumnConstraint, ColumnConstraintData, ColumnMatch, ReferentialAction}, schema::Schema, index::{CreateIndex, Direction, Index, IndexItem, IndexItemData, NullsPosition}, integers::{Integer, SignedInteger, UnsignedInteger}, name::{Name, QName}, syntax::{Cursor, Parser, SourceLocation, Tokenizer}, table::{CreateTable, Table, TableConstraint, TableConstraintData}, token::{ParsedToken, ToTokens, Token, TokenKind}, types::{ColumnDataType, DataType, IntervalFields, TypeDef, Value}}, peek_token};
 use crate::model::words::*;
 
 pub fn uunescape(string: &str, escape: char) -> Option<String> {
@@ -2278,8 +2278,8 @@ impl<'a> Parser for PostgreSQLParser<'a> {
         }
     }
 
-    fn parse(&mut self) -> Result<DDL> {
-        let mut ddl = DDL::new(vec![Name::new("public")]);
+    fn parse(&mut self) -> Result<Schema> {
+        let mut schema = Schema::new(vec![Name::new("public")]);
 
         while let Some(token) = self.tokenizer.peek()? {
             let start_offset = token.cursor().start_offset();
@@ -2289,7 +2289,7 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                 self.expect_token(TokenKind::Equal)?;
 
                 if name.name().eq_ignore_ascii_case("search_path") {
-                    let search_path = ddl.search_path_mut();
+                    let search_path = schema.search_path_mut();
                     search_path.clear();
                     loop {
                         let name = self.expect_name()?;
@@ -2307,28 +2307,28 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                 self.expect_semicolon_or_eof()?;
             } else if self.parse_word(CREATE)? {
                 if self.parse_word(TABLE)? {
-                    if !ddl.create_table(self.parse_table_intern()?) {
+                    if !schema.create_table(self.parse_table_intern()?) {
                         return Err(Error::with_cursor(
                             ErrorKind::TableExists,
                             Cursor::new(start_offset, self.tokenizer.offset())
                         ));
                     }
                 } else if self.parse_word(INDEX)? {
-                    if !ddl.create_index(self.parse_index_intern(false)?) {
+                    if !schema.create_index(self.parse_index_intern(false)?) {
                         return Err(Error::with_cursor(
                             ErrorKind::IndexExists,
                             Cursor::new(start_offset, self.tokenizer.offset())
                         ));
                     }
                 } else if self.parse_word(UNIQUE)? && self.parse_word(INDEX)? {
-                    if !ddl.create_index(self.parse_index_intern(true)?) {
+                    if !schema.create_index(self.parse_index_intern(true)?) {
                         return Err(Error::with_cursor(
                             ErrorKind::IndexExists,
                             Cursor::new(start_offset, self.tokenizer.offset())
                         ));
                     }
                 } else if self.parse_word(TYPE)? {
-                    if !ddl.create_type(self.parse_type_def_intern()?) {
+                    if !schema.create_type(self.parse_type_def_intern()?) {
                         return Err(Error::with_cursor(
                             ErrorKind::TypeExists,
                             Cursor::new(start_offset, self.tokenizer.offset())
@@ -2436,7 +2436,7 @@ impl<'a> Parser for PostgreSQLParser<'a> {
             }
         }
 
-        Ok(ddl)
+        Ok(schema)
     }
 }
 
