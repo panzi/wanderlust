@@ -125,21 +125,18 @@ pub enum AlterTableData {
     RenameTable { if_exists: bool, new_name: Name },
     RenameColumn { if_exists: bool, only: bool, column_name: Name, new_column_name: Name },
     RenameConstraint { if_exists: bool, only: bool, constraint_name: Name, new_constraint_name: Name },
-    AddConstraint { constraint: Rc<TableConstraint> },
-    AlterConstraint { constraint_name: Name, deferrable: Option<bool>, initially_deferred: Option<bool> },
-    DropConstraint { constraint_name: Name, drop_option: Option<DropOption> },
     SetSchema { if_exists: bool, new_schema: Name },
 }
 
 impl AlterTableData {
     #[inline]
     pub fn add_column(column: Rc<Column>) -> Self {
-        Self::Actions { if_exists: false, only: false, actions: [AlterTableAction::AddColumn { column }].into() }
+        Self::Actions { if_exists: false, only: false, actions: [AlterTableAction::AddColumn { if_not_exists: false, column }].into() }
     }
 
     #[inline]
     pub fn drop_column(column_name: Name) -> Self {
-        Self::Actions { if_exists: false, only: false, actions: [AlterTableAction::DropColumn { column_name, drop_option: None }].into() }
+        Self::Actions { if_exists: false, only: false, actions: [AlterTableAction::DropColumn { if_exists: false, column_name, drop_option: None }].into() }
     }
 
     #[inline]
@@ -164,17 +161,17 @@ impl AlterTableData {
 
     #[inline]
     pub fn add_constraint(constraint: impl Into<Rc<TableConstraint>>) -> Self {
-        Self::AddConstraint { constraint: constraint.into() }
+        Self::Actions { if_exists: false, only: false, actions: [AlterTableAction::AddConstraint { constraint: constraint.into() }].into() }
     }
 
     #[inline]
     pub fn alter_constraint(constraint_name: Name, deferrable: Option<bool>, initially_deferred: Option<bool>) -> Self {
-        Self::AlterConstraint { constraint_name, deferrable, initially_deferred }
+        Self::Actions { if_exists: false, only: false, actions: [AlterTableAction::AlterConstraint { constraint_name, deferrable, initially_deferred }].into() }
     }
 
     #[inline]
     pub fn drop_constraint(constraint_name: Name, drop_option: Option<DropOption>) -> Self {
-        Self::DropConstraint { constraint_name, drop_option }
+        Self::Actions { if_exists: false, only: false, actions: [AlterTableAction::DropConstraint { if_exists: false, constraint_name, drop_option }].into() }
     }
 
     #[inline]
@@ -230,39 +227,6 @@ impl std::fmt::Display for AlterTableData {
             Self::RenameConstraint { if_exists: _, only: _, constraint_name, new_constraint_name } => {
                 write!(f, "{RENAME} {CONSTRAINT} {constraint_name} {TO} {new_constraint_name}")
             }
-            Self::AddConstraint { constraint } => {
-                write!(f, "{ADD} {constraint}")
-            }
-            Self::AlterConstraint { constraint_name, deferrable, initially_deferred } => {
-                write!(f, "{ALTER} {CONSTRAINT} {constraint_name}")?;
-
-                if let Some(deferrable) = deferrable {
-                    if *deferrable {
-                        write!(f, " {DEFERRABLE}")?;
-                    } else {
-                        write!(f, " {NOT} {DEFERRABLE}")?;
-                    }
-                }
-
-                if let Some(initially_deferred) = initially_deferred {
-                    if *initially_deferred {
-                        write!(f, " {INITIALLY} {DEFERRED}")?;
-                    } else {
-                        write!(f, " {INITIALLY} {IMMEDIATE}")?;
-                    }
-                }
-
-                Ok(())
-            }
-            Self::DropConstraint { constraint_name, drop_option } => {
-                write!(f, "{DROP} {CONSTRAINT} {constraint_name}")?;
-
-                if let Some(drop_option) = drop_option {
-                    write!(f, " {drop_option}")?;
-                }
-
-                Ok(())
-            }
             Self::SetSchema { if_exists: _, new_schema } => {
                 write!(f, "{SET} {SCHEMA} {new_schema}")
             }
@@ -295,10 +259,13 @@ impl Default for DropOption {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AlterTableAction {
-    AddColumn { column: Rc<Column> },
-    DropColumn { column_name: Name, drop_option: Option<DropOption> },
+    AddColumn { if_not_exists: bool, column: Rc<Column> },
+    DropColumn { if_exists: bool, column_name: Name, drop_option: Option<DropOption> },
     AlterColumn { alter_column: AlterColumn },
     OwnerTo { new_owner: Owner },
+    AddConstraint { constraint: Rc<TableConstraint> },
+    AlterConstraint { constraint_name: Name, deferrable: Option<bool>, initially_deferred: Option<bool> },
+    DropConstraint { if_exists: bool, constraint_name: Name, drop_option: Option<DropOption> },
     // TODO: more
 }
 
@@ -306,11 +273,19 @@ impl std::fmt::Display for AlterTableAction {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::AddColumn { column } => {
-                write!(f, "{ADD} {COLUMN} {column}")
+            Self::AddColumn { if_not_exists, column } => {
+                write!(f, "{ADD} {COLUMN}")?;
+                if *if_not_exists {
+                    write!(f, " {IF} {NOT} {EXISTS}")?;
+                }
+                write!(f, " {column}")
             }
-            Self::DropColumn { column_name, drop_option } => {
-                write!(f, "{DROP} {COLUMN} {column_name}")?;
+            Self::DropColumn { if_exists, column_name, drop_option } => {
+                write!(f, "{DROP} {COLUMN}")?;
+                if *if_exists {
+                    write!(f, " {IF} {EXISTS}")?;
+                }
+                write!(f, " {column_name}")?;
 
                 if let Some(drop_option) = drop_option {
                     write!(f, " {drop_option}")?;
@@ -323,6 +298,43 @@ impl std::fmt::Display for AlterTableAction {
             }
             Self::OwnerTo { new_owner } => {
                 write!(f, "{OWNER} {TO} {new_owner}")
+            }
+            Self::AddConstraint { constraint } => {
+                write!(f, "{ADD} {constraint}")
+            }
+            Self::AlterConstraint { constraint_name, deferrable, initially_deferred } => {
+                write!(f, "{ALTER} {CONSTRAINT} {constraint_name}")?;
+
+                if let Some(deferrable) = deferrable {
+                    if *deferrable {
+                        write!(f, " {DEFERRABLE}")?;
+                    } else {
+                        write!(f, " {NOT} {DEFERRABLE}")?;
+                    }
+                }
+
+                if let Some(initially_deferred) = initially_deferred {
+                    if *initially_deferred {
+                        write!(f, " {INITIALLY} {DEFERRED}")?;
+                    } else {
+                        write!(f, " {INITIALLY} {IMMEDIATE}")?;
+                    }
+                }
+
+                Ok(())
+            }
+            Self::DropConstraint { if_exists, constraint_name, drop_option } => {
+                write!(f, "{DROP} {CONSTRAINT}")?;
+                if *if_exists {
+                    write!(f, " {IF} {EXISTS}")?;
+                }
+                write!(f, " {constraint_name}")?;
+
+                if let Some(drop_option) = drop_option {
+                    write!(f, " {drop_option}")?;
+                }
+
+                Ok(())
             }
         }
     }

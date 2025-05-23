@@ -5,7 +5,7 @@
 
 use std::{num::NonZeroU32, rc::Rc};
 
-use crate::{error::{Error, ErrorKind, Result}, model::{alter::{AlterTable, AlterType, AlterTypeData, Owner, ValuePosition}, column::{Column, ColumnConstraint, ColumnConstraintData, ColumnMatch, ReferentialAction}, schema::Schema, index::{CreateIndex, Direction, Index, IndexItem, IndexItemData, NullsPosition}, integers::{Integer, SignedInteger, UnsignedInteger}, name::{Name, QName}, syntax::{Cursor, Parser, SourceLocation, Tokenizer}, table::{CreateTable, Table, TableConstraint, TableConstraintData}, token::{ParsedToken, ToTokens, Token, TokenKind}, types::{ColumnDataType, DataType, IntervalFields, TypeDef, Value}}, peek_token};
+use crate::{error::{Error, ErrorKind, Result}, model::{alter::{AlterTable, AlterTableAction, AlterTableData, AlterType, AlterTypeData, DropOption, Owner, ValuePosition}, column::{Column, ColumnConstraint, ColumnConstraintData, ColumnMatch, ReferentialAction}, index::{CreateIndex, Direction, Index, IndexItem, IndexItemData, NullsPosition}, integers::{Integer, SignedInteger, UnsignedInteger}, name::{Name, QName}, schema::Schema, syntax::{Cursor, Parser, SourceLocation, Tokenizer}, table::{CreateTable, Table, TableConstraint, TableConstraintData}, token::{ParsedToken, ToTokens, Token, TokenKind}, types::{ColumnDataType, DataType, IntervalFields, TypeDef, Value}}, peek_token};
 use crate::model::words::*;
 
 pub fn uunescape(string: &str, escape: char) -> Option<String> {
@@ -1055,6 +1055,16 @@ impl<'a> PostgreSQLParser<'a> {
         Ok(value)
     }
 
+    fn parse_drop_option(&mut self) -> Result<Option<DropOption>> {
+        if self.parse_word(RESTRICT)? {
+            Ok(Some(DropOption::Restrict))
+        } else if self.parse_word(CASCADE)? {
+            Ok(Some(DropOption::Cascade))
+        } else {
+            Ok(None)
+        }
+    }
+
     fn parse_ref_action(&mut self) -> Result<ReferentialAction> {
         if self.parse_word(NO)? {
             self.expect_word(ACTION)?;
@@ -1628,12 +1638,7 @@ impl<'a> PostgreSQLParser<'a> {
     fn parse_table_intern(&mut self) -> Result<CreateTable> {
         // "CREATE TABLE" is already parsed
 
-        let mut if_not_exists = false;
-        if self.parse_word(IF)? {
-            self.expect_word(NOT)?;
-            self.expect_word(EXISTS)?;
-            if_not_exists = true;
-        }
+        let if_not_exists = self.parse_if_not_exists()?;
         let table_name = self.parse_qual_name()?;
         let mut columns = Vec::new();
         let mut table_constraints = Vec::new();
@@ -2085,24 +2090,146 @@ impl<'a> PostgreSQLParser<'a> {
 
     fn parse_alter_table_intern(&mut self) -> Result<Rc<AlterTable>> {
         // "ALTER TABLE" is already parsed
-        let mut if_exists = false;
-        if self.parse_word(IF)? {
-            self.expect_word(EXISTS)?;
-            if_exists = true;
-        }
+        let if_exists = self.parse_if_exists()?;
+        let only_offset = self.tokenizer.offset();
         let only = self.parse_word(ONLY)?;
         let table_name = self.parse_qual_name()?;
 
         if self.parse_word(RENAME)? {
-            
-            unimplemented!()
-        } else if !only && self.parse_word(SET)? {
+            if self.parse_word(TO)? {
+                if only {
+                    return Err(Error::with_message(
+                        ErrorKind::UnexpectedToken,
+                        Cursor::new(only_offset, self.tokenizer.offset()),
+                        format!("illegal token {ONLY} for {RENAME} {COLUMN}")
+                    ));
+                }
+                let new_name = self.expect_name()?;
+
+                Ok(Rc::new(AlterTable::new(table_name, AlterTableData::RenameTable { if_exists, new_name })))
+            } else if self.parse_word(CONSTRAINT)? {
+                let constraint_name = self.expect_name()?;
+                self.expect_word(TO)?;
+                let new_constraint_name = self.expect_name()?;
+
+                Ok(Rc::new(AlterTable::new(table_name, AlterTableData::RenameConstraint { if_exists, only, constraint_name, new_constraint_name })))
+            } else {
+                self.parse_word(COLUMN)?;
+                let column_name = self.expect_name()?;
+                self.expect_word(TO)?;
+                let new_column_name = self.expect_name()?;
+
+                Ok(Rc::new(AlterTable::new(table_name, AlterTableData::RenameColumn { if_exists, only, column_name, new_column_name })))
+            }
+        } else if self.parse_word(SET)? {
             self.expect_word(SCHEMA)?;
+            if only {
+                return Err(Error::with_message(
+                    ErrorKind::UnexpectedToken,
+                    Cursor::new(only_offset, self.tokenizer.offset()),
+                    format!("illegal token {ONLY} for {SET} {SCHEMA}")
+                ));
+            }
             let new_schema = self.expect_name()?;
 
-            Ok(AlterTable::set_schema(table_name, new_schema))
+            Ok(Rc::new(AlterTable::new(table_name, AlterTableData::SetSchema { if_exists, new_schema })))
         } else {
+            let mut actions = Vec::new();
+            loop {
+                let action = self.parse_alter_table_action()?;
+                actions.push(action);
+
+                if !self.parse_token(TokenKind::Comma)? {
+                    break;
+                }
+            }
+
+            Ok(Rc::new(AlterTable::new(table_name, AlterTableData::Actions { if_exists, only, actions: actions.into() })))
+        }
+    }
+
+    fn parse_if_exists(&mut self) -> Result<bool> {
+        if self.parse_word(IF)? {
+            self.expect_word(EXISTS)?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    fn parse_if_not_exists(&mut self) -> Result<bool> {
+        if self.parse_word(IF)? {
+            self.expect_word(NOT)?;
+            self.expect_word(EXISTS)?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    fn parse_alter_table_action(&mut self) -> Result<AlterTableAction> {
+        if self.parse_word(ADD)? {
+            // ADD COLUMN or CONSTRAINT
             unimplemented!()
+        } else if self.parse_word(DROP)? {
+            if self.parse_word(CONSTRAINT)? {
+                let if_exists = self.parse_if_exists()?;
+                let constraint_name = self.expect_name()?;
+                let drop_option = self.parse_drop_option()?;
+
+                Ok(AlterTableAction::DropConstraint { if_exists, constraint_name, drop_option })
+            } else {
+                self.parse_word(COLUMN)?;
+                let if_exists = self.parse_if_exists()?;
+                let column_name = self.expect_name()?;
+                let drop_option = self.parse_drop_option()?;
+
+                Ok(AlterTableAction::DropColumn { if_exists, column_name, drop_option })
+            }
+        } else if self.parse_word(ALTER)? {
+            // ALTER COLUMN or CONSTRAINT
+            if self.parse_word(CONSTRAINT)? {
+                let constraint_name = self.expect_name()?;
+
+                let mut deferrable = None;
+                if self.parse_word(NOT)? {
+                    self.expect_word(DEFERRABLE)?;
+                    deferrable = Some(false);
+                } else if self.parse_word(DEFERRABLE)? {
+                    deferrable = Some(true);
+                }
+
+                let mut initially_deferred = None;
+                if self.parse_word(INITIALLY)? {
+                    if self.parse_word(DEFERRED)? {
+                        initially_deferred = Some(true);
+                    } else {
+                        self.expect_word(IMMEDIATE)?;
+                        initially_deferred = Some(false);
+                    }
+                }
+
+                Ok(AlterTableAction::AlterConstraint { constraint_name, deferrable, initially_deferred })
+            } else {
+                self.parse_word(COLUMN)?;
+                unimplemented!()
+            }
+        } else {
+            self.expect_word(OWNER)?;
+            self.expect_word(TO)?;
+
+            let new_owner = if self.parse_word(CURRENT_ROLE)? {
+                Owner::CurrentRole
+            } else if self.parse_word(CURRENT_USER)? {
+                Owner::CurrentUser
+            } else if self.parse_word(SESSION_USER)? {
+                Owner::SessionUser
+            } else {
+                let user = self.expect_name()?;
+                Owner::User(user)
+            };
+
+            Ok(AlterTableAction::OwnerTo { new_owner })
         }
     }
 
@@ -2145,12 +2272,7 @@ impl<'a> PostgreSQLParser<'a> {
         } else if self.parse_word(ADD)? {
             self.expect_word(VALUE)?;
 
-            let mut if_not_exists = false;
-            if self.parse_word(IF)? {
-                self.expect_word(NOT)?;
-                self.expect_word(EXISTS)?;
-                if_not_exists = true;
-            }
+            let if_not_exists = self.parse_if_not_exists()?;
 
             let value = self.expect_string()?;
             let mut position = None;
