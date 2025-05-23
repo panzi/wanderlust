@@ -46,8 +46,53 @@ pub fn write_token_list(tokens: &[ParsedToken], f: &mut impl std::fmt::Write) ->
     let mut iter = tokens.iter();
     if let Some(first) = iter.next() {
         write!(f, "{first}")?;
+        let mut prev = first;
         for token in iter {
-            write!(f, " {token}")?;
+            if matches!(token,
+                    ParsedToken::Colon |
+                    ParsedToken::SemiColon |
+                    ParsedToken::LParen |
+                    ParsedToken::RParen |
+                    ParsedToken::LBracket |
+                    ParsedToken::RBracket)
+                ||
+                (matches!(token,
+                    ParsedToken::DoubleColon) &&
+                 matches!(prev,
+                    ParsedToken::Name(..) |
+                    ParsedToken::String(..) |
+                    ParsedToken::Integer(..) |
+                    ParsedToken::Float(..) |
+                    ParsedToken::RParen |
+                    ParsedToken::RBracket))
+                ||
+                (matches!(token,
+                    ParsedToken::Period) &&
+                 matches!(prev,
+                    ParsedToken::Name(..) |
+                    ParsedToken::RParen |
+                    ParsedToken::RBracket))
+                ||
+                (matches!(token, ParsedToken::Name(..)) &&
+                 matches!(prev,
+                    ParsedToken::Period |
+                    ParsedToken::DoubleColon |
+                    ParsedToken::LParen |
+                    ParsedToken::LBracket))
+                ||
+                (matches!(token,
+                    ParsedToken::String(..) |
+                    ParsedToken::Integer(..) |
+                    ParsedToken::Float(..)) &&
+                 matches!(prev,
+                    ParsedToken::LParen |
+                    ParsedToken::LBracket))
+            {
+                write!(f, "{token}")?;
+            } else {
+                write!(f, " {token}")?;
+            }
+            prev = token;
         }
     }
     Ok(())
