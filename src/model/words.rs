@@ -102,6 +102,7 @@ pub const REFERENCES: &str = "REFERENCES";
 pub const RENAME: &str = "RENAME";
 pub const RESTRICT: &str = "RESTRICT";
 pub const ROLLBACK: &str = "ROLLBACK";
+pub const SCHEMA: &str = "SCHEMA";
 pub const SECOND: &str = "SECOND";
 pub const SELECT: &str = "SELECT";
 pub const SEQUENCE: &str = "SEQUENCE";

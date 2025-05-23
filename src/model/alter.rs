@@ -18,11 +18,17 @@ pub struct AlterTable {
 impl std::fmt::Display for AlterTable {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.data.only() {
-            write!(f, "{ALTER} {TABLE} {ONLY} {} {};", self.table_name, self.data)
-        } else {
-            write!(f, "{ALTER} {TABLE} {} {};", self.table_name, self.data)
+        write!(f, "{ALTER} {TABLE}")?;
+
+        if self.data().if_exists() {
+            write!(f, " {IF} {EXISTS}")?
         }
+
+        if self.data.only() {
+            write!(f, " {ONLY}")?
+        }
+
+        write!(f, " {} {};", self.table_name, self.data)
     }
 }
 
@@ -62,7 +68,6 @@ impl AlterTable {
         Rc::new(Self { table_name, data: AlterTableData::rename_constraint(constraint_name, new_constraint_name) })
     }
 
-
     #[inline]
     pub fn add_constraint(table_name: QName, constraint: impl Into<Rc<TableConstraint>>) -> Rc<Self> {
         Rc::new(Self { table_name, data: AlterTableData::add_constraint(constraint) })
@@ -76,6 +81,11 @@ impl AlterTable {
     #[inline]
     pub fn drop_constraint(table_name: QName, constraint_name: Name, drop_option: Option<DropOption>) -> Rc<Self> {
         Rc::new(Self { table_name, data: AlterTableData::drop_constraint(constraint_name, drop_option) })
+    }
+
+    #[inline]
+    pub fn set_schema(table_name: QName, new_schema: Name) -> Rc<Self> {
+        Rc::new(Self { table_name, data: AlterTableData::set_schema(new_schema) })
     }
 
     #[inline]
@@ -111,45 +121,45 @@ impl std::fmt::Display for Owner {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AlterTableData {
-    Actions { only: bool, actions: Rc<[AlterTableAction]> },
-    RenameTable { new_name: Name },
-    RenameColumn { only: bool, column_name: Name, new_column_name: Name },
-    RenameConstraint { only: bool, constraint_name: Name, new_constraint_name: Name },
+    Actions { if_exists: bool, only: bool, actions: Rc<[AlterTableAction]> },
+    RenameTable { if_exists: bool, new_name: Name },
+    RenameColumn { if_exists: bool, only: bool, column_name: Name, new_column_name: Name },
+    RenameConstraint { if_exists: bool, only: bool, constraint_name: Name, new_constraint_name: Name },
     AddConstraint { constraint: Rc<TableConstraint> },
     AlterConstraint { constraint_name: Name, deferrable: Option<bool>, initially_deferred: Option<bool> },
     DropConstraint { constraint_name: Name, drop_option: Option<DropOption> },
-    OwnerTo { new_owner: Owner },
+    SetSchema { if_exists: bool, new_schema: Name },
 }
 
 impl AlterTableData {
     #[inline]
     pub fn add_column(column: Rc<Column>) -> Self {
-        Self::Actions { only: false, actions: [AlterTableAction::AddColumn { column }].into() }
+        Self::Actions { if_exists: false, only: false, actions: [AlterTableAction::AddColumn { column }].into() }
     }
 
     #[inline]
     pub fn drop_column(column_name: Name) -> Self {
-        Self::Actions { only: false, actions: [AlterTableAction::DropColumn { column_name, drop_option: None }].into() }
+        Self::Actions { if_exists: false, only: false, actions: [AlterTableAction::DropColumn { column_name, drop_option: None }].into() }
     }
 
     #[inline]
     pub fn alter_column(alter_column: AlterColumn) -> Self {
-        Self::Actions { only: false, actions: [AlterTableAction::AlterColumn { alter_column }].into() }
+        Self::Actions { if_exists: false, only: false, actions: [AlterTableAction::AlterColumn { alter_column }].into() }
     }
 
     #[inline]
     pub fn rename_table(new_name: Name) -> Self {
-        Self::RenameTable { new_name }
+        Self::RenameTable { if_exists: false, new_name }
     }
 
     #[inline]
     pub fn rename_column(column_name: Name, new_column_name: Name) -> Self {
-        Self::RenameColumn { only: false, column_name, new_column_name }
+        Self::RenameColumn { if_exists: false, only: false, column_name, new_column_name }
     }
 
     #[inline]
     pub fn rename_constraint(constraint_name: Name, new_constraint_name: Name) -> Self {
-        Self::RenameConstraint { only: false, constraint_name, new_constraint_name }
+        Self::RenameConstraint { if_exists: false, only: false, constraint_name, new_constraint_name }
     }
 
     #[inline]
@@ -168,8 +178,8 @@ impl AlterTableData {
     }
 
     #[inline]
-    pub fn owner_to(new_owner: Owner) -> Self {
-        Self::OwnerTo { new_owner }
+    pub fn set_schema(new_schema: Name) -> Self {
+        Self::SetSchema { if_exists: false, new_schema }
     }
 
     #[inline]
@@ -180,12 +190,23 @@ impl AlterTableData {
             Self::RenameConstraint { only: true, .. }
         )
     }
+
+    #[inline]
+    pub fn if_exists(&self) -> bool {
+        matches!(self,
+            Self::Actions { if_exists: true, .. } |
+            Self::RenameTable { if_exists: true, .. } |
+            Self::RenameColumn { if_exists: true, .. } |
+            Self::RenameConstraint { if_exists: true, .. } |
+            Self::SetSchema { if_exists: true, .. }
+        )
+    }
 }
 
 impl std::fmt::Display for AlterTableData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Actions { only: _, actions } => {
+            Self::Actions { if_exists: _, only: _, actions } => {
                 if actions.len() > 1 {
                     let mut iter = actions.iter();
                     if let Some(first) = iter.next() {
@@ -199,19 +220,19 @@ impl std::fmt::Display for AlterTableData {
                 }
 
                 Ok(())
-            },
-            Self::RenameTable { new_name } => {
+            }
+            Self::RenameTable { if_exists: _, new_name } => {
                 write!(f, "{RENAME} {TO} {new_name}")
-            },
-            Self::RenameColumn { only: _, column_name, new_column_name } => {
+            }
+            Self::RenameColumn { if_exists: _, only: _, column_name, new_column_name } => {
                 write!(f, "{RENAME} {COLUMN} {column_name} {TO} {new_column_name}")
-            },
-            Self::RenameConstraint { only: _, constraint_name, new_constraint_name } => {
+            }
+            Self::RenameConstraint { if_exists: _, only: _, constraint_name, new_constraint_name } => {
                 write!(f, "{RENAME} {CONSTRAINT} {constraint_name} {TO} {new_constraint_name}")
-            },
+            }
             Self::AddConstraint { constraint } => {
                 write!(f, "{ADD} {constraint}")
-            },
+            }
             Self::AlterConstraint { constraint_name, deferrable, initially_deferred } => {
                 write!(f, "{ALTER} {CONSTRAINT} {constraint_name}")?;
 
@@ -232,7 +253,7 @@ impl std::fmt::Display for AlterTableData {
                 }
 
                 Ok(())
-            },
+            }
             Self::DropConstraint { constraint_name, drop_option } => {
                 write!(f, "{DROP} {CONSTRAINT} {constraint_name}")?;
 
@@ -241,9 +262,9 @@ impl std::fmt::Display for AlterTableData {
                 }
 
                 Ok(())
-            },
-            Self::OwnerTo { new_owner } => {
-                write!(f, "{OWNER} {TO} {new_owner}")
+            }
+            Self::SetSchema { if_exists: _, new_schema } => {
+                write!(f, "{SET} {SCHEMA} {new_schema}")
             }
         }
     }
@@ -277,6 +298,7 @@ pub enum AlterTableAction {
     AddColumn { column: Rc<Column> },
     DropColumn { column_name: Name, drop_option: Option<DropOption> },
     AlterColumn { alter_column: AlterColumn },
+    OwnerTo { new_owner: Owner },
     // TODO: more
 }
 
@@ -286,7 +308,7 @@ impl std::fmt::Display for AlterTableAction {
         match self {
             Self::AddColumn { column } => {
                 write!(f, "{ADD} {COLUMN} {column}")
-            },
+            }
             Self::DropColumn { column_name, drop_option } => {
                 write!(f, "{DROP} {COLUMN} {column_name}")?;
 
@@ -295,9 +317,12 @@ impl std::fmt::Display for AlterTableAction {
                 }
 
                 Ok(())
-            },
-            AlterTableAction::AlterColumn { alter_column } => {
+            }
+            Self::AlterColumn { alter_column } => {
                 write!(f, "{ALTER} {COLUMN} {alter_column}")
+            }
+            Self::OwnerTo { new_owner } => {
+                write!(f, "{OWNER} {TO} {new_owner}")
             }
         }
     }
@@ -438,6 +463,11 @@ impl AlterType {
     }
 
     #[inline]
+    pub fn set_schema(type_name: QName, new_schema: Name) -> Rc<Self> {
+        Rc::new(Self { type_name, data: AlterTypeData::SetSchema { new_schema }})
+    }
+
+    #[inline]
     pub fn type_name(&self) -> &QName {
         &self.type_name
     }
@@ -461,6 +491,7 @@ pub enum AlterTypeData {
     AddValue { if_not_exists: bool, value: Rc<str>, position: Option<ValuePosition> },
     RenameValue { existing_value: Rc<str>, new_value: Rc<str> },
     OwnerTo { new_owner: Owner },
+    SetSchema { new_schema: Name },
 }
 
 impl std::fmt::Display for AlterTypeData {
@@ -492,6 +523,9 @@ impl std::fmt::Display for AlterTypeData {
             }
             Self::OwnerTo { new_owner } => {
                 write!(f, "{OWNER} {TO} {new_owner}")
+            }
+            Self::SetSchema { new_schema } => {
+                write!(f, "{SET} {SCHEMA} {new_schema}")
             }
         }
     }

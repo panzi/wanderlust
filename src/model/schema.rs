@@ -254,6 +254,38 @@ impl Schema {
                             }
                         }
                         AlterTypeData::Rename { .. } => {}
+                        AlterTypeData::SetSchema { new_schema } => {
+                            let new_name = QName::new(
+                                Some(new_schema.clone()),
+                                alter_type.type_name().name().clone()
+                            );
+                            if self.types.contains_key(&new_name) {
+                                return Err(Error::new(
+                                    ErrorKind::TypeExists,
+                                    None,
+                                    Some(format!(
+                                        "type {} already exists: {alter_type}",
+                                        alter_type.type_name()
+                                    )),
+                                    None
+                                ));
+                            }
+
+                            if let Some(type_def) = self.types.remove(alter_type.type_name()) {
+                                let type_def = type_def.with_name(new_name.clone());
+                                self.types.insert(new_name, Rc::new(type_def));
+                            } else {
+                                return Err(Error::new(
+                                    ErrorKind::TypeNotExists,
+                                    None,
+                                    Some(format!(
+                                        "type {} not found: {alter_type}",
+                                        alter_type.type_name()
+                                    )),
+                                    None
+                                ));
+                            }
+                        }
                     }
                     Ok(())
                 } else {

@@ -2085,9 +2085,25 @@ impl<'a> PostgreSQLParser<'a> {
 
     fn parse_alter_table_intern(&mut self) -> Result<Rc<AlterTable>> {
         // "ALTER TABLE" is already parsed
+        let mut if_exists = false;
+        if self.parse_word(IF)? {
+            self.expect_word(EXISTS)?;
+            if_exists = true;
+        }
         let only = self.parse_word(ONLY)?;
         let table_name = self.parse_qual_name()?;
-        unimplemented!() // TODO
+
+        if self.parse_word(RENAME)? {
+            
+            unimplemented!()
+        } else if !only && self.parse_word(SET)? {
+            self.expect_word(SCHEMA)?;
+            let new_schema = self.expect_name()?;
+
+            Ok(AlterTable::set_schema(table_name, new_schema))
+        } else {
+            unimplemented!()
+        }
     }
 
     fn parse_alter_type_intern(&mut self) -> Result<Rc<AlterType>> {
@@ -2150,6 +2166,13 @@ impl<'a> PostgreSQLParser<'a> {
             self.expect_semicolon_or_eof()?;
 
             Ok(Rc::new(AlterType::new(type_name, AlterTypeData::AddValue { if_not_exists, value, position })))
+        } else if self.parse_word(SET)? {
+            self.expect_word(SCHEMA)?;
+            let new_schma = self.expect_name()?;
+
+            self.expect_semicolon_or_eof()?;
+
+            Ok(AlterType::set_schema(type_name, new_schma))
         } else if let Some(token) = self.peek_token()? {
             let actual = self.get_source(token.cursor());
             Err(Error::with_message(
