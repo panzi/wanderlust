@@ -91,3 +91,13 @@ pub fn format_iso_string(mut write: impl std::fmt::Write, value: &str) -> std::f
 
     write.write_str("'")
 }
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct IsoString<'a>(pub &'a str);
+
+impl<'a> std::fmt::Display for IsoString<'a> {
+    #[inline]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        format_iso_string(f, self.0)
+    }
+}

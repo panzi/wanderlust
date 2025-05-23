@@ -35,7 +35,7 @@ impl TypeDef {
     }
 
     #[inline]
-    pub fn create_enum(name: QName, values: impl Into<Rc<[Rc<str>]>>) -> Self {
+    pub fn create_enum(name: QName, values: impl Into<Rc<Vec<Rc<str>>>>) -> Self {
         Self { name, data: TypeData::create_enum(values) }
     }
 
@@ -47,6 +47,11 @@ impl TypeDef {
     #[inline]
     pub fn data(&self) -> &TypeData {
         &self.data
+    }
+
+    #[inline]
+    pub fn data_mut(&mut self) -> &mut TypeData {
+        &mut self.data
     }
 
     pub fn missing_enum_values(&self, new_type_def: &TypeDef) -> Option<Vec<(Rc<str>, Option<ValuePosition>)>> {
@@ -89,13 +94,13 @@ impl TypeDef {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeData {
-    Enum { values: Rc<[Rc<str>]> },
+    Enum { values: Rc<Vec<Rc<str>>> },
     // TODO: more types
 }
 
 impl TypeData {
     #[inline]
-    pub fn create_enum(values: impl Into<Rc<[Rc<str>]>>) -> Self {
+    pub fn create_enum(values: impl Into<Rc<Vec<Rc<str>>>>) -> Self {
         Self::Enum { values: values.into() }
     }
 }

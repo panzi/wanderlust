@@ -12,6 +12,11 @@ pub enum ErrorKind {
     TableExists,
     IndexExists,
     TypeExists,
+    ValueExists,
+    TableNotExists,
+    IndexNotExists,
+    TypeNotExists,
+    ValueNotExists,
 }
 
 impl std::fmt::Display for ErrorKind {
@@ -25,6 +30,11 @@ impl std::fmt::Display for ErrorKind {
             Self::TableExists     => f.write_str("Table Exists"),
             Self::IndexExists     => f.write_str("Index Exists"),
             Self::TypeExists      => f.write_str("Type Exists"),
+            Self::ValueExists     => f.write_str("Enum Value Exists"),
+            Self::TableNotExists  => f.write_str("Table Not Exists"),
+            Self::IndexNotExists  => f.write_str("Index Not Exists"),
+            Self::TypeNotExists   => f.write_str("Type Not Exists"),
+            Self::ValueNotExists  => f.write_str("Enum Value Not Exists"),
         }
     }
 }

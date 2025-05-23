@@ -8,48 +8,21 @@ pub fn generate_migration(old: &Schema, new: &Schema) -> Vec<Statement> {
     let mut stmts = Vec::new();
     let mut create_indices = Vec::new();
 
-    let mut old_tables = HashMap::new();
-    let mut new_tables = HashMap::new();
+    let old_tables = old.tables();
+    let new_tables = new.tables();
 
-    let mut old_types = HashMap::new();
-    let mut new_types = HashMap::new();
+    let old_types = old.types();
+    let new_types = new.types();
 
-    let mut old_indices = HashMap::new();
-    let mut new_indices = HashMap::new();
-
-    for type_def in old.types() {
-        old_types.insert(type_def.name(), type_def);
-    }
-
-    for type_def in new.types() {
-        new_types.insert(type_def.name(), type_def);
-    }
+    let old_indices = old.indices();
+    let new_indices = new.indices();
 
     // TODO: correlate unnamed indices somehow!
-    for index in old.indices().iter() {
-        if let Some(name) = index.name() {
-            old_indices.insert(name, index);
-        }
-    }
-
-    for index in new.indices() {
-        if let Some(name) = index.name() {
-            new_indices.insert(name, index);
-        }
-    }
-
-    for table in old.tables() {
-        old_tables.insert(table.name().with_default_schema(&public), table);
-    }
-
-    for table in new.tables() {
-        new_tables.insert(table.name().with_default_schema(&public), table);
-    }
 
     let mut tmp_id = 0u64;
 
-    for type_def in new.types() {
-        if let Some(&old_type_def) = old_types.get(type_def.name()) {
+    for type_def in new.types().values() {
+        if let Some(old_type_def) = old_types.get(type_def.name()) {
             if type_def != old_type_def {
                 if let Some(missing_values) = old_type_def.missing_enum_values(type_def) {
                     // strictly only new values
@@ -96,15 +69,15 @@ pub fn generate_migration(old: &Schema, new: &Schema) -> Vec<Statement> {
         }
     }
 
-    for table in old.tables() {
+    for table in old.tables().values() {
         if !new_tables.contains_key(&table.name().with_default_schema(&public)) {
             stmts.push(Statement::drop_table(table.name().clone()));
         }
     }
 
-    for index in old.indices() {
+    for index in old.indices().values() {
         if let Some(name) = index.name() {
-            if let Some(&new_index) = new_indices.get(name) {
+            if let Some(new_index) = new_indices.get(&name) {
                 if new_index != index {
                     stmts.push(Statement::drop_index(name.clone()));
                     create_indices.push(Statement::CreateIndex(new_index.clone()));
@@ -117,25 +90,35 @@ pub fn generate_migration(old: &Schema, new: &Schema) -> Vec<Statement> {
         }
     }
 
-    for table in new.tables() {
-        if let Some(&old_table) = old_tables.get(&table.name().with_default_schema(&public)) {
+    for table in new.tables().values() {
+        if let Some(old_table) = old_tables.get(&table.name().with_default_schema(&public)) {
             migrate_table(old_table, table, &mut stmts);
         } else {
             stmts.push(Statement::CreateTable(table.clone()));
         }
     }
 
-    for index in new.indices() {
+    for index in new.indices().values() {
+        if let Some(name) = index.name() {
+            if !old_indices.contains_key(name) {
+                // TODO: find matching unnamed index?
+                stmts.push(Statement::CreateIndex(index.clone()));
+            }
+        }
+    }
+
+    for index in old.indices().values() {
         if let Some(name) = index.name() {
             if !new_indices.contains_key(name) {
-                stmts.push(Statement::CreateIndex(index.clone()));
+                // TODO: find matching unnamed index?
+                stmts.push(Statement::drop_index(name.clone()));
             }
         }
     }
 
     stmts.extend(create_indices);
 
-    for type_def in old.types() {
+    for type_def in old.types().values() {
         if !new_types.contains_key(type_def.name()) {
             stmts.push(Statement::drop_type(type_def.name().clone()));
         }

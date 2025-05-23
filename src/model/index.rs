@@ -1,3 +1,4 @@
+use std::ops::Deref;
 use std::rc::Rc;
 
 use crate::format::write_token_list;
@@ -156,7 +157,7 @@ impl Index {
     #[inline]
     pub fn new(
         unique: bool,
-        name: Option<QName>,
+        name: Option<Name>,
         table_name: QName,
         method: Option<Name>,
         items: impl Into<Rc<[IndexItem]>>,
@@ -165,13 +166,41 @@ impl Index {
     ) -> Self {
         Self {
             unique,
-            name,
+            name: name.map(|name| QName::new(table_name.schema().cloned(), name)),
             table_name,
             method,
             items: items.into(),
             nulls_distinct,
             predicate: predicate.map(Into::into),
         }
+    }
+
+    pub fn make_name(&self) -> Name {
+        let table_name = self.table_name.name().name();
+        let mut index_name = if self.unique {
+            format!("unique_idx_{table_name}")
+        } else {
+            format!("idx_{table_name}")
+        };
+
+        for item in self.items.deref() {
+            match item.data() {
+                IndexItemData::Column(column) => {
+                    index_name.push_str("_");
+                    index_name.push_str(&column.name());
+                }
+                IndexItemData::Expr(expr) => {
+                    for token in expr.deref() {
+                        if let ParsedToken::Name(name) = token {
+                            index_name.push_str("_");
+                            index_name.push_str(&name.name());
+                        }
+                    }
+                }
+            }
+        }
+
+        Name::new(index_name)
     }
 
     #[inline]

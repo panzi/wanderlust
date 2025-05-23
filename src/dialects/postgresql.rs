@@ -2002,9 +2002,9 @@ impl<'a> PostgreSQLParser<'a> {
             self.expect_word(NOT)?;
             self.expect_word(EXISTS)?;
             if_not_exists = true;
-            Some(self.parse_qual_name()?)
+            Some(self.expect_name()?)
         } else if peek_token!(self, TokenKind::Word | TokenKind::QuotName | TokenKind::UName)?.is_some() {
-            Some(self.parse_qual_name()?)
+            Some(self.expect_name()?)
         } else {
             None
         };
@@ -2122,6 +2122,8 @@ impl<'a> PostgreSQLParser<'a> {
                 self.expect_word(TO)?;
                 let new_value = self.expect_string()?;
 
+                self.expect_semicolon_or_eof()?;
+
                 Ok(AlterType::rename_value(type_name, existing_value, new_value))
             }
         } else if self.parse_word(ADD)? {
@@ -2144,6 +2146,8 @@ impl<'a> PostgreSQLParser<'a> {
                 let other_value = self.expect_string()?;
                 position = Some(ValuePosition::After(other_value));
             }
+
+            self.expect_semicolon_or_eof()?;
 
             Ok(Rc::new(AlterType::new(type_name, AlterTypeData::AddValue { if_not_exists, value, position })))
         } else if let Some(token) = self.peek_token()? {
@@ -2381,7 +2385,7 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                 //} else
                 if self.parse_word(TYPE)? {
                     let alter_type = self.parse_alter_type_intern()?;
-                    // TODO: evaluate
+                    schema.alter_type(&alter_type)?;
                 } else {
                     self.parse_token_list(true)?;
                     self.expect_semicolon_or_eof()?;
