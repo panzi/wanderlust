@@ -10,7 +10,7 @@ impl Name {
     #[inline]
     pub fn needs_quoting(name: &str) -> bool {
         if !name.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_') {
-            return false;
+            return true;
         }
         name[1..].contains(|c: char| !c.is_ascii_alphanumeric() && c != '_')
     }
