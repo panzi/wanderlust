@@ -6,7 +6,7 @@ use crate::model::alter::{AlterTypeData, ValuePosition};
 use crate::model::types::TypeData;
 use crate::ordered_hash_map::OrderedHashMap;
 
-use super::alter::AlterType;
+use super::alter::{AlterTable, AlterType};
 use super::column::Column;
 use super::index::CreateIndex;
 use super::name::{Name, QName};
@@ -301,5 +301,10 @@ impl Schema {
                 }
             }
         }
+    }
+
+    pub fn alter_table(&self, alter_table: &Rc<AlterTable>) -> Result<()> {
+        eprintln!("TODO: {alter_table}");
+        Ok(())
     }
 }

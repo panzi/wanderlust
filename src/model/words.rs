@@ -32,6 +32,7 @@ pub const CONSTRAINT: &str = "CONSTRAINT";
 pub const CREATE: &str = "CREATE";
 pub const CURRENT_ROLE: &str = "CURRENT_ROLE";
 pub const CURRENT_USER: &str = "CURRENT_USER";
+pub const DATA: &str = "DATA";
 pub const DATE: &str = "DATE";
 pub const DAY: &str = "DAY";
 pub const DECIMAL: &str = "DECIMAL";

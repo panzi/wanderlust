@@ -83,6 +83,11 @@ impl Token {
     pub fn cursor(&self) -> &Cursor {
         &self.cursor
     }
+
+    #[inline]
+    pub fn into_cursor(self) -> Cursor {
+        self.cursor
+    }
 }
 
 impl Locatable for Token {

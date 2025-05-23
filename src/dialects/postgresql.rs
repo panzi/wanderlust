@@ -5,7 +5,7 @@
 
 use std::{num::NonZeroU32, rc::Rc};
 
-use crate::{error::{Error, ErrorKind, Result}, model::{alter::{AlterTable, AlterTableAction, AlterTableData, AlterType, AlterTypeData, DropOption, Owner, ValuePosition}, column::{Column, ColumnConstraint, ColumnConstraintData, ColumnMatch, ReferentialAction}, index::{CreateIndex, Direction, Index, IndexItem, IndexItemData, NullsPosition}, integers::{Integer, SignedInteger, UnsignedInteger}, name::{Name, QName}, schema::Schema, syntax::{Cursor, Parser, SourceLocation, Tokenizer}, table::{CreateTable, Table, TableConstraint, TableConstraintData}, token::{ParsedToken, ToTokens, Token, TokenKind}, types::{ColumnDataType, DataType, IntervalFields, TypeDef, Value}}, peek_token};
+use crate::{error::{Error, ErrorKind, Result}, model::{alter::{AlterColumn, AlterColumnData, AlterTable, AlterTableAction, AlterTableData, AlterType, AlterTypeData, DropOption, Owner, ValuePosition}, column::{Column, ColumnConstraint, ColumnConstraintData, ColumnMatch, ReferentialAction}, index::{CreateIndex, Direction, Index, IndexItem, IndexItemData, NullsPosition}, integers::{Integer, SignedInteger, UnsignedInteger}, name::{Name, QName}, schema::Schema, syntax::{Cursor, Parser, SourceLocation, Tokenizer}, table::{CreateTable, Table, TableConstraint, TableConstraintData}, token::{ParsedToken, ToTokens, Token, TokenKind}, types::{ColumnDataType, DataType, IntervalFields, TypeDef, Value}}, peek_token};
 use crate::model::words::*;
 
 pub fn uunescape(string: &str, escape: char) -> Option<String> {
@@ -1105,42 +1105,29 @@ impl<'a> PostgreSQLParser<'a> {
                 };
                 Ok(ReferentialAction::SetDefault { columns })
             } else {
-                let token = self.expect_some()?;
-                let actual = self.get_source(token.cursor());
-                Err(Error::with_message(
-                    ErrorKind::UnexpectedToken,
-                    *token.cursor(),
-                    format!("expected one of: {NULL}, {DEFAULT}, actual: {actual}")
-                ))
+                Err(self.expected_one_of(&[
+                    NULL, DEFAULT
+                ]))
             }
         } else {
-            let token = self.expect_some()?;
-            let actual = self.get_source(token.cursor());
-            Err(Error::with_message(
-                ErrorKind::UnexpectedToken,
-                *token.cursor(),
-                format!("expected one of: {NO} {ACTION}, {RESTRICT}, {CASCADE}, {SET} {NULL}, {SET} {DEFAULT}, actual: {actual}")
-            ))
+            Err(self.expected_one_of(&[
+                NO, ACTION, RESTRICT, CASCADE, SET, NULL, DEFAULT
+            ]))
         }
     }
 
     fn parse_references(&mut self, column_match: &mut Option<ColumnMatch>, on_update: &mut Option<ReferentialAction>, on_delete: &mut Option<ReferentialAction>) -> Result<()> {
         if self.parse_word(MATCH)? {
-            let token = self.expect_token(TokenKind::Word)?;
-            let word = self.get_source(token.cursor());
-
-            if word.eq_ignore_ascii_case(FULL) {
+            if self.parse_word(FULL)? {
                 *column_match = Some(ColumnMatch::Full);
-            } else if word.eq_ignore_ascii_case(PARTIAL) {
+            } else if self.parse_word(PARTIAL)? {
                 *column_match = Some(ColumnMatch::Partial);
-            } else if word.eq_ignore_ascii_case(SIMPLE) {
+            } else if self.parse_word(SIMPLE)? {
                 *column_match = Some(ColumnMatch::Simple);
             } else {
-                return Err(Error::with_message(
-                    ErrorKind::UnexpectedToken,
-                    *token.cursor(),
-                    format!("expected one of: {FULL}, {PARTIAL}, {SIMPLE}, actual: {word}")
-                ));
+                return Err(self.expected_one_of(&[
+                    FULL, PARTIAL, SIMPLE
+                ]));
             }
         }
 
@@ -1361,90 +1348,54 @@ impl<'a> PostgreSQLParser<'a> {
                     let mut precision = None;
                     let mut fields = None;
 
-                    if let Some(token) = self.peek_token()? {
-                        if token.kind() == TokenKind::Word {
-                            let word = self.get_source(token.cursor());
-
-                            if word.eq_ignore_ascii_case(YEAR) {
-                                self.tokenizer.next()?;
-
-                                if self.peek_word(TO)? {
-                                    self.tokenizer.next()?;
-                                    self.expect_word(MONTH)?;
-                                    fields = Some(IntervalFields::YearToMonth);
-                                } else {
-                                    fields = Some(IntervalFields::Year);
-                                }
-                            } else if word.eq_ignore_ascii_case(MONTH) {
-                                self.tokenizer.next()?;
-
-                                fields = Some(IntervalFields::Month);
-                            } else if word.eq_ignore_ascii_case(DAY) {
-                                self.tokenizer.next()?;
-                                
-                                if self.peek_word(TO)? {
-                                    self.tokenizer.next()?;
-
-                                    let token = self.expect_token(TokenKind::Word)?;
-                                    let word = self.get_source(token.cursor());
-
-                                    if word.eq_ignore_ascii_case(HOUR) {
-                                        self.tokenizer.next()?;
-                                        fields = Some(IntervalFields::DayToHour);
-                                    } else if word.eq_ignore_ascii_case(MINUTE) {
-                                        self.tokenizer.next()?;
-                                        fields = Some(IntervalFields::DayToMinute);
-                                    } else if word.eq_ignore_ascii_case(SECOND) {
-                                        self.tokenizer.next()?;
-                                        fields = Some(IntervalFields::DayToSecond);
-                                    } else {
-                                        return Err(Error::with_message(
-                                            ErrorKind::UnexpectedToken,
-                                            *token.cursor(),
-                                            format!("expected one of: {HOUR}, {MINUTE}, {SECOND}, actual: {word}")
-                                        ));
-                                    }
-                                } else {
-                                    fields = Some(IntervalFields::Day);
-                                }
-                            } else if word.eq_ignore_ascii_case(HOUR) {
-                                self.tokenizer.next()?;
-                                if self.peek_word(TO)? {
-                                    self.tokenizer.next()?;
-
-                                    let token = self.expect_token(TokenKind::Word)?;
-                                    let word = self.get_source(token.cursor());
-
-                                    if word.eq_ignore_ascii_case(MINUTE) {
-                                        self.tokenizer.next()?;
-                                        fields = Some(IntervalFields::HourToMinute);
-                                    } else if word.eq_ignore_ascii_case(SECOND) {
-                                        self.tokenizer.next()?;
-                                        fields = Some(IntervalFields::HourToSecond);
-                                    } else {
-                                        return Err(Error::with_message(
-                                            ErrorKind::UnexpectedToken,
-                                            *token.cursor(),
-                                            format!("expected one of: {HOUR}, {MINUTE}, {SECOND}, actual: {word}")
-                                        ));
-                                    }
-                                } else {
-                                    fields = Some(IntervalFields::Hour);
-                                }
-                            } else if word.eq_ignore_ascii_case(MINUTE) {
-                                self.tokenizer.next()?;
-                                if self.peek_word(TO)? {
-                                    self.tokenizer.next()?;
-                                    self.expect_word(SECOND)?;
-                                    fields = Some(IntervalFields::MinuteToSecond);
-                                } else {
-                                    fields = Some(IntervalFields::Minute);
-                                }
-                            } else if word.eq_ignore_ascii_case(SECOND) {
-                                self.tokenizer.next()?;
-                                fields = Some(IntervalFields::Second);
-                            }
+                    if self.parse_word(YEAR)? {
+                        if self.parse_word(TO)? {
+                            self.expect_word(MONTH)?;
+                            fields = Some(IntervalFields::YearToMonth);
+                        } else {
+                            fields = Some(IntervalFields::Year);
                         }
+                    } else if self.parse_word(MONTH)? {
+                        fields = Some(IntervalFields::Month);
+                    } else if self.parse_word(DAY)? {
+                        if self.parse_word(TO)? {
+                            if self.parse_word(HOUR)? {
+                                fields = Some(IntervalFields::DayToHour);
+                            } else if self.parse_word(MINUTE)? {
+                                fields = Some(IntervalFields::DayToMinute);
+                            } else if self.parse_word(SECOND)? {
+                                fields = Some(IntervalFields::DayToSecond);
+                            } else {
+                                return Err(self.expected_one_of(&[
+                                    HOUR, MINUTE, SECOND
+                                ]));
+                            }
+                        } else {
+                            fields = Some(IntervalFields::Day);
+                        }
+                    } else if self.parse_word(HOUR)? {
+                        if self.parse_word(TO)? {
+                            if self.parse_word(MINUTE)? {
+                                fields = Some(IntervalFields::HourToMinute);
+                            } else if self.parse_word(SECOND)? {
+                                fields = Some(IntervalFields::HourToSecond);
+                            } else {
+                                return Err(self.expected_one_of(&[
+                                    HOUR, MINUTE, SECOND
+                                ]));
+                            }
+                        } else {
+                            fields = Some(IntervalFields::Hour);
+                        }
+                    } else if self.parse_word(MINUTE)? {
+                        if self.parse_word(TO)? {
+                            self.expect_word(SECOND)?;
+                            fields = Some(IntervalFields::MinuteToSecond);
+                        } else {
+                            fields = Some(IntervalFields::Minute);
+                        }
+                    } else if self.parse_word(SECOND)? {
+                        fields = Some(IntervalFields::Second);
                     }
 
                     if self.parse_token(TokenKind::LParen)? {
@@ -1635,6 +1586,285 @@ impl<'a> PostgreSQLParser<'a> {
         Ok(QName::new(schema, name))
     }
 
+    fn parse_table_constaint(&mut self) -> Result<Rc<TableConstraint>> {
+        let mut constraint_name = None;
+        let constraint_data;
+
+        if self.parse_word(CONSTRAINT)? {
+            constraint_name = Some(self.expect_name()?);
+        }
+
+        if self.peek_word(CHECK)? {
+            self.expect_some()?;
+
+            self.expect_token(TokenKind::LParen)?;
+            let expr = self.parse_token_list(false)?;
+            self.expect_token(TokenKind::RParen)?;
+
+            let mut inherit = true;
+            if self.peek_word(NO)? {
+                self.expect_some()?;
+                self.expect_word(INHERIT)?;
+                inherit = false;
+            }
+
+            constraint_data = TableConstraintData::Check { expr: expr.into(), inherit };
+        } else if self.peek_word(UNIQUE)? {
+            self.expect_some()?;
+
+            let mut nulls_distinct = None;
+            if self.parse_word(NULLS)? {
+                if self.parse_word(NOT)? {
+                    nulls_distinct = Some(false);
+                } else {
+                    nulls_distinct = Some(true);
+                }
+                self.expect_word(DISTINCT)?;
+            }
+
+            self.expect_token(TokenKind::LParen)?;
+            let mut columns = Vec::new();
+            loop {
+                columns.push(self.expect_name()?);
+                if !self.parse_token(TokenKind::Comma)? {
+                    break;
+                }
+            }
+            self.expect_token(TokenKind::RParen)?;
+
+            constraint_data = TableConstraintData::Unique { nulls_distinct, columns: columns.into() };
+        } else if self.peek_word(PRIMARY)? {
+            self.expect_some()?;
+            self.expect_word(KEY)?;
+
+            self.expect_token(TokenKind::LParen)?;
+            let mut columns = Vec::new();
+            loop {
+                columns.push(self.expect_name()?);
+                if !self.parse_token(TokenKind::Comma)? {
+                    break;
+                }
+            }
+            self.expect_token(TokenKind::RParen)?;
+
+            constraint_data = TableConstraintData::PrimaryKey { columns: columns.into() };
+        } else if self.peek_word(FOREIGN)? {
+            self.expect_some()?;
+            self.expect_word(KEY)?;
+
+            self.expect_token(TokenKind::LParen)?;
+            let mut columns = Vec::new();
+            loop {
+                columns.push(self.expect_name()?);
+                if !self.parse_token(TokenKind::Comma)? {
+                    break;
+                }
+            }
+            self.expect_token(TokenKind::RParen)?;
+
+            self.expect_word(REFERENCES)?;
+
+            let ref_table = self.parse_qual_name()?;
+            let mut ref_columns = None;
+
+            if self.parse_token(TokenKind::LParen)? {
+                let mut refcolumns = Vec::new();
+                loop {
+                    refcolumns.push(self.expect_name()?);
+                    if !self.parse_token(TokenKind::Comma)? {
+                        break;
+                    }
+                }
+                self.expect_token(TokenKind::RParen)?;
+                ref_columns = Some(refcolumns.into());
+            }
+
+            let mut column_match = None;
+            let mut on_delete = None;
+            let mut on_update = None;
+            self.parse_references(
+                &mut column_match, &mut on_update, &mut on_delete
+            )?;
+
+            constraint_data = TableConstraintData::ForeignKey {
+                columns: columns.into(),
+                ref_table,
+                ref_columns,
+                column_match,
+                on_update,
+                on_delete,
+            };
+        } else {
+            let token = self.expect_some()?;
+            return Err(Error::with_message(
+                ErrorKind::UnexpectedToken,
+                *token.cursor(),
+                format!("expected: <column constraint>, actual: {}", token.kind())
+            ));
+        }
+
+        let mut deferrable = None;
+        if self.parse_word(DEFERRABLE)? {
+            deferrable = Some(true);
+        } else if self.parse_word(NOT)? {
+            self.expect_word(DEFERRABLE)?;
+            deferrable = Some(false);
+        }
+
+        let mut initially_deferred = None;
+        if self.peek_word(INITIALLY)? {
+            self.expect_some()?;
+
+            if self.parse_word(DEFERRED)? {
+                initially_deferred = Some(true);
+            } else {
+                self.expect_word(IMMEDIATE)?;
+                initially_deferred = Some(false);
+            }
+        }
+
+        Ok(Rc::new(TableConstraint::new(
+            constraint_name,
+            constraint_data,
+            deferrable,
+            initially_deferred
+        )))
+    }
+
+    fn parse_column(&mut self) -> Result<Rc<Column>> {
+        let column_name = self.expect_name()?;
+        let data_type = self.parse_column_data_type()?;
+        let mut collation = None;
+
+        if self.peek_word(COLLATE)? {
+            self.expect_some()?;
+            collation = Some(self.expect_name()?);
+        }
+
+        let mut column_constraints = Vec::new();
+
+        loop {
+            let mut constraint_name = None;
+            if self.peek_word(CONSTRAINT)? {
+                self.expect_some()?;
+                constraint_name = Some(self.expect_name()?);
+            }
+
+            let constraint_data;
+
+            if self.parse_word(NOT)? {
+                self.expect_word(NULL)?;
+
+                constraint_data = ColumnConstraintData::NotNull;
+            } else if self.parse_word(NULL)? {
+                constraint_data = ColumnConstraintData::Null;
+            } else if self.parse_word(CHECK)? {
+                self.expect_token(TokenKind::LParen)?;
+                let expr = self.parse_token_list(false)?;
+                self.expect_token(TokenKind::RParen)?;
+
+                let mut inherit = true;
+                if self.peek_word(NO)? {
+                    self.expect_some()?;
+                    self.expect_word(INHERIT)?;
+                    inherit = false;
+                }
+
+                constraint_data = ColumnConstraintData::Check { expr: expr.into(), inherit };
+            } else if self.parse_word(DEFAULT)? {
+                let value = self.parse_expr()?;
+
+                constraint_data = ColumnConstraintData::Default { value: value.into() };
+            } else if self.parse_word(UNIQUE)? {
+                let mut nulls_distinct = None;
+                if self.parse_word(NULLS)? {
+                    if self.parse_word(NOT)? {
+                        nulls_distinct = Some(false);
+                    } else {
+                        nulls_distinct = Some(true);
+                    }
+                    self.expect_word(DISTINCT)?;
+                }
+
+                constraint_data = ColumnConstraintData::Unique { nulls_distinct };
+            } else if self.parse_word(PRIMARY)? {
+                self.expect_word(KEY)?;
+
+                constraint_data = ColumnConstraintData::PrimaryKey;
+            } else if self.parse_word(REFERENCES)? {
+                let ref_table = self.parse_qual_name()?;
+
+                let mut ref_column = None;
+                if self.parse_token(TokenKind::LParen)? {
+                    ref_column = Some(self.expect_name()?);
+                    self.expect_token(TokenKind::RParen)?;
+                }
+
+                let mut column_match = None;
+                let mut on_delete = None;
+                let mut on_update = None;
+                self.parse_references(
+                    &mut column_match, &mut on_update, &mut on_delete
+                )?;
+
+                constraint_data = ColumnConstraintData::References {
+                    ref_table, ref_column,
+                    column_match, on_update, on_delete,
+                };
+            } else {
+                if constraint_name.is_some() {
+                    let token = self.expect_some()?;
+                    return Err(Error::with_message(
+                        ErrorKind::UnexpectedToken,
+                        *token.cursor(),
+                        format!("expected: <column constraint>, actual: {}", token.kind())
+                    ));
+                }
+                break;
+            }
+
+            let mut deferrable = None;
+            if self.parse_word(DEFERRABLE)? {
+                deferrable = Some(true);
+            } else if self.peek_word(NOT)? {
+                let start_offset = self.expect_some()?.cursor().start_offset();
+
+                // Might be NOT NULL!
+                // I guess SQL needs more than one token lookahead!
+                if self.parse_word(DEFERRABLE)? {
+                    deferrable = Some(false);
+                } else {
+                    self.tokenizer.move_to(start_offset);
+                }
+            }
+
+            let mut initially_deferred = None;
+            if self.peek_word(INITIALLY)? {
+                self.expect_some()?;
+
+                if self.parse_word(DEFERRED)? {
+                    initially_deferred = Some(true);
+                } else {
+                    self.expect_word(IMMEDIATE)?;
+                    initially_deferred = Some(false);
+                }
+            }
+
+            column_constraints.push(
+                Rc::new(ColumnConstraint::new(
+                    constraint_name,
+                    constraint_data,
+                    deferrable,
+                    initially_deferred,
+                ))
+            );
+        }
+
+        Ok(Rc::new(Column::new(
+            column_name, data_type, collation, column_constraints,
+        )))
+    }
+
     fn parse_table_intern(&mut self) -> Result<CreateTable> {
         // "CREATE TABLE" is already parsed
 
@@ -1646,293 +1876,10 @@ impl<'a> PostgreSQLParser<'a> {
         self.expect_token(TokenKind::LParen)?;
 
         while !self.peek_kind(TokenKind::RParen)? {
-            if let Some(word) = self.peek_words(&[CONSTRAINT, CHECK, UNIQUE, PRIMARY, FOREIGN])? {
-                let mut constraint_name = None;
-                let constraint_data;
-
-                if word == CONSTRAINT {
-                    self.expect_some()?;
-                    constraint_name = Some(self.expect_name()?);
-                }
-
-                if self.peek_word(CHECK)? {
-                    self.expect_some()?;
-
-                    self.expect_token(TokenKind::LParen)?;
-                    let expr = self.parse_token_list(false)?;
-                    self.expect_token(TokenKind::RParen)?;
-
-                    let mut inherit = true;
-                    if self.peek_word(NO)? {
-                        self.expect_some()?;
-                        self.expect_word(INHERIT)?;
-                        inherit = false;
-                    }
-
-                    constraint_data = TableConstraintData::Check { expr: expr.into(), inherit };
-                } else if self.peek_word(UNIQUE)? {
-                    self.expect_some()?;
-
-                    let mut nulls_distinct = None;
-                    if self.parse_word(NULLS)? {
-                        if self.parse_word(NOT)? {
-                            nulls_distinct = Some(false);
-                        } else {
-                            nulls_distinct = Some(true);
-                        }
-                        self.expect_word(DISTINCT)?;
-                    }
-
-                    self.expect_token(TokenKind::LParen)?;
-                    let mut columns = Vec::new();
-                    loop {
-                        columns.push(self.expect_name()?);
-                        if !self.parse_token(TokenKind::Comma)? {
-                            break;
-                        }
-                    }
-                    self.expect_token(TokenKind::RParen)?;
-
-                    constraint_data = TableConstraintData::Unique { nulls_distinct, columns: columns.into() };
-                } else if self.peek_word(PRIMARY)? {
-                    self.expect_some()?;
-                    self.expect_word(KEY)?;
-
-                    self.expect_token(TokenKind::LParen)?;
-                    let mut columns = Vec::new();
-                    loop {
-                        columns.push(self.expect_name()?);
-                        if !self.parse_token(TokenKind::Comma)? {
-                            break;
-                        }
-                    }
-                    self.expect_token(TokenKind::RParen)?;
-
-                    constraint_data = TableConstraintData::PrimaryKey { columns: columns.into() };
-                } else if self.peek_word(FOREIGN)? {
-                    self.expect_some()?;
-                    self.expect_word(KEY)?;
-
-                    self.expect_token(TokenKind::LParen)?;
-                    let mut columns = Vec::new();
-                    loop {
-                        columns.push(self.expect_name()?);
-                        if !self.parse_token(TokenKind::Comma)? {
-                            break;
-                        }
-                    }
-                    self.expect_token(TokenKind::RParen)?;
-
-                    self.expect_word(REFERENCES)?;
-
-                    let ref_table = self.parse_qual_name()?;
-                    let mut ref_columns = None;
-
-                    if self.parse_token(TokenKind::LParen)? {
-                        let mut refcolumns = Vec::new();
-                        loop {
-                            refcolumns.push(self.expect_name()?);
-                            if !self.parse_token(TokenKind::Comma)? {
-                                break;
-                            }
-                        }
-                        self.expect_token(TokenKind::RParen)?;
-                        ref_columns = Some(refcolumns.into());
-                    }
-
-                    let mut column_match = None;
-                    let mut on_delete = None;
-                    let mut on_update = None;
-                    self.parse_references(
-                        &mut column_match, &mut on_update, &mut on_delete
-                    )?;
-
-                    constraint_data = TableConstraintData::ForeignKey {
-                        columns: columns.into(),
-                        ref_table,
-                        ref_columns,
-                        column_match,
-                        on_update,
-                        on_delete,
-                    };
-                } else {
-                    let token = self.expect_some()?;
-                    return Err(Error::with_message(
-                        ErrorKind::UnexpectedToken,
-                        *token.cursor(),
-                        format!("expected: <column constraint>, actual: {}", token.kind())
-                    ));
-                }
-
-                let mut deferrable = None;
-                if self.parse_word(DEFERRABLE)? {
-                    deferrable = Some(true);
-                } else if self.parse_word(NOT)? {
-                    self.expect_word(DEFERRABLE)?;
-                    deferrable = Some(false);
-                }
-
-                let mut initially_deferred = None;
-                if self.peek_word(INITIALLY)? {
-                    self.expect_some()?;
-
-                    if self.parse_word(DEFERRED)? {
-                        initially_deferred = Some(true);
-                    } else {
-                        self.expect_word(IMMEDIATE)?;
-                        initially_deferred = Some(false);
-                    }
-                }
-
-                table_constraints.push(
-                    Rc::new(TableConstraint::new(
-                        constraint_name,
-                        constraint_data,
-                        deferrable,
-                        initially_deferred
-                    ))
-                );
+            if self.peek_words(&[CONSTRAINT, CHECK, UNIQUE, PRIMARY, FOREIGN])?.is_some() {
+                table_constraints.push(self.parse_table_constaint()?);
             } else {
-                let column_name = self.expect_name()?;
-                let data_type = self.parse_column_data_type()?;
-                let mut collation = None;
-
-                if self.peek_word(COLLATE)? {
-                    self.expect_some()?;
-                    collation = Some(self.expect_name()?);
-                }
-
-                let mut column_constraints = Vec::new();
-
-                loop {
-                    let mut constraint_name = None;
-                    if self.peek_word(CONSTRAINT)? {
-                        self.expect_some()?;
-                        constraint_name = Some(self.expect_name()?);
-                    }
-
-                    let constraint_data;
-
-                    if self.peek_word(NOT)? {
-                        self.expect_some()?;
-                        self.expect_word(NULL)?;
-
-                        constraint_data = ColumnConstraintData::NotNull;
-                    } else if self.peek_word(NULL)? {
-                        self.expect_some()?;
-
-                        constraint_data = ColumnConstraintData::Null;
-                    } else if self.peek_word(CHECK)? {
-                        self.expect_some()?;
-
-                        self.expect_token(TokenKind::LParen)?;
-                        let expr = self.parse_token_list(false)?;
-                        self.expect_token(TokenKind::RParen)?;
-
-                        let mut inherit = true;
-                        if self.peek_word(NO)? {
-                            self.expect_some()?;
-                            self.expect_word(INHERIT)?;
-                            inherit = false;
-                        }
-
-                        constraint_data = ColumnConstraintData::Check { expr: expr.into(), inherit };
-                    } else if self.peek_word(DEFAULT)? {
-                        self.expect_some()?;
-                        let value = self.parse_expr()?;
-
-                        constraint_data = ColumnConstraintData::Default { value: value.into() };
-                    } else if self.peek_word(UNIQUE)? {
-                        self.expect_some()?;
-                        let mut nulls_distinct = None;
-                        if self.parse_word(NULLS)? {
-                            if self.parse_word(NOT)? {
-                                nulls_distinct = Some(false);
-                            } else {
-                                nulls_distinct = Some(true);
-                            }
-                            self.expect_word(DISTINCT)?;
-                        }
-
-                        constraint_data = ColumnConstraintData::Unique { nulls_distinct };
-                    } else if self.peek_word(PRIMARY)? {
-                        self.expect_some()?;
-                        self.expect_word(KEY)?;
-
-                        constraint_data = ColumnConstraintData::PrimaryKey;
-                    } else if self.peek_word(REFERENCES)? {
-                        self.expect_some()?;
-                        let ref_table = self.parse_qual_name()?;
-
-                        let mut ref_column = None;
-                        if self.parse_token(TokenKind::LParen)? {
-                            ref_column = Some(self.expect_name()?);
-                            self.expect_token(TokenKind::RParen)?;
-                        }
-
-                        let mut column_match = None;
-                        let mut on_delete = None;
-                        let mut on_update = None;
-                        self.parse_references(
-                            &mut column_match, &mut on_update, &mut on_delete
-                        )?;
-
-                        constraint_data = ColumnConstraintData::References {
-                            ref_table, ref_column,
-                            column_match, on_update, on_delete,
-                        };
-                    } else {
-                        if constraint_name.is_some() {
-                            let token = self.expect_some()?;
-                            return Err(Error::with_message(
-                                ErrorKind::UnexpectedToken,
-                                *token.cursor(),
-                                format!("expected: <column constraint>, actual: {}", token.kind())
-                            ));
-                        }
-                        break;
-                    }
-
-                    let mut deferrable = None;
-                    if self.parse_word(DEFERRABLE)? {
-                        deferrable = Some(true);
-                    } else if self.peek_word(NOT)? {
-                        let start_offset = self.expect_some()?.cursor().start_offset();
-
-                        // Might be NOT NULL!
-                        // I guess SQL needs more than one token lookahead!
-                        if self.parse_word(DEFERRABLE)? {
-                            deferrable = Some(false);
-                        } else {
-                            self.tokenizer.move_to(start_offset);
-                        }
-                    }
-
-                    let mut initially_deferred = None;
-                    if self.peek_word(INITIALLY)? {
-                        self.expect_some()?;
-
-                        if self.parse_word(DEFERRED)? {
-                            initially_deferred = Some(true);
-                        } else {
-                            self.expect_word(IMMEDIATE)?;
-                            initially_deferred = Some(false);
-                        }
-                    }
-
-                    column_constraints.push(
-                        Rc::new(ColumnConstraint::new(
-                            constraint_name,
-                            constraint_data,
-                            deferrable,
-                            initially_deferred,
-                        ))
-                    );
-                }
-
-                columns.push(Rc::new(Column::new(
-                    column_name, data_type, collation, column_constraints,
-                )));
+                columns.push(self.parse_column()?);
             }
 
             if self.peek_kind(TokenKind::Comma)? {
@@ -1983,14 +1930,9 @@ impl<'a> PostgreSQLParser<'a> {
             } else if self.parse_word(LAST)? {
                 nulls_position = Some(NullsPosition::Last);
             } else {
-                let token = self.expect_some()?;
-                let actual = self.get_source(token.cursor());
-
-                return Err(Error::with_message(
-                    ErrorKind::UnexpectedToken,
-                    *token.cursor(),
-                    format!("expected one of: {FIRST}, {LAST}, actual: {actual}")
-                ));
+                return Err(self.expected_one_of(&[
+                    FIRST, LAST
+                ]));
             }
         }
 
@@ -2094,6 +2036,7 @@ impl<'a> PostgreSQLParser<'a> {
         let only_offset = self.tokenizer.offset();
         let only = self.parse_word(ONLY)?;
         let table_name = self.parse_qual_name()?;
+        let data;
 
         if self.parse_word(RENAME)? {
             if self.parse_word(TO)? {
@@ -2106,20 +2049,20 @@ impl<'a> PostgreSQLParser<'a> {
                 }
                 let new_name = self.expect_name()?;
 
-                Ok(Rc::new(AlterTable::new(table_name, AlterTableData::RenameTable { if_exists, new_name })))
+                data = AlterTableData::RenameTable { if_exists, new_name };
             } else if self.parse_word(CONSTRAINT)? {
                 let constraint_name = self.expect_name()?;
                 self.expect_word(TO)?;
                 let new_constraint_name = self.expect_name()?;
 
-                Ok(Rc::new(AlterTable::new(table_name, AlterTableData::RenameConstraint { if_exists, only, constraint_name, new_constraint_name })))
+                data = AlterTableData::RenameConstraint { if_exists, only, constraint_name, new_constraint_name };
             } else {
                 self.parse_word(COLUMN)?;
                 let column_name = self.expect_name()?;
                 self.expect_word(TO)?;
                 let new_column_name = self.expect_name()?;
 
-                Ok(Rc::new(AlterTable::new(table_name, AlterTableData::RenameColumn { if_exists, only, column_name, new_column_name })))
+                data = AlterTableData::RenameColumn { if_exists, only, column_name, new_column_name };
             }
         } else if self.parse_word(SET)? {
             self.expect_word(SCHEMA)?;
@@ -2132,7 +2075,7 @@ impl<'a> PostgreSQLParser<'a> {
             }
             let new_schema = self.expect_name()?;
 
-            Ok(Rc::new(AlterTable::new(table_name, AlterTableData::SetSchema { if_exists, new_schema })))
+            data = AlterTableData::SetSchema { if_exists, new_schema };
         } else {
             let mut actions = Vec::new();
             loop {
@@ -2144,8 +2087,12 @@ impl<'a> PostgreSQLParser<'a> {
                 }
             }
 
-            Ok(Rc::new(AlterTable::new(table_name, AlterTableData::Actions { if_exists, only, actions: actions.into() })))
+            data = AlterTableData::Actions { if_exists, only, actions: actions.into() };
         }
+
+        self.expect_semicolon_or_eof()?;
+
+        Ok(Rc::new(AlterTable::new(table_name, data)))
     }
 
     fn parse_if_exists(&mut self) -> Result<bool> {
@@ -2170,7 +2117,20 @@ impl<'a> PostgreSQLParser<'a> {
     fn parse_alter_table_action(&mut self) -> Result<AlterTableAction> {
         if self.parse_word(ADD)? {
             // ADD COLUMN or CONSTRAINT
-            unimplemented!()
+            if self.peek_words(&[CONSTRAINT, CHECK, UNIQUE, PRIMARY, EXCLUDE, FOREIGN])?.is_some() {
+                let table_constraint = self.parse_table_constaint()?;
+
+                Ok(AlterTableAction::AddConstraint {
+                    constraint: table_constraint
+                })
+            } else {
+                self.parse_word(COLUMN)?;
+
+                let if_not_exists = self.parse_if_not_exists()?;
+                let column = self.parse_column()?;
+
+                Ok(AlterTableAction::AddColumn { if_not_exists, column })
+            }
         } else if self.parse_word(DROP)? {
             if self.parse_word(CONSTRAINT)? {
                 let if_exists = self.parse_if_exists()?;
@@ -2212,7 +2172,63 @@ impl<'a> PostgreSQLParser<'a> {
                 Ok(AlterTableAction::AlterConstraint { constraint_name, deferrable, initially_deferred })
             } else {
                 self.parse_word(COLUMN)?;
-                unimplemented!()
+                let column_name = self.expect_name()?;
+
+                let data;
+                if self.parse_word(SET)? {
+                    if self.parse_word(DATA)? {
+                        self.expect_word(TYPE)?;
+
+                        let data_type = Rc::new(self.parse_column_data_type()?);
+                        let collation = if self.parse_word(COLLATE)? {
+                            Some(self.expect_name()?)
+                        } else {
+                            None
+                        };
+                        let using = if self.parse_word(USING)? {
+                            Some(self.parse_expr()?.into())
+                        } else {
+                            None
+                        };
+
+                        data = AlterColumnData::Type { data_type, collation, using };
+                    } else if self.parse_word(NOT)? {
+                        self.expect_word(NULL)?;
+
+                        data = AlterColumnData::SetNotNull;
+                    } else if self.parse_word(DEFAULT)? {
+                        let expr = self.parse_expr()?.into();
+                        data = AlterColumnData::SetDefault { expr };
+                    } else {
+                        return Err(self.expected_one_of(&[
+                            DATA, NOT, DEFAULT
+                        ]));
+                    }
+                } else if self.parse_word(TYPE)? {
+                    let data_type = Rc::new(self.parse_column_data_type()?);
+                    let collation = if self.parse_word(COLLATE)? {
+                        Some(self.expect_name()?)
+                    } else {
+                        None
+                    };
+                    let using = if self.parse_word(USING)? {
+                        Some(self.parse_expr()?.into())
+                    } else {
+                        None
+                    };
+
+                    data = AlterColumnData::Type { data_type, collation, using };
+                } else if self.parse_word(DROP)? {
+                    self.expect_word(NOT)?;
+                    self.expect_word(NULL)?;
+                    data = AlterColumnData::DropNotNull;
+                } else {
+                    return Err(self.expected_one_of(&[
+                        SET, TYPE, DROP
+                    ]))
+                }
+
+                Ok(AlterTableAction::AlterColumn { alter_column: AlterColumn::new(column_name, data) })
             }
         } else {
             self.expect_word(OWNER)?;
@@ -2230,6 +2246,48 @@ impl<'a> PostgreSQLParser<'a> {
             };
 
             Ok(AlterTableAction::OwnerTo { new_owner })
+        }
+    }
+
+    fn expected_one_of(&mut self, tokens: &[&str]) -> Error {
+        match self.peek_token() {
+            Ok(res) => {
+                let mut msg = if tokens.len() > 1 {
+                    "expected one of: "
+                } else {
+                    "expected: "
+                }.to_owned();
+                let mut iter = tokens.iter();
+                if let Some(first) = iter.next() {
+                    msg.push_str(first);
+                    for token in iter {
+                        msg.push_str(", ");
+                        msg.push_str(token);
+                    }
+                } else {
+                    msg.push_str("<EOF>");
+                }
+                msg.push_str(", actual: ");
+
+                let cursor;
+                if let Some(token) = res {
+                    msg.push_str(self.get_source(token.cursor()));
+                    cursor = token.into_cursor();
+                } else {
+                    msg.push_str("<EOF>");
+                    cursor = Cursor::new(
+                        self.tokenizer.offset(),
+                        self.tokenizer.offset()
+                    );
+                }
+
+                Error::with_message(
+                    ErrorKind::UnexpectedToken,
+                    cursor,
+                    msg
+                )
+            }
+            Err(err) => err
         }
     }
 
@@ -2295,19 +2353,10 @@ impl<'a> PostgreSQLParser<'a> {
             self.expect_semicolon_or_eof()?;
 
             Ok(AlterType::set_schema(type_name, new_schma))
-        } else if let Some(token) = self.peek_token()? {
-            let actual = self.get_source(token.cursor());
-            Err(Error::with_message(
-                ErrorKind::UnexpectedToken,
-                *token.cursor(),
-                format!("expected one of: {OWNER}, {RENAME}, {ADD}, actual: {actual}")
-            ))
         } else {
-            Err(Error::with_message(
-                ErrorKind::UnexpectedToken,
-                Cursor::new(self.tokenizer.offset(), self.tokenizer.offset()),
-                format!("expected one of: {OWNER}, {RENAME}, {ADD}, actual: <EOF>")
-            ))
+            Err(self.expected_one_of(&[
+                OWNER, RENAME, ADD
+            ]))
         }
     }
 }
@@ -2501,19 +2550,10 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                     let source = self.tokenizer.get_offset(start_offset, end_offset);
 
                     eprintln!("TODO: parse CREATE EXTENSION statements: {source}");
-                } else if let Some(token) = self.tokenizer.next()? {
-                    let actual = self.get_source(token.cursor());
-                    return Err(Error::with_message(
-                        ErrorKind::UnexpectedToken,
-                        *token.cursor(),
-                        format!("expected one of: {TABLE}, [{UNIQUE}] {INDEX}, {TYPE}, actual: {actual}")
-                    ));
                 } else {
-                    return Err(Error::with_message(
-                        ErrorKind::UnexpectedEOF,
-                        Cursor::new(self.tokenizer.offset(), self.tokenizer.offset() + 1),
-                        format!("expected one of: {TABLE}, [{UNIQUE}] {INDEX}, {TYPE}, actual: <EOF>")
-                    ));
+                    return Err(self.expected_one_of(&[
+                        TABLE, "[UNIQUE] INDEX", TYPE
+                    ]));
                 }
             } else if self.parse_word(SELECT)? {
                 // ignore SELECT
@@ -2524,11 +2564,10 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                 // This is important if the output of pg_dump should be supported,
                 // because it adds constraints at the end via ALTER statements.
 
-                //if self.parse_word(TABLE)? {
-                //    let alter_table = self.parse_alter_table_intern()?;
-                //    // TODO: evaluate
-                //} else
-                if self.parse_word(TYPE)? {
+                if self.parse_word(TABLE)? {
+                    let alter_table = self.parse_alter_table_intern()?;
+                    schema.alter_table(&alter_table)?;
+                } else if self.parse_word(TYPE)? {
                     let alter_type = self.parse_alter_type_intern()?;
                     schema.alter_type(&alter_type)?;
                 } else {
@@ -2576,12 +2615,9 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                     format!("transaction rollback is not supported")
                 ));
             } else {
-                let actual = self.get_source(token.cursor());
-                return Err(Error::with_message(
-                    ErrorKind::UnexpectedToken,
-                    *token.cursor(),
-                    format!("expected one of: {CREATE}, {SET}, {SELECT}, actual: {actual}")
-                ));
+                return Err(self.expected_one_of(&[
+                    CREATE, SET, SELECT, ALTER, COMMENT, BEGIN, START
+                ]));
             }
         }
 
