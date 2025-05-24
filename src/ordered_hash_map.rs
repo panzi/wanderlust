@@ -1,4 +1,4 @@
-use std::{collections::HashMap, hash::Hash, iter::Map};
+use std::{collections::{HashMap, TryReserveError}, hash::{BuildHasher, Hash, RandomState}, iter::Map};
 
 
 #[derive(Debug, Clone, PartialEq)]
@@ -38,13 +38,13 @@ where T: PartialEq {
 }
 
 #[derive(Debug, Clone)]
-pub struct OrderedHashMap<K, V> {
-    inner: HashMap<K, OrderedCell<V>>,
+pub struct OrderedHashMap<K, V, S = RandomState> {
+    inner: HashMap<K, OrderedCell<V>, S>,
     next_order: u64,
 }
 
-impl<K, V> PartialEq for OrderedHashMap<K, V>
-where K: Eq + Hash, V: PartialEq {
+impl<K, V, S> PartialEq for OrderedHashMap<K, V, S>
+where K: Eq + Hash, V: PartialEq, S: BuildHasher {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
         self.inner == other.inner
@@ -56,8 +56,8 @@ pub type Iter<'a, K, V> = Map<
     fn((&'a K, &'a OrderedCell<V>)) -> (&'a K, &'a V)
 >;
 
-impl<'a, K, V> IntoIterator for &'a OrderedHashMap<K, V>
-where K: Eq + Hash {
+impl<'a, K, V, S> IntoIterator for &'a OrderedHashMap<K, V, S>
+where K: Eq + Hash, S: BuildHasher {
     type Item = (&'a K, &'a V);
     type IntoIter = Iter<'a, K, V>;
 
@@ -72,7 +72,7 @@ pub type IntoIter<K, V> = Map<
     fn((K, OrderedCell<V>)) -> (K, V)
 >;
 
-impl<K, V> IntoIterator for OrderedHashMap<K, V>
+impl<K, V, S> IntoIterator for OrderedHashMap<K, V, S>
 where K: Eq + Hash {
     type Item = (K, V);
     type IntoIter = IntoIter<K, V>;
@@ -90,8 +90,8 @@ pub type IterMut<'a, K, V> = Map<
     fn((&'a K, &'a mut OrderedCell<V>)) -> (&'a K, &'a mut V)
 >;
 
-impl<'a, K, V> IntoIterator for &'a mut OrderedHashMap<K, V>
-where K: Eq + Hash {
+impl<'a, K, V, S> IntoIterator for &'a mut OrderedHashMap<K, V, S>
+where K: Eq + Hash, S: BuildHasher {
     type Item = (&'a K, &'a mut V);
     type IntoIter = IterMut<'a, K, V>;
 
@@ -104,6 +104,11 @@ where K: Eq + Hash {
 pub type IntoValues<K, V> = Map<
     <Vec<(K, OrderedCell<V>)> as IntoIterator>::IntoIter,
     fn((K, OrderedCell<V>)) -> V
+>;
+
+pub type Drain<'a, K, V> = Map<
+    std::collections::hash_map::Drain<'a, K, OrderedCell<V>>,
+    fn((K, OrderedCell<V>)) -> (K, V)
 >;
 
 impl<K, V> OrderedHashMap<K, V>
@@ -123,6 +128,28 @@ where K: Eq + Hash {
             next_order: 0,
         }
     }
+}
+
+impl<K, V, S> OrderedHashMap<K, V, S>
+where K: Eq + Hash, S: BuildHasher {
+    #[inline]
+    pub fn with_hasher(hash_builder: S) -> Self {
+        Self {
+            inner: HashMap::with_hasher(hash_builder),
+            next_order: 0
+        }
+    }
+
+    #[inline]
+    pub fn with_capacity_and_hasher(
+        capacity: usize,
+        hasher: S
+    ) -> Self {
+        Self {
+            inner: HashMap::with_capacity_and_hasher(capacity, hasher),
+            next_order: 0
+        }
+    }
 
     #[inline]
     pub fn insert(&mut self, key: K, value: V) -> Option<V> {
@@ -135,6 +162,11 @@ where K: Eq + Hash {
     #[inline]
     pub fn remove(&mut self, key: &K) -> Option<V> {
         self.inner.remove(key).map(OrderedCell::into_inner)
+    }
+
+    #[inline]
+    pub fn remove_entry(&mut self, key: &K) -> Option<(K, V)> {
+        self.inner.remove_entry(key).map(|(k, v)| (k, v.into_inner()))
     }
 
     #[inline]
@@ -213,9 +245,44 @@ where K: Eq + Hash {
     pub fn into_values_unordered(self) -> impl Iterator<Item = V> {
         self.inner.into_values().map(OrderedCell::into_inner)
     }
+
+    #[inline]
+    pub fn shrink_to(&mut self, min_capacity: usize) {
+        self.inner.shrink_to(min_capacity);
+    }
+
+    #[inline]
+    pub fn shrink_to_fit(&mut self) {
+        self.inner.shrink_to_fit();
+    }
+
+    #[inline]
+    pub fn reserve(&mut self, additional: usize) {
+        self.inner.reserve(additional);
+    }
+
+    #[inline]
+    pub fn try_reserve(&mut self, additional: usize) -> Result<(), TryReserveError> {
+        self.inner.try_reserve(additional)
+    }
+
+    #[inline]
+    pub fn drain(&mut self) -> Drain<'_, K, V> {
+        self.inner.drain().map(|(k, v)| (k, v.into_inner()))
+    }
+
+    #[inline]
+    pub fn retain(&mut self, mut f: impl FnMut(&K, &mut V) -> bool) {
+        self.inner.retain(|k, v| f(k, v.inner_mut()));
+    }
+
+    #[inline]
+    pub fn hasher(&self) -> &S {
+        self.inner.hasher()
+    }
 }
 
-impl<K, V> OrderedHashMap<K, V> {
+impl<K, V, S> OrderedHashMap<K, V, S> {
     #[inline]
     pub fn len(&self) -> usize {
         self.inner.len()

@@ -372,6 +372,11 @@ impl Schema {
         }
     }
 
+    pub fn drop_table(&mut self, table_name: &QName) -> bool {
+        self.indices.retain(|_, v| v.table_name() != table_name);
+        self.tables.remove(table_name).is_some()
+    }
+
     pub fn alter_table(&mut self, alter_table: &Rc<AlterTable>) -> Result<()> {
         match alter_table.data() {
             AlterTableData::RenameTable { if_exists, new_name } => {

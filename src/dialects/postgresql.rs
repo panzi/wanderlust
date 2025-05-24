@@ -1994,7 +1994,8 @@ impl<'a> PostgreSQLParser<'a> {
         let table = Table::new(
             table_name,
             columns,
-            table_constraints
+            table_constraints,
+            OrderedHashMap::new()
         );
 
         Ok(CreateTable::new(table, if_not_exists))

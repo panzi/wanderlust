@@ -2,7 +2,7 @@ use std::{ops::Deref, rc::Rc};
 
 use crate::{format::{write_paren_names, write_token_list}, ordered_hash_map::OrderedHashMap};
 
-use super::{column::{Column, ColumnMatch, ReferentialAction}, name::{Name, QName}, token::ParsedToken};
+use super::{column::{Column, ColumnMatch, ReferentialAction}, name::{Name, QName}, token::ParsedToken, trigger::Trigger};
 
 use super::words::*;
 
@@ -58,6 +58,7 @@ pub struct Table {
     name: QName,
     columns: OrderedHashMap<Name, Rc<Column>>,
     constraints: OrderedHashMap<Name, Rc<TableConstraint>>,
+    triggers: OrderedHashMap<Name, Rc<Trigger>>,
 }
 
 impl std::fmt::Display for Table {
@@ -70,8 +71,13 @@ impl std::fmt::Display for Table {
 
 impl Table {
     #[inline]
-    pub fn new(name: QName, columns: OrderedHashMap<Name, Rc<Column>>, constraints: OrderedHashMap<Name, Rc<TableConstraint>>) -> Self {
-        Self { name, columns, constraints }
+    pub fn new(
+        name: QName,
+        columns: OrderedHashMap<Name, Rc<Column>>,
+        constraints: OrderedHashMap<Name, Rc<TableConstraint>>,
+        triggers: OrderedHashMap<Name, Rc<Trigger>>
+    ) -> Self {
+        Self { name, columns, constraints, triggers }
     }
 
     fn write(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -129,6 +135,11 @@ impl Table {
     }
 
     #[inline]
+    pub fn triggers(&self) -> &OrderedHashMap<Name, Rc<Trigger>> {
+        &self.triggers
+    }
+
+    #[inline]
     pub fn columns_mut(&mut self) -> &mut OrderedHashMap<Name, Rc<Column>> {
         &mut self.columns
     }
@@ -138,7 +149,13 @@ impl Table {
         &mut self.constraints
     }
 
+    #[inline]
+    pub fn triggers_mut(&mut self) -> &mut OrderedHashMap<Name, Rc<Trigger>> {
+        &mut self.triggers
+    }
+
     pub fn merged_constraints(&self) -> Vec<Rc<TableConstraint>> {
+        // TODO: Maybe its more correct to merge column contraints into table constraints directly when parsing?
         let mut merged: Vec<_> = self.constraints.values().cloned().collect();
 
         for column in self.columns.values_unordered() {
