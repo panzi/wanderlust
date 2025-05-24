@@ -188,6 +188,11 @@ where K: Eq + Hash {
     }
 
     #[inline]
+    pub fn keys_unordered(&self) -> impl Iterator<Item = &K> {
+        self.inner.keys()
+    }
+
+    #[inline]
     pub fn values_mut(&mut self) -> impl Iterator<Item = &mut V> {
         let mut items: Vec<(&K, &mut OrderedCell<V>)> = self.inner.iter_mut().collect();
         items.sort_by(|a, b| a.1.order.cmp(&b.1.order) );

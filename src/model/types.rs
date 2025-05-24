@@ -6,7 +6,7 @@ use crate::format::format_iso_string;
 use crate::make_tokens;
 
 use super::alter::types::ValuePosition;
-use super::name::QName;
+use super::name::{Name, QName};
 use super::token::{ParsedToken, ToTokens};
 use super::words::*;
 
@@ -138,7 +138,7 @@ impl std::fmt::Display for TypeData {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum IntervalFields {
     Year,
     Month,
@@ -195,8 +195,8 @@ impl std::fmt::Display for IntervalFields {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum DataType {
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum BasicType {
     Bigint,
     BigSerial,
     Bit(Option<NonZeroU32>),
@@ -239,13 +239,14 @@ pub enum DataType {
     UUID,
     XML,
     UserDefined { name: QName, parameters: Option<Rc<[Value]>> },
+    ColumnType { table_name: QName, column_name: Name },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Value {
     String(Rc<str>),
     Integer(i64),
-    Float(f64),
+    // Float(f64),
     // maybe names?
     // hope there can't be arrays
 }
@@ -256,7 +257,7 @@ impl Value {
         match self {
             Value::String(value) => ParsedToken::String(value.clone()),
             Value::Integer(value) => ParsedToken::Integer(*value),
-            Value::Float(value) => ParsedToken::Float(*value),
+            //Value::Float(value) => ParsedToken::Float(*value),
         }
     }
 
@@ -265,7 +266,7 @@ impl Value {
         match self {
             Value::String(value) => ParsedToken::String(value),
             Value::Integer(value) => ParsedToken::Integer(value),
-            Value::Float(value) => ParsedToken::Float(value),
+            //Value::Float(value) => ParsedToken::Float(value),
         }
     }
 }
@@ -276,7 +277,7 @@ impl std::fmt::Display for Value {
         match self {
             Value::String(value) => format_iso_string(f, value),
             Value::Integer(value) => write!(f, "{value}"),
-            Value::Float(value) => write!(f, "{value:?}"),
+            //Value::Float(value) => write!(f, "{value:?}"),
         }
     }
 }
@@ -295,7 +296,7 @@ impl ToTokens for Value {
     }
 }
 
-impl ToTokens for DataType {
+impl ToTokens for BasicType {
     fn to_tokens_into(&self, tokens: &mut Vec<ParsedToken>) {
         match self {
             Self::Bigint => make_tokens!(tokens, BIGINT),
@@ -418,12 +419,15 @@ impl ToTokens for DataType {
                     }
                     tokens.push(ParsedToken::RParen);
                 }
-            },
+            }
+            Self::ColumnType { table_name, column_name } => {
+                make_tokens!(tokens, {table_name}.{column_name}%TYPE)
+            }
         }
     }
 }
 
-impl std::fmt::Display for DataType {
+impl std::fmt::Display for BasicType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Bigint => BIGINT.fmt(f),
@@ -555,36 +559,39 @@ impl std::fmt::Display for DataType {
                 }
 
                 Ok(())
-            },
+            }
+            Self::ColumnType { table_name, column_name } => {
+                write!(f, "{table_name}.{column_name}%{TYPE}")
+            }
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct ColumnDataType {
-    data_type: DataType,
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct DataType {
+    basic_type: BasicType,
     array_dimensions: Option<Rc<[Option<u32>]>>,
 }
 
-impl ColumnDataType {
+impl DataType {
     #[inline]
-    pub fn new(data_type: DataType, array_dimensions: Option<impl Into<Rc<[Option<u32>]>>>) -> Self {
-        Self { data_type, array_dimensions: array_dimensions.map(Into::into) }
+    pub fn new(data_type: BasicType, array_dimensions: Option<impl Into<Rc<[Option<u32>]>>>) -> Self {
+        Self { basic_type: data_type, array_dimensions: array_dimensions.map(Into::into) }
     }
 
     #[inline]
-    pub fn basic(data_type: DataType) -> Self {
-        Self { data_type, array_dimensions: None }
+    pub fn basic(data_type: BasicType) -> Self {
+        Self { basic_type: data_type, array_dimensions: None }
     }
 
     #[inline]
-    pub fn with_array(data_type: DataType, array_dimensions: impl Into<Rc<[Option<u32>]>>) -> Self {
-        Self { data_type, array_dimensions: Some(array_dimensions.into()) }
+    pub fn with_array(data_type: BasicType, array_dimensions: impl Into<Rc<[Option<u32>]>>) -> Self {
+        Self { basic_type: data_type, array_dimensions: Some(array_dimensions.into()) }
     }
 
     #[inline]
-    pub fn data_type(&self) -> &DataType {
-        &self.data_type
+    pub fn basic_type(&self) -> &BasicType {
+        &self.basic_type
     }
 
     #[inline]
@@ -593,14 +600,14 @@ impl ColumnDataType {
     }
 
     #[inline]
-    pub fn with_data_type(&self, data_type: DataType) -> Self {
-        Self { data_type, array_dimensions: self.array_dimensions.clone() }
+    pub fn with_data_type(&self, data_type: BasicType) -> Self {
+        Self { basic_type: data_type, array_dimensions: self.array_dimensions.clone() }
     }
 
     #[inline]
     pub fn with_user_type(&self, type_name: QName, parameters: Option<Rc<[Value]>>) -> Self {
         Self {
-            data_type: DataType::UserDefined { name: type_name, parameters },
+            basic_type: BasicType::UserDefined { name: type_name, parameters },
             array_dimensions: self.array_dimensions.clone(),
         }
     }
@@ -616,9 +623,9 @@ impl ColumnDataType {
     }
 }
 
-impl ToTokens for ColumnDataType {
+impl ToTokens for DataType {
     fn to_tokens_into(&self, tokens: &mut Vec<ParsedToken>) {
-        self.data_type.to_tokens_into(tokens);
+        self.basic_type.to_tokens_into(tokens);
         if let Some(array_dimensions) = &self.array_dimensions {
             for dim in array_dimensions.deref() {
                 if let Some(dim) = dim {
@@ -631,9 +638,9 @@ impl ToTokens for ColumnDataType {
     }
 }
 
-impl std::fmt::Display for ColumnDataType {
+impl std::fmt::Display for DataType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.data_type.fmt(f)?;
+        self.basic_type.fmt(f)?;
         if let Some(dims) = &self.array_dimensions {
             for dim in dims.deref() {
                 if let Some(dim) = dim {

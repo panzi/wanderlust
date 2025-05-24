@@ -1,9 +1,9 @@
 
 use std::rc::Rc;
 
-use crate::{format::write_token_list, model::{column::Column, name::{Name, QName}, table::TableConstraint, token::ParsedToken, types::ColumnDataType, words::*}};
+use crate::{format::write_token_list, model::{column::Column, name::{Name, QName}, table::TableConstraint, token::ParsedToken, types::DataType, words::*}};
 
-use super::{DropOption, Owner};
+use super::{DropBehavior, Owner};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AlterTable {
@@ -75,8 +75,8 @@ impl AlterTable {
     }
 
     #[inline]
-    pub fn drop_constraint(table_name: QName, constraint_name: Name, drop_option: Option<DropOption>) -> Rc<Self> {
-        Rc::new(Self { table_name, data: AlterTableData::drop_constraint(constraint_name, drop_option) })
+    pub fn drop_constraint(table_name: QName, constraint_name: Name, behavior: Option<DropBehavior>) -> Rc<Self> {
+        Rc::new(Self { table_name, data: AlterTableData::drop_constraint(constraint_name, behavior) })
     }
 
     #[inline]
@@ -112,7 +112,7 @@ impl AlterTableData {
 
     #[inline]
     pub fn drop_column(column_name: Name) -> Self {
-        Self::Actions { if_exists: false, only: false, actions: [AlterTableAction::DropColumn { if_exists: false, column_name, drop_option: None }].into() }
+        Self::Actions { if_exists: false, only: false, actions: [AlterTableAction::DropColumn { if_exists: false, column_name, behavior: None }].into() }
     }
 
     #[inline]
@@ -146,8 +146,8 @@ impl AlterTableData {
     }
 
     #[inline]
-    pub fn drop_constraint(constraint_name: Name, drop_option: Option<DropOption>) -> Self {
-        Self::Actions { if_exists: false, only: false, actions: [AlterTableAction::DropConstraint { if_exists: false, constraint_name, drop_option }].into() }
+    pub fn drop_constraint(constraint_name: Name, behavior: Option<DropBehavior>) -> Self {
+        Self::Actions { if_exists: false, only: false, actions: [AlterTableAction::DropConstraint { if_exists: false, constraint_name, behavior }].into() }
     }
 
     #[inline]
@@ -213,12 +213,12 @@ impl std::fmt::Display for AlterTableData {
 #[derive(Debug, Clone, PartialEq)]
 pub enum AlterTableAction {
     AddColumn { if_not_exists: bool, column: Rc<Column> },
-    DropColumn { if_exists: bool, column_name: Name, drop_option: Option<DropOption> },
+    DropColumn { if_exists: bool, column_name: Name, behavior: Option<DropBehavior> },
     AlterColumn { alter_column: AlterColumn },
     OwnerTo { new_owner: Owner },
     AddConstraint { constraint: Rc<TableConstraint> },
     AlterConstraint { constraint_name: Name, deferrable: Option<bool>, initially_deferred: Option<bool> },
-    DropConstraint { if_exists: bool, constraint_name: Name, drop_option: Option<DropOption> },
+    DropConstraint { if_exists: bool, constraint_name: Name, behavior: Option<DropBehavior> },
     // TODO: more
 }
 
@@ -233,15 +233,15 @@ impl std::fmt::Display for AlterTableAction {
                 }
                 write!(f, " {column}")
             }
-            Self::DropColumn { if_exists, column_name, drop_option } => {
+            Self::DropColumn { if_exists, column_name, behavior } => {
                 write!(f, "{DROP} {COLUMN}")?;
                 if *if_exists {
                     write!(f, " {IF} {EXISTS}")?;
                 }
                 write!(f, " {column_name}")?;
 
-                if let Some(drop_option) = drop_option {
-                    write!(f, " {drop_option}")?;
+                if let Some(behavior) = behavior {
+                    write!(f, " {behavior}")?;
                 }
 
                 Ok(())
@@ -276,15 +276,15 @@ impl std::fmt::Display for AlterTableAction {
 
                 Ok(())
             }
-            Self::DropConstraint { if_exists, constraint_name, drop_option } => {
+            Self::DropConstraint { if_exists, constraint_name, behavior } => {
                 write!(f, "{DROP} {CONSTRAINT}")?;
                 if *if_exists {
                     write!(f, " {IF} {EXISTS}")?;
                 }
                 write!(f, " {constraint_name}")?;
 
-                if let Some(drop_option) = drop_option {
-                    write!(f, " {drop_option}")?;
+                if let Some(behavior) = behavior {
+                    write!(f, " {behavior}")?;
                 }
 
                 Ok(())
@@ -306,7 +306,7 @@ impl AlterColumn {
     }
 
     #[inline]
-    pub fn change_type(column_name: Name, data_type: Rc<ColumnDataType>, collation: Option<Name>, using: Option<Rc<[ParsedToken]>>) -> Self {
+    pub fn change_type(column_name: Name, data_type: Rc<DataType>, collation: Option<Name>, using: Option<Rc<[ParsedToken]>>) -> Self {
         Self { column_name, data: AlterColumnData::Type { data_type, collation, using } }
     }
 
@@ -350,7 +350,7 @@ impl std::fmt::Display for AlterColumn {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AlterColumnData {
-    Type { data_type: Rc<ColumnDataType>, collation: Option<Name>, using: Option<Rc<[ParsedToken]>> },
+    Type { data_type: Rc<DataType>, collation: Option<Name>, using: Option<Rc<[ParsedToken]>> },
     SetDefault { expr: Rc<[ParsedToken]> },
     DropDefault,
     SetNotNull,

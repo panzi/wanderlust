@@ -4,14 +4,14 @@ use crate::format::{write_paren_names, write_token_list};
 
 use super::name::QName;
 use super::table::TableConstraint;
-use super::{name::Name, token::ParsedToken, types::ColumnDataType};
+use super::{name::Name, token::ParsedToken, types::DataType};
 
 use super::words::*;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Column {
     name: Name,
-    data_type: Rc<ColumnDataType>,
+    data_type: Rc<DataType>,
     collation: Option<Name>,
     constraints: Vec<Rc<ColumnConstraint>>,
 }
@@ -35,7 +35,7 @@ impl std::fmt::Display for Column {
 
 impl Column {
     #[inline]
-    pub fn new(name: Name, data_type: impl Into<Rc<ColumnDataType>>, collation: Option<Name>, constraints: Vec<Rc<ColumnConstraint>>) -> Self {
+    pub fn new(name: Name, data_type: impl Into<Rc<DataType>>, collation: Option<Name>, constraints: Vec<Rc<ColumnConstraint>>) -> Self {
         Self { name, data_type: data_type.into(), collation, constraints }
     }
 
@@ -50,12 +50,12 @@ impl Column {
     }
 
     #[inline]
-    pub fn data_type(&self) -> &Rc<ColumnDataType> {
+    pub fn data_type(&self) -> &Rc<DataType> {
         &self.data_type
     }
 
     #[inline]
-    pub fn set_data_type(&mut self, data_type: impl Into<Rc<ColumnDataType>>) {
+    pub fn set_data_type(&mut self, data_type: impl Into<Rc<DataType>>) {
         self.data_type = data_type.into();
     }
 

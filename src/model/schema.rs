@@ -9,10 +9,11 @@ use crate::model::types::TypeData;
 use crate::ordered_hash_map::OrderedHashMap;
 
 use super::column::Column;
+use super::extension::{CreateExtension, Extension};
 use super::index::CreateIndex;
 use super::name::{Name, QName};
 use super::table::CreateTable;
-use super::types::DataType;
+use super::types::BasicType;
 use super::{index::Index, table::Table, types::TypeDef};
 
 use super::words::*;
@@ -22,6 +23,8 @@ pub struct Schema {
     types: OrderedHashMap<QName, Rc<TypeDef>>,
     tables: OrderedHashMap<QName, Rc<Table>>,
     indices: OrderedHashMap<QName, Rc<Index>>,
+    extensions: OrderedHashMap<QName, Rc<Extension>>,
+    default_schema: Name,
     search_path: Vec<Name>,
 }
 
@@ -43,13 +46,70 @@ impl std::fmt::Display for Schema {
 
 impl Schema {
     #[inline]
-    pub fn new(search_path: impl Into<Vec<Name>>) -> Self {
+    pub fn new(default_schema: Name) -> Self {
         Self {
             types: OrderedHashMap::new(),
             tables: OrderedHashMap::new(),
             indices: OrderedHashMap::new(),
-            search_path: search_path.into(),
+            extensions: OrderedHashMap::new(),
+            default_schema: default_schema.clone(),
+            search_path: vec![default_schema],
         }
+    }
+
+    pub fn clear(&mut self) {
+        self.types.clear();
+        self.tables.clear();
+        self.indices.clear();
+        self.search_path.clear();
+        self.search_path.push(self.default_schema.clone());
+    }
+
+    /// Resolve table name using the current search_path
+    pub fn resolve_table_name(&self, name: &Name) -> QName {
+        for schema in &self.search_path {
+            let some_schema = Some(schema);
+            for qname in self.tables.keys_unordered() {
+                if qname.schema() == some_schema && qname.name() == name {
+                    return qname.clone();
+                }
+            }
+        }
+
+        QName::new(Some(self.default_schema.clone()), name.clone())
+    }
+
+    /// Resolve type name using the current search_path
+    pub fn resolve_type_name(&self, name: &Name) -> QName {
+        for schema in &self.search_path {
+            let some_schema = Some(schema);
+            for qname in self.types.keys_unordered() {
+                if qname.schema() == some_schema && qname.name() == name {
+                    return qname.clone();
+                }
+            }
+        }
+
+        QName::new(Some(self.default_schema.clone()), name.clone())
+    }
+
+    /// Resolve index name using the current search_path
+    pub fn resolve_index_name(&self, name: &Name) -> QName {
+        for schema in &self.search_path {
+            let some_schema = Some(schema);
+            for qname in self.indices.keys_unordered() {
+                if qname.schema() == some_schema && qname.name() == name {
+                    return qname.clone();
+                }
+            }
+        }
+
+        QName::new(Some(self.default_schema.clone()), name.clone())
+    }
+
+    #[inline]
+    pub fn default_schema(&self) -> &Name {
+        &self.default_schema
     }
 
     #[inline]
@@ -65,6 +125,11 @@ impl Schema {
     #[inline]
     pub fn indices(&self) -> &OrderedHashMap<QName, Rc<Index>> {
         &self.indices
+    }
+
+    #[inline]
+    pub fn extensions(&self) -> &OrderedHashMap<QName, Rc<Extension>> {
+        &self.extensions
     }
 
     #[inline]
@@ -106,12 +171,21 @@ impl Schema {
         true
     }
 
+    pub fn create_extension(&mut self, create_extension: CreateExtension) -> bool {
+        if self.extensions.contains_key(create_extension.extension().name()) {
+            return create_extension.if_not_exists();
+        }
+        let name = create_extension.extension().name().clone();
+        self.extensions.insert(name, create_extension.into());
+        true
+    }
+
     pub fn find_columns_with_type(&self, type_name: &QName) -> Vec<(&QName, &Rc<Column>)> {
         let mut found_columns = Vec::new();
 
         for table in self.tables.values_unordered() {
             for column in table.columns().values_unordered() {
-                if let DataType::UserDefined { name, .. } = column.data_type().data_type() {
+                if let BasicType::UserDefined { name, .. } = column.data_type().basic_type() {
                     if type_name == name {
                         found_columns.push((table.name(), column));
                     }
@@ -554,7 +628,7 @@ impl Schema {
                                         constraint.set_initially_deferred(*initially_deferred);
                                     }
                                 }
-                                AlterTableAction::DropColumn { if_exists, column_name, drop_option } => {
+                                AlterTableAction::DropColumn { if_exists, column_name, behavior } => {
                                     // TODO: CASCADE and RESTRICT will be some work!
                                     if Rc::make_mut(table).columns_mut().remove(column_name).is_none() {
                                         if *if_exists {
@@ -571,7 +645,7 @@ impl Schema {
                                         ));
                                     }
                                 }
-                                AlterTableAction::DropConstraint { if_exists, constraint_name, drop_option } => {
+                                AlterTableAction::DropConstraint { if_exists, constraint_name, behavior } => {
                                     // TODO: CASCADE and RESTRICT will be some work!
                                     if Rc::make_mut(table).constraints_mut().remove(constraint_name).is_none() {
                                         if *if_exists {

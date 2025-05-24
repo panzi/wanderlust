@@ -12,6 +12,7 @@ pub enum ErrorKind {
     IndexExists,
     TypeExists,
     ValueExists,
+    ExtensionExists,
 
     TableNotExists,
     ColumnNotExists,
@@ -30,18 +31,22 @@ impl std::fmt::Display for ErrorKind {
             Self::IllegalToken        => f.write_str("Illegal Token"),
             Self::UnexpectedToken     => f.write_str("Unexpected Token"),
             Self::UnexpectedEOF       => f.write_str("Unexpected EOF"),
+
             Self::TableExists         => f.write_str("Table Exists"),
             Self::ColumnExists        => f.write_str("Column Exists"),
             Self::ConstraintExists    => f.write_str("Constraint Exists"),
             Self::IndexExists         => f.write_str("Index Exists"),
             Self::TypeExists          => f.write_str("Type Exists"),
             Self::ValueExists         => f.write_str("Enum Value Exists"),
+            Self::ExtensionExists     => f.write_str("Extension Exists"),
+
             Self::TableNotExists      => f.write_str("Table Not Exists"),
             Self::IndexNotExists      => f.write_str("Index Not Exists"),
             Self::TypeNotExists       => f.write_str("Type Not Exists"),
             Self::ValueNotExists      => f.write_str("Enum Value Not Exists"),
             Self::ColumnNotExists     => f.write_str("Column Not Exists"),
             Self::ConstraintNotExists => f.write_str("Constraint Not Exists"),
+
             Self::NotSupported        => f.write_str("Not Supported"),
         }
     }

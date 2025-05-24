@@ -1,10 +1,8 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, rc::Rc};
 
-use crate::model::{alter::{table::{AlterColumn, AlterTable}, types::AlterType}, column::{Column, ColumnConstraintData}, name::{Name, QName}, schema::Schema, statement::Statement, table::Table};
+use crate::model::{alter::{extension::{AlterExtension, AlterExtensionData}, table::{AlterColumn, AlterTable}, types::AlterType}, column::{Column, ColumnConstraintData}, extension::{CreateExtension}, name::{Name, QName}, schema::Schema, statement::Statement, table::Table};
 
 pub fn generate_migration(old: &Schema, new: &Schema) -> Vec<Statement> {
-    let public = Name::new("public");
-
     let mut stmts = Vec::new();
     let mut create_indices = Vec::new();
 
@@ -73,8 +71,14 @@ pub fn generate_migration(old: &Schema, new: &Schema) -> Vec<Statement> {
         }
     }
 
-    for table in old.tables().values() {
-        if !new_tables.contains_key(&table.name().with_default_schema(&public)) {
+    for extension in old.extensions().values() {
+        if !new.extensions().contains_key(extension.name()) {
+            stmts.push(Statement::drop_extension(extension.name().clone()));
+        }
+    }
+
+    for table in old_tables.values() {
+        if !new_tables.contains_key(table.name()) {
             stmts.push(Statement::drop_table(table.name().clone()));
         }
     }
@@ -84,7 +88,7 @@ pub fn generate_migration(old: &Schema, new: &Schema) -> Vec<Statement> {
             if let Some(new_index) = new_indices.get(name) {
                 if new_index != index {
                     stmts.push(Statement::drop_index(name.clone()));
-                    create_indices.push(Statement::CreateIndex(new_index.clone()));
+                    create_indices.push(Statement::create_index(new_index.clone()));
                 }
             } else {
                 // XXX: DBMSs generate indices for things like foreign keys and such.
@@ -94,11 +98,30 @@ pub fn generate_migration(old: &Schema, new: &Schema) -> Vec<Statement> {
         }
     }
 
+    for extension in new.extensions().values() {
+        if let Some(old_extension) = old.extensions().get(extension.name()) {
+            if let (Some(version), Some(old_version)) = (extension.version(), old_extension.version()) {
+                if version != old_version {
+                    stmts.push(Statement::AlterExtension(
+                        Rc::new(AlterExtension::new(
+                            extension.name().clone(),
+                            AlterExtensionData::Update(Some(version.clone()))
+                        ))
+                    ));
+                }
+            }
+        } else {
+            stmts.push(Statement::CreateExtension(
+                Rc::new(CreateExtension::new(false, extension.clone(), false))
+            ));
+        }
+    }
+
     for table in new.tables().values() {
-        if let Some(old_table) = old_tables.get(&table.name().with_default_schema(&public)) {
+        if let Some(old_table) = old_tables.get(table.name()) {
             migrate_table(old_table, table, &mut stmts);
         } else {
-            stmts.push(Statement::CreateTable(table.clone()));
+            stmts.push(Statement::create_table(table.clone()));
         }
     }
 
@@ -106,7 +129,7 @@ pub fn generate_migration(old: &Schema, new: &Schema) -> Vec<Statement> {
         if let Some(name) = index.name() {
             if !old_indices.contains_key(name) {
                 // TODO: find matching unnamed index?
-                stmts.push(Statement::CreateIndex(index.clone()));
+                stmts.push(Statement::create_index(index.clone()));
             }
         }
     }

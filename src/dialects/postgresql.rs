@@ -5,7 +5,7 @@
 
 use std::{num::NonZeroU32, rc::Rc};
 
-use crate::{error::{Error, ErrorKind, Result}, model::{alter::{table::{AlterColumn, AlterColumnData, AlterTable, AlterTableAction, AlterTableData}, types::{AlterType, AlterTypeData, ValuePosition}, DropOption, Owner}, column::{Column, ColumnConstraint, ColumnConstraintData, ColumnMatch, ReferentialAction}, index::{CreateIndex, Direction, Index, IndexItem, IndexItemData, NullsPosition}, integers::{Integer, SignedInteger, UnsignedInteger}, name::{Name, QName}, schema::Schema, syntax::{Cursor, Parser, SourceLocation, Tokenizer}, table::{CreateTable, Table, TableConstraint, TableConstraintData}, token::{ParsedToken, ToTokens, Token, TokenKind}, types::{ColumnDataType, DataType, IntervalFields, TypeDef, Value}}, ordered_hash_map::OrderedHashMap, peek_token};
+use crate::{error::{Error, ErrorKind, Result}, model::{alter::{table::{AlterColumn, AlterColumnData, AlterTable, AlterTableAction, AlterTableData}, types::{AlterType, AlterTypeData, ValuePosition}, DropBehavior, Owner}, column::{Column, ColumnConstraint, ColumnConstraintData, ColumnMatch, ReferentialAction}, extension::{CreateExtension, Extension, Version}, index::{CreateIndex, Direction, Index, IndexItem, IndexItemData, NullsPosition}, integers::{Integer, SignedInteger, UnsignedInteger}, name::{Name, QName}, schema::Schema, syntax::{Cursor, Parser, SourceLocation, Tokenizer}, table::{CreateTable, Table, TableConstraint, TableConstraintData}, token::{ParsedToken, ToTokens, Token, TokenKind}, types::{BasicType, DataType, IntervalFields, TypeDef, Value}}, ordered_hash_map::OrderedHashMap, peek_token};
 use crate::model::words::*;
 
 pub fn uunescape(string: &str, escape: char) -> Option<String> {
@@ -815,18 +815,21 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PostgreSQLParser<'a> {
     tokenizer: PostgreSQLTokenizer<'a>,
     default_schema: Name,
+    schema: Rc<Schema>,
 }
 
 impl<'a> PostgreSQLParser<'a> {
     #[inline]
     pub fn new(source: &'a str) -> Self {
+        let default_schema = Name::new("public");
         Self {
             tokenizer: PostgreSQLTokenizer::new(source),
-            default_schema: Name::new("public"),
+            default_schema: default_schema.clone(),
+            schema: Rc::new(Schema::new(default_schema)),
         }
     }
 
@@ -912,7 +915,7 @@ impl<'a> PostgreSQLParser<'a> {
                 TokenKind::DoubleColon => {
                     expr.push(self.tokenizer.parse()?);
 
-                    let data_type = self.parse_column_data_type()?;
+                    let data_type = self.parse_data_type()?;
                     data_type.to_tokens_into(&mut expr);
                     continue;
                 }
@@ -1055,11 +1058,11 @@ impl<'a> PostgreSQLParser<'a> {
         Ok(value)
     }
 
-    fn parse_drop_option(&mut self) -> Result<Option<DropOption>> {
+    fn parse_drop_option(&mut self) -> Result<Option<DropBehavior>> {
         if self.parse_word(RESTRICT)? {
-            Ok(Some(DropOption::Restrict))
+            Ok(Some(DropBehavior::Restrict))
         } else if self.parse_word(CASCADE)? {
-            Ok(Some(DropOption::Cascade))
+            Ok(Some(DropBehavior::Cascade))
         } else {
             Ok(None)
         }
@@ -1163,17 +1166,17 @@ impl<'a> PostgreSQLParser<'a> {
                 let value = parse_int(&token, source)?;
                 Ok(Value::Integer(value))
             },
-            TokenKind::Float => {
-                let stripped = source.replace("_", "");
-                let Ok(value) = stripped.parse() else {
-                    return Err(Error::with_message(
-                        ErrorKind::IllegalToken,
-                        *token.cursor(),
-                        format!("expected: <floating point number>, actual: {source}")
-                    ));
-                };
-                Ok(Value::Float(value))
-            },
+            //TokenKind::Float => {
+            //    let stripped = source.replace("_", "");
+            //    let Ok(value) = stripped.parse() else {
+            //        return Err(Error::with_message(
+            //            ErrorKind::IllegalToken,
+            //            *token.cursor(),
+            //            format!("expected: <floating point number>, actual: {source}")
+            //        ));
+            //    };
+            //    Ok(Value::Float(value))
+            //},
             TokenKind::String => {
                 let Some(value) = parse_string(source) else {
                     return Err(Error::with_message(
@@ -1253,289 +1256,296 @@ impl<'a> PostgreSQLParser<'a> {
         }
     }
 
-    fn parse_column_data_type(&mut self) -> Result<ColumnDataType> {
-        let token = self.expect_some()?;
+    fn parse_data_type(&mut self) -> Result<DataType> {
+        let data_type =
+        if self.parse_word(BIGINT)? || self.parse_word(INT8)? {
+            BasicType::Bigint
+        } else if self.parse_word(BIGSERIAL)? || self.parse_word(SERIAL8)? {
+            BasicType::BigSerial
+        } else if self.parse_word(BIT)? {
+            let mut var = false;
+            if self.peek_word(VARYING)? {
+                self.tokenizer.next()?;
+                var = true;
+            }
+            let mut precision = None;
+            if self.parse_token(TokenKind::LParen)? {
+                precision = Some(self.parse_precision()?);
+                self.expect_token(TokenKind::RParen)?;
+            }
 
-        let data_type = match token.kind() {
-            TokenKind::Word => {
-                let word = self.get_source(token.cursor());
+            if var {
+                BasicType::BitVarying(precision)
+            } else {
+                BasicType::Bit(precision)
+            }
+        } else if self.parse_word(VARBIT)? {
+            let mut precision = None;
+            if self.parse_token(TokenKind::LParen)? {
+                precision = Some(self.parse_precision()?);
+                self.expect_token(TokenKind::RParen)?;
+            }
 
-                if word.eq_ignore_ascii_case(BIGINT) || word.eq_ignore_ascii_case(INT8) {
-                    DataType::Bigint
-                } else if word.eq_ignore_ascii_case(BIGSERIAL) || word.eq_ignore_ascii_case(SERIAL8) {
-                    DataType::BigSerial
-                } else if word.eq_ignore_ascii_case(BIT) {
-                    let mut var = false;
-                    if self.peek_word(VARYING)? {
-                        self.tokenizer.next()?;
-                        var = true;
-                    }
-                    let mut precision = None;
-                    if self.parse_token(TokenKind::LParen)? {
-                        precision = Some(self.parse_precision()?);
-                        self.expect_token(TokenKind::RParen)?;
-                    }
+            BasicType::BitVarying(precision)
+        } else if self.parse_word(BOOLEAN)? || self.parse_word(BOOL)? {
+            BasicType::Boolean
+        } else if self.parse_word(BOX)? {
+            BasicType::Box
+        } else if self.parse_word(BYTEA)? {
+            BasicType::ByteA
+        } else if self.parse_word(CHARACTER)? {
+            let mut var = false;
+            if self.peek_word(VARYING)? {
+                self.tokenizer.next()?;
+                var = true;
+            }
+            let mut precision = None;
+            if self.parse_token(TokenKind::LParen)? {
+                precision = Some(self.parse_precision()?);
+                self.expect_token(TokenKind::RParen)?;
+            }
 
-                    if var {
-                        DataType::BitVarying(precision)
-                    } else {
-                        DataType::Bit(precision)
-                    }
-                } else if word.eq_ignore_ascii_case(VARBIT) {
-                    let mut precision = None;
-                    if self.parse_token(TokenKind::LParen)? {
-                        precision = Some(self.parse_precision()?);
-                        self.expect_token(TokenKind::RParen)?;
-                    }
+            if var {
+                BasicType::CharacterVarying(precision)
+            } else {
+                BasicType::Character(precision)
+            }
+        } else if self.parse_word(CHAR)? {
+            let mut precision = None;
+            if self.parse_token(TokenKind::LParen)? {
+                precision = Some(self.parse_precision()?);
+                self.expect_token(TokenKind::RParen)?;
+            }
 
-                    DataType::BitVarying(precision)
-                } else if word.eq_ignore_ascii_case(BOOLEAN) || word.eq_ignore_ascii_case(BOOL) {
-                    DataType::Boolean
-                } else if word.eq_ignore_ascii_case(BOX) {
-                    DataType::Box
-                } else if word.eq_ignore_ascii_case(BYTEA) {
-                    DataType::ByteA
-                } else if word.eq_ignore_ascii_case(CHARACTER) {
-                    let mut var = false;
-                    if self.peek_word(VARYING)? {
-                        self.tokenizer.next()?;
-                        var = true;
-                    }
-                    let mut precision = None;
-                    if self.parse_token(TokenKind::LParen)? {
-                        precision = Some(self.parse_precision()?);
-                        self.expect_token(TokenKind::RParen)?;
-                    }
+            BasicType::Character(precision)
+        } else if self.parse_word(VARCHAR)? {
+            let mut precision = None;
+            if self.parse_token(TokenKind::LParen)? {
+                precision = Some(self.parse_precision()?);
+                self.expect_token(TokenKind::RParen)?;
+            }
 
-                    if var {
-                        DataType::CharacterVarying(precision)
-                    } else {
-                        DataType::Character(precision)
-                    }
-                } else if word.eq_ignore_ascii_case(CHAR) {
-                    let mut precision = None;
-                    if self.parse_token(TokenKind::LParen)? {
-                        precision = Some(self.parse_precision()?);
-                        self.expect_token(TokenKind::RParen)?;
-                    }
+            BasicType::CharacterVarying(precision)
+        } else if self.parse_word(CIDR)? {
+            BasicType::CIDR
+        } else if self.parse_word(CIRCLE)? {
+            BasicType::Circle
+        } else if self.parse_word(DATE)? {
+            BasicType::Date
+        } else if self.parse_word(DOUBLE)? {
+            self.expect_word(PRECISION)?;
 
-                    DataType::Character(precision)
-                } else if word.eq_ignore_ascii_case(VARCHAR) {
-                    let mut precision = None;
-                    if self.parse_token(TokenKind::LParen)? {
-                        precision = Some(self.parse_precision()?);
-                        self.expect_token(TokenKind::RParen)?;
-                    }
+            BasicType::DoublePrecision
+        } else if self.parse_word(FLOAT8)? {
+            BasicType::DoublePrecision
+        } else if self.parse_word(INET)? {
+            BasicType::INet
+        } else if self.parse_word(INTEGER)? || self.parse_word(INT)? || self.parse_word(INT4)? {
+            BasicType::Integer
+        } else if self.parse_word(INTERVAL)? {
+            let mut precision = None;
+            let mut fields = None;
 
-                    DataType::CharacterVarying(precision)
-                } else if word.eq_ignore_ascii_case(CIDR) {
-                    DataType::CIDR
-                } else if word.eq_ignore_ascii_case(CIRCLE) {
-                    DataType::Circle
-                } else if word.eq_ignore_ascii_case(DATE) {
-                    DataType::Date
-                } else if word.eq_ignore_ascii_case(DOUBLE) {
-                    self.expect_word(PRECISION)?;
-
-                    DataType::DoublePrecision
-                } else if word.eq_ignore_ascii_case(FLOAT8) {
-                    DataType::DoublePrecision
-                } else if word.eq_ignore_ascii_case(INET) {
-                    DataType::INet
-                } else if word.eq_ignore_ascii_case(INTEGER) || word.eq_ignore_ascii_case(INT) || word.eq_ignore_ascii_case(INT4) {
-                    DataType::Integer
-                } else if word.eq_ignore_ascii_case(INTERVAL) {
-                    let mut precision = None;
-                    let mut fields = None;
-
-                    if self.parse_word(YEAR)? {
-                        if self.parse_word(TO)? {
-                            self.expect_word(MONTH)?;
-                            fields = Some(IntervalFields::YearToMonth);
-                        } else {
-                            fields = Some(IntervalFields::Year);
-                        }
-                    } else if self.parse_word(MONTH)? {
-                        fields = Some(IntervalFields::Month);
-                    } else if self.parse_word(DAY)? {
-                        if self.parse_word(TO)? {
-                            if self.parse_word(HOUR)? {
-                                fields = Some(IntervalFields::DayToHour);
-                            } else if self.parse_word(MINUTE)? {
-                                fields = Some(IntervalFields::DayToMinute);
-                            } else if self.parse_word(SECOND)? {
-                                fields = Some(IntervalFields::DayToSecond);
-                            } else {
-                                return Err(self.expected_one_of(&[
-                                    HOUR, MINUTE, SECOND
-                                ]));
-                            }
-                        } else {
-                            fields = Some(IntervalFields::Day);
-                        }
-                    } else if self.parse_word(HOUR)? {
-                        if self.parse_word(TO)? {
-                            if self.parse_word(MINUTE)? {
-                                fields = Some(IntervalFields::HourToMinute);
-                            } else if self.parse_word(SECOND)? {
-                                fields = Some(IntervalFields::HourToSecond);
-                            } else {
-                                return Err(self.expected_one_of(&[
-                                    HOUR, MINUTE, SECOND
-                                ]));
-                            }
-                        } else {
-                            fields = Some(IntervalFields::Hour);
-                        }
-                    } else if self.parse_word(MINUTE)? {
-                        if self.parse_word(TO)? {
-                            self.expect_word(SECOND)?;
-                            fields = Some(IntervalFields::MinuteToSecond);
-                        } else {
-                            fields = Some(IntervalFields::Minute);
-                        }
-                    } else if self.parse_word(SECOND)? {
-                        fields = Some(IntervalFields::Second);
-                    }
-
-                    if self.parse_token(TokenKind::LParen)? {
-                        precision = Some(self.parse_precision()?);
-                        self.expect_token(TokenKind::RParen)?;
-                    }
-                    DataType::Interval { fields, precision }
-                } else if word.eq_ignore_ascii_case(JSON) {
-                    DataType::JSON
-                } else if word.eq_ignore_ascii_case(JSONB) {
-                    DataType::JSONB
-                } else if word.eq_ignore_ascii_case(LINE) {
-                    DataType::Line
-                } else if word.eq_ignore_ascii_case(LSEG) {
-                    DataType::LSeg
-                } else if word.eq_ignore_ascii_case(MACADDR) {
-                    DataType::MacAddr
-                } else if word.eq_ignore_ascii_case(MACADDR8) {
-                    DataType::MacAddr8
-                } else if word.eq_ignore_ascii_case(MONEY) {
-                    DataType::Money
-                } else if word.eq_ignore_ascii_case(NUMERIC) {
-                    let mut params = None;
-                    if self.parse_token(TokenKind::LParen)? {
-                        let precision = self.parse_precision()?;
-                        let mut scale = 0;
-                        if self.parse_token(TokenKind::Comma)? {
-                            scale = self.parse_int()?.1;
-                        }
-
-                        self.expect_token(TokenKind::RParen)?;
-
-                        params = Some((precision, scale));
-                    }
-
-                    DataType::Numeric(params)
-                } else if word.eq_ignore_ascii_case(PATH) {
-                    DataType::Path
-                } else if word.eq_ignore_ascii_case(PG_LSN) {
-                    DataType::PgLSN
-                } else if word.eq_ignore_ascii_case(PG_SNAPSHOT) {
-                    DataType::PgSnapshot
-                } else if word.eq_ignore_ascii_case(POINT) {
-                    DataType::Point
-                } else if word.eq_ignore_ascii_case(POLYGON) {
-                    DataType::Polygon
-                } else if word.eq_ignore_ascii_case(REAL) || word.eq_ignore_ascii_case(FLOAT4) {
-                    DataType::Real
-                } else if word.eq_ignore_ascii_case(SMALLINT) || word.eq_ignore_ascii_case(INT2) {
-                    DataType::SmallInt
-                } else if word.eq_ignore_ascii_case(SMALLSERIAL) || word.eq_ignore_ascii_case(SERIAL2) {
-                    DataType::SmallSerial
-                } else if word.eq_ignore_ascii_case(SERIAL) || word.eq_ignore_ascii_case(SERIAL4) {
-                    DataType::Serial
-                } else if word.eq_ignore_ascii_case(TEXT) {
-                    DataType::Text
-                } else if word.eq_ignore_ascii_case(TIME) {
-                    let mut precision = None;
-                    if self.parse_token(TokenKind::LParen)? {
-                        precision = Some(self.parse_precision()?);
-                        self.expect_token(TokenKind::RParen)?;
-                    }
-
-                    let mut with_time_zone = false;
-
-                    if self.parse_word(WITH)? {
-                        self.expect_word(TIME)?;
-                        self.expect_word(ZONE)?;
-                        with_time_zone = true;
-                    } else if self.parse_word(WITHOUT)? {
-                        self.expect_word(TIME)?;
-                        self.expect_word(ZONE)?;
-                        with_time_zone = false;
-                    }
-
-                    DataType::Time { precision, with_time_zone }
-                } else if word.eq_ignore_ascii_case(TIMETZ) {
-                    DataType::Time { precision: None, with_time_zone: true }
-                } else if word.eq_ignore_ascii_case(TIMESTAMP) {
-                    let mut precision = None;
-                    if self.parse_token(TokenKind::LParen)? {
-                        precision = Some(self.parse_precision()?);
-                        self.expect_token(TokenKind::RParen)?;
-                    }
-
-                    let mut with_time_zone = false;
-
-                    if self.parse_word(WITH)? {
-                        self.expect_word(TIME)?;
-                        self.expect_word(ZONE)?;
-                        with_time_zone = true;
-                    } else if self.parse_word(WITHOUT)? {
-                        self.expect_word(TIME)?;
-                        self.expect_word(ZONE)?;
-                        with_time_zone = false;
-                    }
-
-                    DataType::Timestamp { precision, with_time_zone }
-                } else if word.eq_ignore_ascii_case(TIMESTAMPTZ) {
-                    DataType::Timestamp { precision: None, with_time_zone: true }
-                } else if word.eq_ignore_ascii_case(TSQUERY) {
-                    DataType::TsQuery
-                } else if word.eq_ignore_ascii_case(TSVECTOR) {
-                    DataType::TsVector
-                } else if word.eq_ignore_ascii_case(TXID_SNAPSHOT) {
-                    DataType::TxIdSnapshot
-                } else if word.eq_ignore_ascii_case(UUID) {
-                    DataType::UUID
-                } else if word.eq_ignore_ascii_case(XML) {
-                    DataType::XML
+            if self.parse_word(YEAR)? {
+                if self.parse_word(TO)? {
+                    self.expect_word(MONTH)?;
+                    fields = Some(IntervalFields::YearToMonth);
                 } else {
-                    let name = Name::new_unquoted(word);
-                    let name = self.parse_qual_name_tail(name)?;
-                    let parameters = self.parse_type_params()?;
-
-                    DataType::UserDefined { name, parameters }
+                    fields = Some(IntervalFields::Year);
                 }
+            } else if self.parse_word(MONTH)? {
+                fields = Some(IntervalFields::Month);
+            } else if self.parse_word(DAY)? {
+                if self.parse_word(TO)? {
+                    if self.parse_word(HOUR)? {
+                        fields = Some(IntervalFields::DayToHour);
+                    } else if self.parse_word(MINUTE)? {
+                        fields = Some(IntervalFields::DayToMinute);
+                    } else if self.parse_word(SECOND)? {
+                        fields = Some(IntervalFields::DayToSecond);
+                    } else {
+                        return Err(self.expected_one_of(&[
+                            HOUR, MINUTE, SECOND
+                        ]));
+                    }
+                } else {
+                    fields = Some(IntervalFields::Day);
+                }
+            } else if self.parse_word(HOUR)? {
+                if self.parse_word(TO)? {
+                    if self.parse_word(MINUTE)? {
+                        fields = Some(IntervalFields::HourToMinute);
+                    } else if self.parse_word(SECOND)? {
+                        fields = Some(IntervalFields::HourToSecond);
+                    } else {
+                        return Err(self.expected_one_of(&[
+                            HOUR, MINUTE, SECOND
+                        ]));
+                    }
+                } else {
+                    fields = Some(IntervalFields::Hour);
+                }
+            } else if self.parse_word(MINUTE)? {
+                if self.parse_word(TO)? {
+                    self.expect_word(SECOND)?;
+                    fields = Some(IntervalFields::MinuteToSecond);
+                } else {
+                    fields = Some(IntervalFields::Minute);
+                }
+            } else if self.parse_word(SECOND)? {
+                fields = Some(IntervalFields::Second);
             }
-            TokenKind::QuotName => {
-                let name = self.parse_quot_name(token.cursor())?;
-                let name = self.parse_qual_name_tail(name)?;
+
+            if self.parse_token(TokenKind::LParen)? {
+                precision = Some(self.parse_precision()?);
+                self.expect_token(TokenKind::RParen)?;
+            }
+            BasicType::Interval { fields, precision }
+        } else if self.parse_word(JSON)? {
+            BasicType::JSON
+        } else if self.parse_word(JSONB)? {
+            BasicType::JSONB
+        } else if self.parse_word(LINE)? {
+            BasicType::Line
+        } else if self.parse_word(LSEG)? {
+            BasicType::LSeg
+        } else if self.parse_word(MACADDR)? {
+            BasicType::MacAddr
+        } else if self.parse_word(MACADDR8)? {
+            BasicType::MacAddr8
+        } else if self.parse_word(MONEY)? {
+            BasicType::Money
+        } else if self.parse_word(NUMERIC)? {
+            let mut params = None;
+            if self.parse_token(TokenKind::LParen)? {
+                let precision = self.parse_precision()?;
+                let mut scale = 0;
+                if self.parse_token(TokenKind::Comma)? {
+                    scale = self.parse_int()?.1;
+                }
+
+                self.expect_token(TokenKind::RParen)?;
+
+                params = Some((precision, scale));
+            }
+
+            BasicType::Numeric(params)
+        } else if self.parse_word(PATH)? {
+            BasicType::Path
+        } else if self.parse_word(PG_LSN)? {
+            BasicType::PgLSN
+        } else if self.parse_word(PG_SNAPSHOT)? {
+            BasicType::PgSnapshot
+        } else if self.parse_word(POINT)? {
+            BasicType::Point
+        } else if self.parse_word(POLYGON)? {
+            BasicType::Polygon
+        } else if self.parse_word(REAL)? || self.parse_word(FLOAT4)? {
+            BasicType::Real
+        } else if self.parse_word(SMALLINT)? || self.parse_word(INT2)? {
+            BasicType::SmallInt
+        } else if self.parse_word(SMALLSERIAL)? || self.parse_word(SERIAL2)? {
+            BasicType::SmallSerial
+        } else if self.parse_word(SERIAL)? || self.parse_word(SERIAL4)? {
+            BasicType::Serial
+        } else if self.parse_word(TEXT)? {
+            BasicType::Text
+        } else if self.parse_word(TIME)? {
+            let mut precision = None;
+            if self.parse_token(TokenKind::LParen)? {
+                precision = Some(self.parse_precision()?);
+                self.expect_token(TokenKind::RParen)?;
+            }
+
+            let mut with_time_zone = false;
+
+            if self.parse_word(WITH)? {
+                self.expect_word(TIME)?;
+                self.expect_word(ZONE)?;
+                with_time_zone = true;
+            } else if self.parse_word(WITHOUT)? {
+                self.expect_word(TIME)?;
+                self.expect_word(ZONE)?;
+                with_time_zone = false;
+            }
+
+            BasicType::Time { precision, with_time_zone }
+        } else if self.parse_word(TIMETZ)? {
+            BasicType::Time { precision: None, with_time_zone: true }
+        } else if self.parse_word(TIMESTAMP)? {
+            let mut precision = None;
+            if self.parse_token(TokenKind::LParen)? {
+                precision = Some(self.parse_precision()?);
+                self.expect_token(TokenKind::RParen)?;
+            }
+
+            let mut with_time_zone = false;
+
+            if self.parse_word(WITH)? {
+                self.expect_word(TIME)?;
+                self.expect_word(ZONE)?;
+                with_time_zone = true;
+            } else if self.parse_word(WITHOUT)? {
+                self.expect_word(TIME)?;
+                self.expect_word(ZONE)?;
+                with_time_zone = false;
+            }
+
+            BasicType::Timestamp { precision, with_time_zone }
+        } else if self.parse_word(TIMESTAMPTZ)? {
+            BasicType::Timestamp { precision: None, with_time_zone: true }
+        } else if self.parse_word(TSQUERY)? {
+            BasicType::TsQuery
+        } else if self.parse_word(TSVECTOR)? {
+            BasicType::TsVector
+        } else if self.parse_word(TXID_SNAPSHOT)? {
+            BasicType::TxIdSnapshot
+        } else if self.parse_word(UUID)? {
+            BasicType::UUID
+        } else if self.parse_word(XML)? {
+            BasicType::XML
+        } else {
+            let first = self.expect_name()?;
+
+            if self.parse_token(TokenKind::Period)? {
+                let second = self.expect_name()?;
+
+                if self.parse_operator("%")? {
+                    self.expect_word(TYPE)?;
+
+                    BasicType::ColumnType {
+                        table_name: self.schema.resolve_table_name(&first),
+                        column_name: second
+                    }
+                } else if self.parse_token(TokenKind::Period)? {
+                    let column_name = self.expect_name()?;
+
+                    self.expect_operator("%")?;
+                    self.expect_word(TYPE)?;
+
+                    BasicType::ColumnType {
+                        table_name: QName::new(
+                            Some(first),
+                            second,
+                        ),
+                        column_name
+                    }
+                } else {
+                    let parameters = self.parse_type_params()?;
+                    BasicType::UserDefined {
+                        name: QName::new(
+                            Some(first),
+                            second
+                        ),
+                        parameters
+                    }
+                }
+            } else {
                 let parameters = self.parse_type_params()?;
-
-                DataType::UserDefined { name, parameters }
-            }
-            TokenKind::UName => {
-                let name = self.parse_uname(token.cursor())?;
-                let name = self.parse_qual_name_tail(name)?;
-                let parameters = self.parse_type_params()?;
-
-                DataType::UserDefined { name, parameters }
-            }
-            _ => {
-                let actual = self.get_source(token.cursor());
-
-                return Err(Error::with_message(
-                    ErrorKind::IllegalToken,
-                    *token.cursor(),
-                    format!("expected: <column data type>, actual: {actual}")
-                ));
+                BasicType::UserDefined {
+                    name: self.schema.resolve_type_name(&first),
+                    parameters
+                }
             }
         };
 
@@ -1563,13 +1573,49 @@ impl<'a> PostgreSQLParser<'a> {
             array_dimensions = Some(dims.into_boxed_slice());
         }
 
-        Ok(ColumnDataType::new(data_type, array_dimensions))
+        Ok(DataType::new(data_type, array_dimensions))
     }
 
     #[inline]
     fn parse_qual_name(&mut self) -> Result<QName> {
         let name = self.expect_name()?;
         self.parse_qual_name_tail(name)
+    }
+
+    #[inline]
+    fn parse_ref_table(&mut self) -> Result<QName> {
+        let first = self.expect_name()?;
+
+        if self.parse_token(TokenKind::Period)? {
+            let second = self.expect_name()?;
+            Ok(QName::new(Some(first), second))
+        } else {
+            Ok(self.schema.resolve_table_name(&first))
+        }
+    }
+
+    #[inline]
+    fn parse_ref_type(&mut self) -> Result<QName> {
+        let first = self.expect_name()?;
+
+        if self.parse_token(TokenKind::Period)? {
+            let second = self.expect_name()?;
+            Ok(QName::new(Some(first), second))
+        } else {
+            Ok(self.schema.resolve_type_name(&first))
+        }
+    }
+
+    #[inline]
+    fn parse_ref_index(&mut self) -> Result<QName> {
+        let first = self.expect_name()?;
+
+        if self.parse_token(TokenKind::Period)? {
+            let second = self.expect_name()?;
+            Ok(QName::new(Some(first), second))
+        } else {
+            Ok(self.schema.resolve_index_name(&first))
+        }
     }
 
     fn parse_qual_name_tail(&mut self, mut name: Name) -> Result<QName> {
@@ -1580,7 +1626,7 @@ impl<'a> PostgreSQLParser<'a> {
             std::mem::swap(&mut temp, &mut name);
             schema = Some(temp);
         } else {
-            schema = Some(self.default_schema.clone());
+            schema = Some(self.schema.search_path().first().unwrap_or(&self.default_schema).clone());
         }
 
         Ok(QName::new(schema, name))
@@ -1595,10 +1641,38 @@ impl<'a> PostgreSQLParser<'a> {
             std::mem::swap(&mut temp, &mut name);
             schema = Some(temp);
         } else {
-            schema = Some(default_schema.unwrap_or(&self.default_schema).clone());
+            schema = Some(default_schema.unwrap_or(self.schema.search_path().first().unwrap_or(&self.default_schema)).clone());
         }
 
         Ok(QName::new(schema, name))
+    }
+
+    fn parse_operator(&mut self, op: &str) -> Result<bool> {
+        let Some(token) = self.peek_token()? else {
+            return Ok(false);
+        };
+
+        if token.kind() == TokenKind::Operator && self.get_source(token.cursor()) == op {
+            self.tokenizer.next()?;
+            return Ok(true);
+        }
+
+        Ok(false)
+    }
+
+    fn expect_operator(&mut self, op: &str) -> Result<Token> {
+        let token = self.expect_token(TokenKind::Operator)?;
+        let source = self.get_source(token.cursor());
+
+        if source != op {
+            return Err(Error::with_message(
+                ErrorKind::UnexpectedToken,
+                *token.cursor(),
+                format!("expected: {op}, actual: {source}")
+            ));
+        }
+        
+        Ok(token)
     }
 
     fn parse_table_constaint(&mut self) -> Result<TableConstraint> {
@@ -1679,7 +1753,7 @@ impl<'a> PostgreSQLParser<'a> {
 
             self.expect_word(REFERENCES)?;
 
-            let ref_table = self.parse_qual_name()?;
+            let ref_table = self.parse_ref_table()?;
             let mut ref_columns = None;
 
             if self.parse_token(TokenKind::LParen)? {
@@ -1748,7 +1822,7 @@ impl<'a> PostgreSQLParser<'a> {
 
     fn parse_column(&mut self) -> Result<Rc<Column>> {
         let column_name = self.expect_name()?;
-        let data_type = self.parse_column_data_type()?;
+        let data_type = self.parse_data_type()?;
         let mut collation = None;
 
         if self.peek_word(COLLATE)? {
@@ -1807,7 +1881,7 @@ impl<'a> PostgreSQLParser<'a> {
 
                 constraint_data = ColumnConstraintData::PrimaryKey;
             } else if self.parse_word(REFERENCES)? {
-                let ref_table = self.parse_qual_name()?;
+                let ref_table = self.parse_ref_table()?;
 
                 let mut ref_column = None;
                 if self.parse_token(TokenKind::LParen)? {
@@ -1984,7 +2058,7 @@ impl<'a> PostgreSQLParser<'a> {
 
         self.expect_word(ON)?;
 
-        let table_name = self.parse_qual_name()?;
+        let table_name = self.parse_ref_table()?;
 
         let method = if self.parse_word(USING)? {
             Some(self.expect_name()?)
@@ -2061,7 +2135,7 @@ impl<'a> PostgreSQLParser<'a> {
         let if_exists = self.parse_if_exists()?;
         let only_offset = self.tokenizer.offset();
         let only = self.parse_word(ONLY)?;
-        let table_name = self.parse_qual_name()?;
+        let table_name = self.parse_ref_table()?;
         let data;
 
         if self.parse_word(RENAME)? {
@@ -2163,16 +2237,16 @@ impl<'a> PostgreSQLParser<'a> {
             if self.parse_word(CONSTRAINT)? {
                 let if_exists = self.parse_if_exists()?;
                 let constraint_name = self.expect_name()?;
-                let drop_option = self.parse_drop_option()?;
+                let behavior = self.parse_drop_option()?;
 
-                Ok(AlterTableAction::DropConstraint { if_exists, constraint_name, drop_option })
+                Ok(AlterTableAction::DropConstraint { if_exists, constraint_name, behavior })
             } else {
                 self.parse_word(COLUMN)?;
                 let if_exists = self.parse_if_exists()?;
                 let column_name = self.expect_name()?;
-                let drop_option = self.parse_drop_option()?;
+                let behavior = self.parse_drop_option()?;
 
-                Ok(AlterTableAction::DropColumn { if_exists, column_name, drop_option })
+                Ok(AlterTableAction::DropColumn { if_exists, column_name, behavior })
             }
         } else if self.parse_word(ALTER)? {
             // ALTER COLUMN or CONSTRAINT
@@ -2207,7 +2281,7 @@ impl<'a> PostgreSQLParser<'a> {
                     if self.parse_word(DATA)? {
                         self.expect_word(TYPE)?;
 
-                        let data_type = Rc::new(self.parse_column_data_type()?);
+                        let data_type = Rc::new(self.parse_data_type()?);
                         let collation = if self.parse_word(COLLATE)? {
                             Some(self.expect_name()?)
                         } else {
@@ -2233,7 +2307,7 @@ impl<'a> PostgreSQLParser<'a> {
                         ]));
                     }
                 } else if self.parse_word(TYPE)? {
-                    let data_type = Rc::new(self.parse_column_data_type()?);
+                    let data_type = Rc::new(self.parse_data_type()?);
                     let collation = if self.parse_word(COLLATE)? {
                         Some(self.expect_name()?)
                     } else {
@@ -2321,7 +2395,7 @@ impl<'a> PostgreSQLParser<'a> {
 
     fn parse_alter_type_intern(&mut self) -> Result<Rc<AlterType>> {
         // "ALTER TYPE" is already parsed
-        let type_name = self.parse_qual_name()?;
+        let type_name = self.parse_ref_type()?;
 
         if self.parse_word(OWNER)? {
             self.expect_word(TO)?;
@@ -2385,6 +2459,14 @@ impl<'a> PostgreSQLParser<'a> {
             Err(self.expected_one_of(&[
                 OWNER, RENAME, ADD
             ]))
+        }
+    }
+
+    fn parse_version(&mut self) -> Result<Version> {
+        if peek_token!(self, TokenKind::Word | TokenKind::QuotName | TokenKind::UName)?.is_some() {
+            Ok(Version::Name(self.expect_name()?))
+        } else {
+            Ok(Version::String(self.expect_string()?))
         }
     }
 }
@@ -2504,26 +2586,36 @@ impl<'a> Parser for PostgreSQLParser<'a> {
         }
     }
 
-    fn parse(&mut self) -> Result<Schema> {
-        let mut schema = Schema::new(vec![Name::new("public")]);
+    fn parse(&mut self) -> Result<Rc<Schema>> {
+        Rc::make_mut(&mut self.schema).clear();
 
         while let Some(token) = self.tokenizer.peek()? {
             let start_offset = token.cursor().start_offset();
 
             if self.parse_word(SET)? {
                 let name = self.expect_name()?;
-                self.expect_token(TokenKind::Equal)?;
+                if !self.parse_word(TO)? {
+                    self.expect_token(TokenKind::Equal)?;
+                }
 
                 if name.name().eq_ignore_ascii_case("search_path") {
-                    let search_path = schema.search_path_mut();
-                    search_path.clear();
-                    loop {
-                        let name = self.expect_name()?;
-                        search_path.push(name);
+                    if self.parse_word(DEFAULT)? {
+                        let search_path = Rc::make_mut(&mut self.schema).search_path_mut();
+                        search_path.clear();
+                        search_path.push(self.default_schema.clone());
+                    } else {
+                        let mut new_search_path = Vec::new();
 
-                        if !self.parse_token(TokenKind::Comma)? {
-                            break;
+                        loop {
+                            let name = self.expect_name()?;
+                            new_search_path.push(name);
+
+                            if !self.parse_token(TokenKind::Comma)? {
+                                break;
+                            }
                         }
+
+                        *Rc::make_mut(&mut self.schema).search_path_mut() = new_search_path;
                     }
                 } else {
                     // ignored. store it somewhere?
@@ -2533,28 +2625,32 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                 self.expect_semicolon_or_eof()?;
             } else if self.parse_word(CREATE)? {
                 if self.parse_word(TABLE)? {
-                    if !schema.create_table(self.parse_table_intern()?) {
+                    let table = self.parse_table_intern()?;
+                    if !Rc::make_mut(&mut self.schema).create_table(table) {
                         return Err(Error::with_cursor(
                             ErrorKind::TableExists,
                             Cursor::new(start_offset, self.tokenizer.offset())
                         ));
                     }
                 } else if self.parse_word(INDEX)? {
-                    if !schema.create_index(self.parse_index_intern(false)?) {
+                    let index = self.parse_index_intern(false)?;
+                    if !Rc::make_mut(&mut self.schema).create_index(index) {
                         return Err(Error::with_cursor(
                             ErrorKind::IndexExists,
                             Cursor::new(start_offset, self.tokenizer.offset())
                         ));
                     }
                 } else if self.parse_word(UNIQUE)? && self.parse_word(INDEX)? {
-                    if !schema.create_index(self.parse_index_intern(true)?) {
+                    let index = self.parse_index_intern(true)?;
+                    if !Rc::make_mut(&mut self.schema).create_index(index) {
                         return Err(Error::with_cursor(
                             ErrorKind::IndexExists,
                             Cursor::new(start_offset, self.tokenizer.offset())
                         ));
                     }
                 } else if self.parse_word(TYPE)? {
-                    if !schema.create_type(self.parse_type_def_intern()?) {
+                    let type_def = self.parse_type_def_intern()?;
+                    if !Rc::make_mut(&mut self.schema).create_type(type_def) {
                         return Err(Error::with_cursor(
                             ErrorKind::TypeExists,
                             Cursor::new(start_offset, self.tokenizer.offset())
@@ -2571,16 +2667,64 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                     eprintln!("TODO: parse CREATE SEQUENCE statements: {source}");
                 } else if self.parse_word(EXTENSION)? {
                     // TODO: CREATE EXTENSION?
+                    let if_not_exists = self.parse_if_not_exists()?;
+
+                    let name = self.expect_name()?;
+
+                    self.parse_word(WITH)?;
+
+                    let schema = if self.parse_word(SCHEMA)? {
+                        self.expect_name()?
+                    } else {
+                        self.schema.search_path().first().unwrap_or(&self.default_schema).clone()
+                    };
+
+                    let version = if self.parse_word(VERSION)? {
+                        Some(self.parse_version()?)
+                    } else {
+                        None
+                    };
+
+                    let cascade = self.parse_word(CASCADE)?;
+
+                    self.expect_semicolon_or_eof()?;
+
+                    let extension = CreateExtension::new(
+                        if_not_exists,
+                        Extension::new(
+                            QName::new(Some(schema), name),
+                            version,
+                        ),
+                        cascade
+                    );
+
+                    if !Rc::make_mut(&mut self.schema).create_extension(extension) {
+                        return Err(Error::with_cursor(
+                            ErrorKind::ExtensionExists,
+                            Cursor::new(start_offset, self.tokenizer.offset())
+                        ));
+                    }
+                } else if self.parse_word(FUNCTION)? || self.parse_word(PROCEDURE)? {
+                    // TODO: CREATE FUNCTION/PROCEDURE?
                     self.parse_token_list(true)?;
                     self.expect_semicolon_or_eof()?;
 
                     let end_offset = self.tokenizer.offset();
                     let source = self.tokenizer.get_offset(start_offset, end_offset);
 
-                    eprintln!("TODO: parse CREATE EXTENSION statements: {source}");
+                    eprintln!("TODO: parse CREATE FUNCTION/PROCEDURE statements: {source}");
+                } else if self.parse_word(TRIGGER)? {
+                    // TODO: CREATE TRIGGER?
+                    self.parse_token_list(true)?;
+                    self.expect_semicolon_or_eof()?;
+
+                    let end_offset = self.tokenizer.offset();
+                    let source = self.tokenizer.get_offset(start_offset, end_offset);
+
+                    eprintln!("TODO: parse CREATE TRIGGER statements: {source}");
                 } else {
                     return Err(self.expected_one_of(&[
-                        TABLE, "[UNIQUE] INDEX", TYPE
+                        TABLE, "[UNIQUE] INDEX", TYPE, EXTENSION, SEQUENCE, FUNCTION, PROCEDURE, TRIGGER
                     ]));
                 }
             } else if self.parse_word(SELECT)? {
@@ -2594,11 +2738,12 @@ impl<'a> Parser for PostgreSQLParser<'a> {
 
                 if self.parse_word(TABLE)? {
                     let alter_table = self.parse_alter_table_intern()?;
-                    schema.alter_table(&alter_table)?;
+                    Rc::make_mut(&mut self.schema).alter_table(&alter_table)?;
                 } else if self.parse_word(TYPE)? {
                     let alter_type = self.parse_alter_type_intern()?;
-                    schema.alter_type(&alter_type)?;
+                    Rc::make_mut(&mut self.schema).alter_type(&alter_type)?;
                 } else {
+                    // TODO: ALTER INDEX?
                     self.parse_token_list(true)?;
                     self.expect_semicolon_or_eof()?;
 
@@ -2616,6 +2761,15 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                 let source = self.tokenizer.get_offset(start_offset, end_offset);
 
                 eprintln!("TODO: parse COMMENT statements: {source}");
+            } else if self.parse_word(DROP)? {
+                // TODO: DROP...
+                self.parse_token_list(true)?;
+                self.expect_semicolon_or_eof()?;
+
+                let end_offset = self.tokenizer.offset();
+                let source = self.tokenizer.get_offset(start_offset, end_offset);
+
+                eprintln!("TODO: parse DROP statements: {source}");
             } else if self.parse_word(BEGIN)? {
                 let _ = self.parse_word(TRANSACTION)? || self.parse_word(WORK)?;
                 self.expect_semicolon_or_eof()?;
@@ -2644,12 +2798,12 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                 ));
             } else {
                 return Err(self.expected_one_of(&[
-                    CREATE, SET, SELECT, ALTER, COMMENT, BEGIN, START
+                    CREATE, SET, SELECT, ALTER, DROP, COMMENT, BEGIN, START
                 ]));
             }
         }
 
-        Ok(schema)
+        Ok(self.schema.clone())
     }
 }
 

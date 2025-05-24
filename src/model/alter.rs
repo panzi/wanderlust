@@ -27,14 +27,13 @@ impl std::fmt::Display for Owner {
     }
 }
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DropOption {
+pub enum DropBehavior {
     Restrict,
     Cascade,
 }
 
-impl std::fmt::Display for DropOption {
+impl std::fmt::Display for DropBehavior {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -44,7 +43,7 @@ impl std::fmt::Display for DropOption {
     }
 }
 
-impl Default for DropOption {
+impl Default for DropBehavior {
     #[inline]
     fn default() -> Self {
         Self::Restrict

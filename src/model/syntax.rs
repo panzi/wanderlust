@@ -286,7 +286,7 @@ macro_rules! peek_token {
 pub trait Parser {
     fn get_source(&self, cursor: &Cursor) -> &str;
 
-    fn parse(&mut self) -> Result<Schema>;
+    fn parse(&mut self) -> Result<Rc<Schema>>;
 
     fn expect_some(&mut self) -> Result<Token>;
 
