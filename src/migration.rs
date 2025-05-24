@@ -128,19 +128,11 @@ pub fn generate_migration(old: &Schema, new: &Schema) -> Vec<Statement> {
 }
 
 fn migrate_table(old_table: &Table, new_table: &Table, stmts: &mut Vec<Statement>) {
-    let mut old_columns = HashMap::new();
-    let mut new_columns = HashMap::new();
+    let old_columns = old_table.columns();
+    let new_columns = new_table.columns();
 
-    for column in old_table.columns() {
-        old_columns.insert(column.name(), column);
-    }
-
-    for column in new_table.columns() {
-        new_columns.insert(column.name(), column);
-    }
-
-    for column in old_table.columns() {
-        if let Some(&new_column) = new_columns.get(column.name()) {
+    for column in old_table.columns().values() {
+        if let Some(new_column) = new_columns.get(column.name()) {
             if column != new_column {
                 migrate_column(new_table.name(), column, new_column, stmts);
             }
@@ -153,7 +145,7 @@ fn migrate_table(old_table: &Table, new_table: &Table, stmts: &mut Vec<Statement
 
     let mut new_columns = HashMap::new();
 
-    for column in new_table.columns() {
+    for column in new_table.columns().values() {
         if !old_columns.contains_key(column.name()) {
             stmts.push(Statement::AlterTable(
                 AlterTable::add_column(new_table.name().clone(), column.without_table_constraints())

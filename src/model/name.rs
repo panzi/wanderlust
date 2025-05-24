@@ -170,6 +170,16 @@ impl QName {
     }
 
     #[inline]
+    pub fn set_schema(&mut self, schema: Option<Name>) {
+        self.schema = schema;
+    }
+
+    #[inline]
+    pub fn set_name(&mut self, name: Name) {
+        self.name = name;
+    }
+
+    #[inline]
     pub fn with_default_schema(&self, default_schema: &Name) -> Self {
         Self {
             schema: if let Some(schema) = &self.schema {

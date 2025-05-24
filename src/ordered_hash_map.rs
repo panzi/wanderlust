@@ -104,6 +104,14 @@ where K: Eq + Hash {
     }
 
     #[inline]
+    pub fn with_capacity(size: usize) -> Self {
+        Self {
+            inner: HashMap::with_capacity(size),
+            next_order: 0,
+        }
+    }
+
+    #[inline]
     pub fn insert(&mut self, key: K, value: V) -> Option<V> {
         let order = self.next_order;
         let old = self.inner.insert(key, OrderedCell::new(order, value));
@@ -162,6 +170,16 @@ where K: Eq + Hash {
     }
 
     #[inline]
+    pub fn into_values(self) -> Map<
+        <Vec<(K, OrderedCell<V>)> as IntoIterator>::IntoIter,
+        fn((K, OrderedCell<V>)) -> V
+    > {
+        let mut items: Vec<(K, OrderedCell<V>)> = self.inner.into_iter().collect();
+        items.sort_by(|a, b| a.1.order.cmp(&b.1.order) );
+        items.into_iter().map(|(_, v)| v.into_inner())
+    }
+
+    #[inline]
     pub fn values(&self) -> impl Iterator<Item = &V> {
         let mut items: Vec<(&K, &OrderedCell<V>)> = self.inner.iter().collect();
         items.sort_by(|a, b| a.1.order.cmp(&b.1.order) );
@@ -190,6 +208,11 @@ where K: Eq + Hash {
     #[inline]
     pub fn values_unordered_mut(&mut self) -> impl Iterator<Item = &mut V> {
         self.inner.values_mut().map(OrderedCell::inner_mut)
+    }
+
+    #[inline]
+    pub fn into_values_unordered(self) -> impl Iterator<Item = V> {
+        self.inner.into_values().map(OrderedCell::into_inner)
     }
 }
 

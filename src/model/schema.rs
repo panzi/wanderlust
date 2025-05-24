@@ -1,12 +1,13 @@
+use std::ops::Deref;
 use std::rc::Rc;
 
 use crate::error::{Error, ErrorKind, Result};
 use crate::format::IsoString;
-use crate::model::alter::{AlterTypeData, ValuePosition};
+use crate::model::alter::{AlterTableAction, AlterTableData, AlterTypeData, ValuePosition};
 use crate::model::types::TypeData;
 use crate::ordered_hash_map::OrderedHashMap;
 
-use super::alter::{AlterTable, AlterType};
+use super::alter::{AlterColumnData, AlterTable, AlterType};
 use super::column::Column;
 use super::index::CreateIndex;
 use super::name::{Name, QName};
@@ -86,21 +87,13 @@ impl Schema {
         true
     }
 
-    pub fn create_index(&mut self, create_index: CreateIndex) -> bool {
-        let schema_name = create_index.index().table_name().schema().cloned();
-        let index_name = if let Some(name) = create_index.index().name() {
-            name.clone()
-        } else {
-            QName::new(
-                schema_name,
-                create_index.index().make_name()
-            )
-        };
+    pub fn create_index(&mut self, mut create_index: CreateIndex) -> bool {
+        let index_name = create_index.index_mut().ensure_name();
 
         if self.indices.contains_key(&index_name) {
             return create_index.if_not_exists();
         }
-        self.indices.insert(index_name, create_index.into());
+        self.indices.insert(index_name.clone(), create_index.into());
         true
     }
 
@@ -117,7 +110,7 @@ impl Schema {
         let mut found_columns = Vec::new();
 
         for table in self.tables.values_unordered() {
-            for column in table.columns() {
+            for column in table.columns().values_unordered() {
                 if let DataType::UserDefined { name, .. } = column.data_type().data_type() {
                     if type_name == name {
                         found_columns.push((table.name(), column));
@@ -144,9 +137,9 @@ impl Schema {
                     ));
                 }
 
-                if let Some(type_def) = self.types.remove(alter_type.type_name()) {
-                    let type_def = type_def.with_name(new_name.clone());
-                    self.types.insert(new_name.clone(), Rc::new(type_def));
+                if let Some(mut type_def) = self.types.remove(alter_type.type_name()) {
+                    Rc::make_mut(&mut type_def).set_name(new_name.clone());
+                    self.types.insert(new_name.clone(), type_def);
 
                     Ok(())
                 } else {
@@ -160,6 +153,39 @@ impl Schema {
                         None
                     ))
                 }
+            }
+            AlterTypeData::SetSchema { new_schema } => {
+                let new_name = QName::new(
+                    Some(new_schema.clone()),
+                    alter_type.type_name().name().clone()
+                );
+                if self.types.contains_key(&new_name) {
+                    return Err(Error::new(
+                        ErrorKind::TypeExists,
+                        None,
+                        Some(format!(
+                            "type {} already exists: {alter_type}",
+                            alter_type.type_name()
+                        )),
+                        None
+                    ));
+                }
+
+                if let Some(mut type_def) = self.types.remove(alter_type.type_name()) {
+                    Rc::make_mut(&mut type_def).set_name(new_name.clone());
+                    self.types.insert(new_name, type_def);
+                } else {
+                    return Err(Error::new(
+                        ErrorKind::TypeNotExists,
+                        None,
+                        Some(format!(
+                            "type {} not found: {alter_type}",
+                            alter_type.type_name()
+                        )),
+                        None
+                    ));
+                }
+                Ok(())
             }
             _ => {
                 if let Some(type_def) = self.types.get_mut(alter_type.type_name()) {
@@ -254,38 +280,7 @@ impl Schema {
                             }
                         }
                         AlterTypeData::Rename { .. } => {}
-                        AlterTypeData::SetSchema { new_schema } => {
-                            let new_name = QName::new(
-                                Some(new_schema.clone()),
-                                alter_type.type_name().name().clone()
-                            );
-                            if self.types.contains_key(&new_name) {
-                                return Err(Error::new(
-                                    ErrorKind::TypeExists,
-                                    None,
-                                    Some(format!(
-                                        "type {} already exists: {alter_type}",
-                                        alter_type.type_name()
-                                    )),
-                                    None
-                                ));
-                            }
-
-                            if let Some(type_def) = self.types.remove(alter_type.type_name()) {
-                                let type_def = type_def.with_name(new_name.clone());
-                                self.types.insert(new_name, Rc::new(type_def));
-                            } else {
-                                return Err(Error::new(
-                                    ErrorKind::TypeNotExists,
-                                    None,
-                                    Some(format!(
-                                        "type {} not found: {alter_type}",
-                                        alter_type.type_name()
-                                    )),
-                                    None
-                                ));
-                            }
-                        }
+                        AlterTypeData::SetSchema { .. } => {}
                     }
                     Ok(())
                 } else {
@@ -303,8 +298,304 @@ impl Schema {
         }
     }
 
-    pub fn alter_table(&self, alter_table: &Rc<AlterTable>) -> Result<()> {
-        eprintln!("TODO: {alter_table}");
-        Ok(())
+    pub fn alter_table(&mut self, alter_table: &Rc<AlterTable>) -> Result<()> {
+        match alter_table.data() {
+            AlterTableData::RenameTable { if_exists, new_name } => {
+                if self.tables.contains_key(new_name) {
+                    return Err(Error::new(
+                        ErrorKind::TableExists,
+                        None,
+                        Some(format!(
+                            "table {} already exists: {alter_table}",
+                            alter_table.name()
+                        )),
+                        None
+                    ));
+                }
+
+                if let Some(mut table) = self.tables.remove(alter_table.name()) {
+                    Rc::make_mut(&mut table).set_name(new_name.clone());
+                    self.tables.insert(new_name.clone(), table);
+
+                    Ok(())
+                } else if *if_exists {
+                    Err(Error::new(
+                        ErrorKind::TypeNotExists,
+                        None,
+                        Some(format!(
+                            "table {} not found: {alter_table}",
+                            alter_table.name()
+                        )),
+                        None
+                    ))
+                } else {
+                    Ok(())
+                }
+            }
+            AlterTableData::SetSchema { if_exists, new_schema } => {
+                let new_name = QName::new(
+                    Some(new_schema.clone()),
+                    alter_table.name().name().clone()
+                );
+                if self.tables.contains_key(&new_name) {
+                    return Err(Error::new(
+                        ErrorKind::TableExists,
+                        None,
+                        Some(format!(
+                            "table {} already exists: {alter_table}",
+                            alter_table.name()
+                        )),
+                        None
+                    ));
+                }
+
+                if let Some(mut table) = self.tables.remove(alter_table.name()) {
+                    Rc::make_mut(&mut table).set_name(new_name.clone());
+                    self.tables.insert(new_name, table);
+
+                    Ok(())
+                } else if *if_exists {
+                    Err(Error::new(
+                        ErrorKind::TypeNotExists,
+                        None,
+                        Some(format!(
+                            "table {} not found: {alter_table}",
+                            alter_table.name()
+                        )),
+                        None
+                    ))
+                } else {
+                    Ok(())
+                }
+            }
+            _ => {
+                let Some(mut table) = self.tables.get_mut(alter_table.name()) else {
+                    if alter_table.data().if_exists() {
+                        return Ok(());
+                    }
+                    return Err(Error::new(
+                        ErrorKind::TableNotExists,
+                        None,
+                        Some(format!(
+                            "table {} not found: {alter_table}",
+                            alter_table.name()
+                        )),
+                        None
+                    ));
+                };
+                match alter_table.data() {
+                    AlterTableData::RenameColumn { if_exists, only: _, column_name, new_column_name } => {
+                        if table.columns().contains_key(new_column_name) {
+                            if *if_exists && !table.columns().contains_key(column_name) {
+                                return Ok(());
+                            }
+                            return Err(Error::new(
+                                ErrorKind::ColumnExists,
+                                None,
+                                Some(format!(
+                                    "column {new_column_name} of table {} already exists: {alter_table}",
+                                    alter_table.name()
+                                )),
+                                None
+                            ));
+                        }
+
+                        let table = Rc::make_mut(&mut table);
+                        if let Some(mut column) = table.columns_mut().remove(column_name) {
+                            Rc::make_mut(&mut column).set_name(new_column_name.clone());
+                            table.columns_mut().insert(new_column_name.clone(), column);
+                        } else {
+                            if *if_exists {
+                                return Ok(());
+                            }
+                            return Err(Error::new(
+                                ErrorKind::ColumnNotExists,
+                                None,
+                                Some(format!(
+                                    "column {column_name} of table {} not found: {alter_table}",
+                                    alter_table.name()
+                                )),
+                                None
+                            ));
+                        }
+
+                        Ok(())
+                    }
+                    AlterTableData::RenameConstraint { if_exists, only: _, constraint_name, new_constraint_name } => {
+                        if table.constraints().contains_key(new_constraint_name) {
+                            return Err(Error::new(
+                                ErrorKind::ConstraintExists,
+                                None,
+                                Some(format!(
+                                    "constraint {} of table {} already exists: {alter_table}",
+                                    new_constraint_name, alter_table.name()
+                                )),
+                                None
+                            ));
+                        }
+
+                        let table = Rc::make_mut(&mut table);
+                        if let Some(mut constraint) = table.constraints_mut().remove(constraint_name) {
+                            Rc::make_mut(&mut constraint).set_name(Some(new_constraint_name.clone()));
+                            table.constraints_mut().insert(constraint_name.clone(), constraint);
+                        } else {
+                            if *if_exists {
+                                return Ok(());
+                            }
+                            return Err(Error::new(
+                                ErrorKind::ConstraintExists,
+                                None,
+                                Some(format!(
+                                    "constraint {} of table {} not found: {alter_table}",
+                                    constraint_name, alter_table.name()
+                                )),
+                                None
+                            ));
+                        }
+
+                        Ok(())
+                    }
+                    AlterTableData::Actions { if_exists, only: _, actions } => {
+                        for action in actions.deref() {
+                            match action {
+                                AlterTableAction::OwnerTo { .. } => {}
+                                AlterTableAction::AddColumn { if_not_exists, column } => {
+                                    if table.columns().contains_key(column.name()) {
+                                        if *if_not_exists {
+                                            return Ok(());
+                                        }
+                                        return Err(Error::new(
+                                            ErrorKind::ColumnExists,
+                                            None,
+                                            Some(format!(
+                                                "column {} of table {} already exists: {alter_table}",
+                                                column.name(), alter_table.name()
+                                            )),
+                                            None
+                                        ));
+                                    }
+
+                                    Rc::make_mut(&mut table).columns_mut().insert(column.name().clone(), column.clone());
+                                }
+                                AlterTableAction::AddConstraint { constraint } => {
+                                    let mut constraint = constraint.clone();
+                                    let constraint_name = Rc::make_mut(&mut constraint).ensure_name();
+
+                                    if table.constraints().contains_key(constraint_name) {
+                                        return Err(Error::new(
+                                            ErrorKind::ConstraintExists,
+                                            None,
+                                            Some(format!(
+                                                "constraint {} of table {} already exists: {alter_table}",
+                                                constraint_name, alter_table.name()
+                                            )),
+                                            None
+                                        ));
+                                    }
+
+                                    Rc::make_mut(&mut table).constraints_mut().insert(constraint_name.clone(), constraint);
+                                }
+                                AlterTableAction::AlterColumn { alter_column } => {
+                                    let Some(mut column) = Rc::make_mut(&mut table).columns_mut().get_mut(alter_column.column_name()) else {
+                                        if *if_exists {
+                                            return Ok(());
+                                        }
+                                        return Err(Error::new(
+                                            ErrorKind::ColumnNotExists,
+                                            None,
+                                            Some(format!(
+                                                "column {} of table {} not found: {alter_table}",
+                                                alter_column.column_name(), alter_table.name()
+                                            )),
+                                            None
+                                        ));
+                                    };
+                                    let column = Rc::make_mut(&mut column);
+
+                                    match alter_column.data() {
+                                        AlterColumnData::DropDefault => {
+                                            column.drop_default();
+                                        }
+                                        AlterColumnData::SetDefault { expr } => {
+                                            column.set_default(expr.clone());
+                                        }
+                                        AlterColumnData::DropNotNull => {
+                                            column.drop_not_null();
+                                        }
+                                        AlterColumnData::SetNotNull => {
+                                            column.set_not_null();
+                                        }
+                                        AlterColumnData::Type { data_type, collation, using: _ } => {
+                                            column.set_data_type(data_type.clone());
+                                            column.set_collation(collation.clone());
+                                        }
+                                    }
+                                }
+                                AlterTableAction::AlterConstraint { constraint_name, deferrable, initially_deferred } => {
+                                    let Some(mut constraint) = Rc::make_mut(&mut table).constraints_mut().get_mut(constraint_name) else {
+                                        return Err(Error::new(
+                                            ErrorKind::ConstraintNotExists,
+                                            None,
+                                            Some(format!(
+                                                "constraint {} of table {} not found: {alter_table}",
+                                                constraint_name, alter_table.name()
+                                            )),
+                                            None
+                                        ));
+                                    };
+
+                                    let constraint = Rc::make_mut(&mut constraint);
+
+                                    if deferrable.is_some() {
+                                        constraint.set_deferrable(*deferrable);
+                                    }
+
+                                    if initially_deferred.is_some() {
+                                        constraint.set_initially_deferred(*initially_deferred);
+                                    }
+                                }
+                                AlterTableAction::DropColumn { if_exists, column_name, drop_option } => {
+                                    // TODO: CASCADE and RESTRICT will be some work!
+                                    if Rc::make_mut(&mut table).columns_mut().remove(column_name).is_none() {
+                                        if *if_exists {
+                                            return Ok(());
+                                        }
+                                        return Err(Error::new(
+                                            ErrorKind::ColumnNotExists,
+                                            None,
+                                            Some(format!(
+                                                "column {} of table {} not found: {alter_table}",
+                                                column_name, alter_table.name()
+                                            )),
+                                            None
+                                        ));
+                                    }
+                                }
+                                AlterTableAction::DropConstraint { if_exists, constraint_name, drop_option } => {
+                                    // TODO: CASCADE and RESTRICT will be some work!
+                                    if Rc::make_mut(&mut table).constraints_mut().remove(constraint_name).is_none() {
+                                        if *if_exists {
+                                            return Ok(());
+                                        }
+                                        return Err(Error::new(
+                                            ErrorKind::ConstraintNotExists,
+                                            None,
+                                            Some(format!(
+                                                "constraint {} of table {} not found: {alter_table}",
+                                                constraint_name, alter_table.name()
+                                            )),
+                                            None
+                                        ));
+                                    }
+                                }
+                            }
+                        }
+                        Ok(())
+                    }
+                    AlterTableData::RenameTable { .. } => Ok(()),
+                    AlterTableData::SetSchema { .. } => Ok(())
+                }
+            }
+        }
     }
 }

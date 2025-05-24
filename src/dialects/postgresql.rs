@@ -5,7 +5,7 @@
 
 use std::{num::NonZeroU32, rc::Rc};
 
-use crate::{error::{Error, ErrorKind, Result}, model::{alter::{AlterColumn, AlterColumnData, AlterTable, AlterTableAction, AlterTableData, AlterType, AlterTypeData, DropOption, Owner, ValuePosition}, column::{Column, ColumnConstraint, ColumnConstraintData, ColumnMatch, ReferentialAction}, index::{CreateIndex, Direction, Index, IndexItem, IndexItemData, NullsPosition}, integers::{Integer, SignedInteger, UnsignedInteger}, name::{Name, QName}, schema::Schema, syntax::{Cursor, Parser, SourceLocation, Tokenizer}, table::{CreateTable, Table, TableConstraint, TableConstraintData}, token::{ParsedToken, ToTokens, Token, TokenKind}, types::{ColumnDataType, DataType, IntervalFields, TypeDef, Value}}, peek_token};
+use crate::{error::{Error, ErrorKind, Result}, model::{alter::{AlterColumn, AlterColumnData, AlterTable, AlterTableAction, AlterTableData, AlterType, AlterTypeData, DropOption, Owner, ValuePosition}, column::{Column, ColumnConstraint, ColumnConstraintData, ColumnMatch, ReferentialAction}, index::{CreateIndex, Direction, Index, IndexItem, IndexItemData, NullsPosition}, integers::{Integer, SignedInteger, UnsignedInteger}, name::{Name, QName}, schema::Schema, syntax::{Cursor, Parser, SourceLocation, Tokenizer}, table::{CreateTable, Table, TableConstraint, TableConstraintData}, token::{ParsedToken, ToTokens, Token, TokenKind}, types::{ColumnDataType, DataType, IntervalFields, TypeDef, Value}}, ordered_hash_map::OrderedHashMap, peek_token};
 use crate::model::words::*;
 
 pub fn uunescape(string: &str, escape: char) -> Option<String> {
@@ -1586,7 +1586,22 @@ impl<'a> PostgreSQLParser<'a> {
         Ok(QName::new(schema, name))
     }
 
-    fn parse_table_constaint(&mut self) -> Result<Rc<TableConstraint>> {
+    fn parse_qual_name_with_default_schema(&mut self, default_schema: Option<&Name>) -> Result<QName> {
+        let mut name = self.expect_name()?;
+        let schema;
+
+        if self.parse_token(TokenKind::Period)? {
+            let mut temp = self.expect_name()?;
+            std::mem::swap(&mut temp, &mut name);
+            schema = Some(temp);
+        } else {
+            schema = Some(default_schema.unwrap_or(&self.default_schema).clone());
+        }
+
+        Ok(QName::new(schema, name))
+    }
+
+    fn parse_table_constaint(&mut self) -> Result<TableConstraint> {
         let mut constraint_name = None;
         let constraint_data;
 
@@ -1723,12 +1738,12 @@ impl<'a> PostgreSQLParser<'a> {
             }
         }
 
-        Ok(Rc::new(TableConstraint::new(
+        Ok(TableConstraint::new(
             constraint_name,
             constraint_data,
             deferrable,
             initially_deferred
-        )))
+        ))
     }
 
     fn parse_column(&mut self) -> Result<Rc<Column>> {
@@ -1870,16 +1885,27 @@ impl<'a> PostgreSQLParser<'a> {
 
         let if_not_exists = self.parse_if_not_exists()?;
         let table_name = self.parse_qual_name()?;
-        let mut columns = Vec::new();
-        let mut table_constraints = Vec::new();
+        let mut columns = OrderedHashMap::new();
+        let mut table_constraints = OrderedHashMap::new();
 
         self.expect_token(TokenKind::LParen)?;
 
         while !self.peek_kind(TokenKind::RParen)? {
             if self.peek_words(&[CONSTRAINT, CHECK, UNIQUE, PRIMARY, FOREIGN])?.is_some() {
-                table_constraints.push(self.parse_table_constaint()?);
+                let mut constraint = self.parse_table_constaint()?;
+                let constraint_name = constraint.ensure_name();
+                table_constraints.insert(constraint_name.clone(), Rc::new(constraint));
             } else {
-                columns.push(self.parse_column()?);
+                let start_offset = self.tokenizer.offset();
+                let column = self.parse_column()?;
+                if columns.contains_key(column.name()) {
+                    return Err(Error::with_message(
+                        ErrorKind::ColumnExists,
+                        Cursor::new(start_offset, self.tokenizer.offset()),
+                        format!("column {} already exists in table {}", column.name(), table_name)
+                    ));
+                }
+                columns.insert(column.name().clone(), column);
             }
 
             if self.peek_kind(TokenKind::Comma)? {
@@ -2047,7 +2073,9 @@ impl<'a> PostgreSQLParser<'a> {
                         format!("illegal token {ONLY} for {RENAME} {COLUMN}")
                     ));
                 }
-                let new_name = self.expect_name()?;
+                // TODO: can new_name be qualified? What schema does it default to, the
+                //       same as the old schema or the `public` schema?
+                let new_name = self.parse_qual_name_with_default_schema(table_name.schema())?;
 
                 data = AlterTableData::RenameTable { if_exists, new_name };
             } else if self.parse_word(CONSTRAINT)? {
@@ -2121,7 +2149,7 @@ impl<'a> PostgreSQLParser<'a> {
                 let table_constraint = self.parse_table_constaint()?;
 
                 Ok(AlterTableAction::AddConstraint {
-                    constraint: table_constraint
+                    constraint: table_constraint.into()
                 })
             } else {
                 self.parse_word(COLUMN)?;

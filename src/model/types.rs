@@ -45,6 +45,16 @@ impl TypeDef {
     }
 
     #[inline]
+    pub fn set_name(&mut self, name: QName) {
+        self.name = name;
+    }
+
+    #[inline]
+    pub fn name_mut(&mut self) -> &mut QName {
+        &mut self.name
+    }
+
+    #[inline]
     pub fn data(&self) -> &TypeData {
         &self.data
     }

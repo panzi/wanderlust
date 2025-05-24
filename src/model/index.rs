@@ -175,6 +175,17 @@ impl Index {
         }
     }
 
+    pub fn ensure_name(&mut self) -> &QName {
+        if self.name.is_none() {
+            self.name = Some(QName::new(
+                self.table_name.schema().cloned(),
+                self.make_name()
+            ));
+        }
+
+        self.name.as_ref().unwrap()
+    }
+
     pub fn make_name(&self) -> Name {
         let table_name = self.table_name.name().name();
         let mut index_name = if self.unique {
@@ -211,6 +222,11 @@ impl Index {
     #[inline]
     pub fn name(&self) -> Option<&QName> {
         self.name.as_ref()
+    }
+
+    #[inline]
+    pub fn set_name(&mut self, name: Option<QName>) {
+        self.name = name;
     }
 
     #[inline]
@@ -304,6 +320,11 @@ impl CreateIndex {
     #[inline]
     pub fn index(&self) -> &Rc<Index> {
         &self.index
+    }
+
+    #[inline]
+    pub fn index_mut(&mut self) -> &mut Index {
+        Rc::make_mut(&mut self.index)
     }
 
     #[inline]

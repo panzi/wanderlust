@@ -54,7 +54,7 @@ impl AlterTable {
     }
 
     #[inline]
-    pub fn rename_table(table_name: QName, new_name: Name) -> Rc<Self> {
+    pub fn rename_table(table_name: QName, new_name: QName) -> Rc<Self> {
         Rc::new(Self { table_name, data: AlterTableData::rename_table(new_name) })
     }
 
@@ -122,7 +122,7 @@ impl std::fmt::Display for Owner {
 #[derive(Debug, Clone, PartialEq)]
 pub enum AlterTableData {
     Actions { if_exists: bool, only: bool, actions: Rc<[AlterTableAction]> },
-    RenameTable { if_exists: bool, new_name: Name },
+    RenameTable { if_exists: bool, new_name: QName },
     RenameColumn { if_exists: bool, only: bool, column_name: Name, new_column_name: Name },
     RenameConstraint { if_exists: bool, only: bool, constraint_name: Name, new_constraint_name: Name },
     SetSchema { if_exists: bool, new_schema: Name },
@@ -145,7 +145,7 @@ impl AlterTableData {
     }
 
     #[inline]
-    pub fn rename_table(new_name: Name) -> Self {
+    pub fn rename_table(new_name: QName) -> Self {
         Self::RenameTable { if_exists: false, new_name }
     }
 

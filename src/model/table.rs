@@ -1,6 +1,6 @@
-use std::rc::Rc;
+use std::{ops::Deref, rc::Rc};
 
-use crate::format::{write_paren_names, write_token_list};
+use crate::{format::{write_paren_names, write_token_list}, ordered_hash_map::OrderedHashMap};
 
 use super::{column::{Column, ColumnMatch, ReferentialAction}, name::{Name, QName}, token::ParsedToken};
 
@@ -56,8 +56,8 @@ impl std::fmt::Display for CreateTable {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Table {
     name: QName,
-    columns: Vec<Rc<Column>>,
-    constraints: Vec<Rc<TableConstraint>>,
+    columns: OrderedHashMap<Name, Rc<Column>>,
+    constraints: OrderedHashMap<Name, Rc<TableConstraint>>,
 }
 
 impl std::fmt::Display for Table {
@@ -70,14 +70,14 @@ impl std::fmt::Display for Table {
 
 impl Table {
     #[inline]
-    pub fn new(name: QName, columns: Vec<Rc<Column>>, constraints: Vec<Rc<TableConstraint>>) -> Self {
+    pub fn new(name: QName, columns: OrderedHashMap<Name, Rc<Column>>, constraints: OrderedHashMap<Name, Rc<TableConstraint>>) -> Self {
         Self { name, columns, constraints }
     }
 
     fn write(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{} (\n", self.name)?;
 
-        let mut iter = self.columns.iter();
+        let mut iter = self.columns.values();
         if let Some(first) = iter.next() {
             write!(f, "    {first}")?;
 
@@ -85,11 +85,11 @@ impl Table {
                 write!(f, ",\n    {column}")?;
             }
 
-            for constraint in &self.constraints {
+            for constraint in self.constraints.values() {
                 write!(f, ",\n    {constraint}")?;
             }
         } else {
-            let mut iter = self.constraints.iter();
+            let mut iter = self.constraints.values();
 
             if let Some(first) = iter.next() {
                 write!(f, "    {first}")?;
@@ -109,29 +109,39 @@ impl Table {
     }
 
     #[inline]
-    pub fn columns(&self) -> &[Rc<Column>] {
+    pub fn set_name(&mut self, name: QName) {
+        self.name = name;
+    }
+
+    #[inline]
+    pub fn name_mut(&mut self) -> &mut QName {
+        &mut self.name
+    }
+
+    #[inline]
+    pub fn columns(&self) -> &OrderedHashMap<Name, Rc<Column>> {
         &self.columns
     }
 
     #[inline]
-    pub fn constraints(&self) -> &[Rc<TableConstraint>] {
+    pub fn constraints(&self) -> &OrderedHashMap<Name, Rc<TableConstraint>> {
         &self.constraints
     }
 
     #[inline]
-    pub fn columns_mut(&mut self) -> &mut Vec<Rc<Column>> {
+    pub fn columns_mut(&mut self) -> &mut OrderedHashMap<Name, Rc<Column>> {
         &mut self.columns
     }
 
     #[inline]
-    pub fn constraints_mut(&mut self) -> &mut Vec<Rc<TableConstraint>> {
+    pub fn constraints_mut(&mut self) -> &mut OrderedHashMap<Name, Rc<TableConstraint>> {
         &mut self.constraints
     }
 
     pub fn merged_constraints(&self) -> Vec<Rc<TableConstraint>> {
-        let mut merged = self.constraints.clone();
+        let mut merged: Vec<_> = self.constraints.values().cloned().collect();
 
-        for column in &self.columns {
+        for column in self.columns.values_unordered() {
             for constraint in column.constraints() {
                 if let Some(table_constraint) = constraint.to_table_constraint(column.name()) {
                     merged.push(Rc::new(table_constraint));
@@ -301,6 +311,44 @@ pub struct TableConstraint {
     initially_deferred: Option<bool>,
 }
 
+pub fn make_constraint_name(data: &TableConstraintData) -> Name {
+    let mut constraint_name = String::new();
+    match data {
+        TableConstraintData::Check { expr, .. } => {
+            for token in expr.deref() {
+                if let ParsedToken::Name(name) = token {
+                    constraint_name.push_str(name.name());
+                    constraint_name.push_str("_");
+                }
+            }
+            constraint_name.push_str("check");
+        }
+        TableConstraintData::ForeignKey { columns, .. } => {
+            for column in columns.deref() {
+                constraint_name.push_str(column.name());
+                constraint_name.push_str("_");
+            }
+            constraint_name.push_str("fkey");
+        }
+        TableConstraintData::PrimaryKey { columns } => {
+            for column in columns.deref() {
+                constraint_name.push_str(column.name());
+                constraint_name.push_str("_");
+            }
+            constraint_name.push_str("pkey");
+        }
+        TableConstraintData::Unique { columns, .. } => {
+            for column in columns.deref() {
+                constraint_name.push_str(column.name());
+                constraint_name.push_str("_");
+            }
+            constraint_name.push_str("unique");
+        }
+    }
+
+    Name::new(constraint_name)
+}
+
 impl std::fmt::Display for TableConstraint {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some(name) = &self.name {
@@ -355,6 +403,18 @@ impl TableConstraint {
     }
 
     #[inline]
+    pub fn set_name(&mut self, name: Option<Name>) {
+        self.name = name;
+    }
+
+    pub fn ensure_name(&mut self) -> &Name {
+        if self.name.is_none() {
+            self.name = Some(make_constraint_name(&self.data));
+        }
+        self.name.as_ref().unwrap()
+    }
+
+    #[inline]
     pub fn data(&self) -> &TableConstraintData {
         &self.data
     }
@@ -365,8 +425,18 @@ impl TableConstraint {
     }
 
     #[inline]
+    pub fn set_deferrable(&mut self, value: Option<bool>) {
+        self.deferrable = value;
+    }
+
+    #[inline]
     pub fn initially_deferred(&self) -> Option<bool> {
         self.initially_deferred
+    }
+
+    #[inline]
+    pub fn set_initially_deferred(&mut self, value: Option<bool>) {
+        self.initially_deferred = value;
     }
 
     #[inline]

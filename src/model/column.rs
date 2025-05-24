@@ -45,13 +45,59 @@ impl Column {
     }
 
     #[inline]
+    pub fn set_name(&mut self, name: Name) {
+        self.name = name;
+    }
+
+    #[inline]
     pub fn data_type(&self) -> &Rc<ColumnDataType> {
         &self.data_type
     }
 
     #[inline]
+    pub fn set_data_type(&mut self, data_type: impl Into<Rc<ColumnDataType>>) {
+        self.data_type = data_type.into();
+    }
+
+    #[inline]
     pub fn collation(&self) -> Option<&Name> {
         self.collation.as_ref()
+    }
+
+    #[inline]
+    pub fn set_collation(&mut self, collation: Option<Name>) {
+        self.collation = collation;
+    }
+
+    pub fn drop_default(&mut self) {
+        self.constraints.retain(|c| !c.is_default());
+    }
+
+    pub fn set_default(&mut self, value: Rc<[ParsedToken]>) {
+        self.constraints.retain(|c| !c.is_default());
+        self.constraints.push(Rc::new(ColumnConstraint::new(
+            None,
+            ColumnConstraintData::Default { value },
+            None,
+            None
+        )));
+    }
+
+    pub fn drop_not_null(&mut self) {
+        self.constraints.retain(|c| !c.is_not_null());
+    }
+
+    pub fn set_not_null(&mut self) {
+        self.constraints.retain(|c| !matches!(c.data(),
+            ColumnConstraintData::Null |
+            ColumnConstraintData::NotNull
+        ));
+        self.constraints.push(Rc::new(ColumnConstraint::new(
+            None,
+            ColumnConstraintData::NotNull,
+            None,
+            None
+        )));
     }
 
     #[inline]
@@ -62,6 +108,25 @@ impl Column {
     #[inline]
     pub fn constraints_mut(&mut self) -> &mut Vec<Rc<ColumnConstraint>> {
         &mut self.constraints
+    }
+
+    pub fn get_constraint(&self, name: &Name) -> Option<&Rc<ColumnConstraint>> {
+        let some_name = Some(name);
+        self.constraints.iter().find(|c| c.name() == some_name)
+    }
+
+    pub fn get_constraint_mut(&mut self, name: &Name) -> Option<&mut Rc<ColumnConstraint>> {
+        let some_name = Some(name);
+        self.constraints.iter_mut().find(|c| c.name() == some_name)
+    }
+
+    pub fn drop_constraint(&mut self, name: &Name) -> Option<Rc<ColumnConstraint>> {
+        let some_name = Some(name);
+        let Some(index) = self.constraints.iter().position(|c| c.name() == some_name) else {
+            return None;
+        };
+
+        Some(self.constraints.remove(index))
     }
 
     pub fn without_table_constraints(self: &Rc<Self>) -> Rc<Self> {
@@ -293,7 +358,51 @@ pub struct ColumnConstraint {
     initially_deferred: Option<bool>,
 }
 
+pub fn make_constraint_name(column_name: &Name, data: &ColumnConstraintData) -> Name {
+    let mut constraint_name = String::new();
+    constraint_name.push_str(column_name.name());
+
+    match data {
+        ColumnConstraintData::Check { expr, .. } => {
+            for token in expr.iter() {
+                if let ParsedToken::Name(name) = token {
+                    constraint_name.push_str("_");
+                    constraint_name.push_str(name.name());
+                }
+            }
+            constraint_name.push_str("_check");
+        }
+        ColumnConstraintData::References { .. } => {
+            constraint_name.push_str("_fkey");
+        }
+        ColumnConstraintData::PrimaryKey => {
+            constraint_name.push_str("_pkey");
+        }
+        ColumnConstraintData::Unique { .. } => {
+            constraint_name.push_str("_unique");
+        }
+        ColumnConstraintData::Null => {
+            constraint_name.push_str("_null");
+        }
+        ColumnConstraintData::NotNull => {
+            constraint_name.push_str("_not_null");
+        }
+        ColumnConstraintData::Default { .. } => {
+            constraint_name.push_str("_default");
+        }
+    }
+
+    Name::new(constraint_name)
+}
+
 impl ColumnConstraint {
+    pub fn ensure_name(&mut self, column_name: &Name) -> &Name {
+        if self.name.is_none() {
+            self.name = Some(make_constraint_name(column_name, &self.data));
+        }
+        self.name.as_ref().unwrap()
+    }
+
     #[inline]
     pub fn is_null(&self) -> bool {
         matches!(self.data, ColumnConstraintData::Null)
