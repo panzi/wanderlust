@@ -77,7 +77,7 @@ pub fn generate_migration(old: &Schema, new: &Schema) -> Vec<Statement> {
 
     for index in old.indices().values() {
         if let Some(name) = index.name() {
-            if let Some(new_index) = new_indices.get(&name) {
+            if let Some(new_index) = new_indices.get(name) {
                 if new_index != index {
                     stmts.push(Statement::drop_index(name.clone()));
                     create_indices.push(Statement::CreateIndex(new_index.clone()));
@@ -194,7 +194,7 @@ fn migrate_table(old_table: &Table, new_table: &Table, stmts: &mut Vec<Statement
     }
 
     for constraint in &new_merged_constraints {
-        if old_merged_constraints.iter().find(|other| other.data() == constraint.data()).is_none() {
+        if !old_merged_constraints.iter().any(|other| other.data() == constraint.data()) {
             stmts.push(Statement::AlterTable(
                 AlterTable::add_constraint(new_table.name().clone(), constraint.clone())
             ));

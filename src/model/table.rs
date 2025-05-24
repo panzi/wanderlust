@@ -75,7 +75,7 @@ impl Table {
     }
 
     fn write(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} (\n", self.name)?;
+        writeln!(f, "{} (", self.name)?;
 
         let mut iter = self.columns.values();
         if let Some(first) = iter.next() {

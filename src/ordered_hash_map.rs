@@ -51,13 +51,15 @@ where K: Eq + Hash, V: PartialEq {
     }
 }
 
+pub type Iter<'a, K, V> = Map<
+    <Vec<(&'a K, &'a OrderedCell<V>)> as IntoIterator>::IntoIter,
+    fn((&'a K, &'a OrderedCell<V>)) -> (&'a K, &'a V)
+>;
+
 impl<'a, K, V> IntoIterator for &'a OrderedHashMap<K, V>
 where K: Eq + Hash {
     type Item = (&'a K, &'a V);
-    type IntoIter = Map<
-        <Vec<(&'a K, &'a OrderedCell<V>)> as IntoIterator>::IntoIter,
-        fn((&'a K, &'a OrderedCell<V>)) -> Self::Item
-    >;
+    type IntoIter = Iter<'a, K, V>;
 
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
@@ -65,33 +67,44 @@ where K: Eq + Hash {
     }
 }
 
+pub type IntoIter<K, V> = Map<
+    <Vec<(K, OrderedCell<V>)> as IntoIterator>::IntoIter,
+    fn((K, OrderedCell<V>)) -> (K, V)
+>;
+
 impl<K, V> IntoIterator for OrderedHashMap<K, V>
 where K: Eq + Hash {
     type Item = (K, V);
-    type IntoIter = Map<
-        <Vec<(K, OrderedCell<V>)> as IntoIterator>::IntoIter,
-        fn((K, OrderedCell<V>)) -> Self::Item
-    >;
+    type IntoIter = IntoIter<K, V>;
 
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
-        OrderedHashMap::into_iter(self)
+        let mut items: Vec<(K, OrderedCell<V>)> = self.inner.into_iter().collect();
+        items.sort_by(|a, b| a.1.order.cmp(&b.1.order) );
+        items.into_iter().map(|(k, v)| (k, v.into_inner()))
     }
 }
+
+pub type IterMut<'a, K, V> = Map<
+    <Vec<(&'a K, &'a mut OrderedCell<V>)> as IntoIterator>::IntoIter,
+    fn((&'a K, &'a mut OrderedCell<V>)) -> (&'a K, &'a mut V)
+>;
 
 impl<'a, K, V> IntoIterator for &'a mut OrderedHashMap<K, V>
 where K: Eq + Hash {
     type Item = (&'a K, &'a mut V);
-    type IntoIter = Map<
-        <Vec<(&'a K, &'a mut OrderedCell<V>)> as IntoIterator>::IntoIter,
-        fn((&'a K, &'a mut OrderedCell<V>)) -> Self::Item
-    >;
+    type IntoIter = IterMut<'a, K, V>;
 
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
         self.iter_mut()
     }
 }
+
+pub type IntoValues<K, V> = Map<
+    <Vec<(K, OrderedCell<V>)> as IntoIterator>::IntoIter,
+    fn((K, OrderedCell<V>)) -> V
+>;
 
 impl<K, V> OrderedHashMap<K, V>
 where K: Eq + Hash {
@@ -140,40 +153,21 @@ where K: Eq + Hash {
     }
 
     #[inline]
-    pub fn iter<'a>(&'a self) -> Map<
-        <Vec<(&'a K, &'a OrderedCell<V>)> as IntoIterator>::IntoIter,
-        fn((&'a K, &'a OrderedCell<V>)) -> (&'a K, &'a V)
-    > {
+    pub fn iter<'a>(&'a self) -> Iter<'a, K, V> {
         let mut items: Vec<(&K, &OrderedCell<V>)> = self.inner.iter().collect();
         items.sort_by(|a, b| a.1.order.cmp(&b.1.order) );
         items.into_iter().map(|(k, v)| (k, v.inner()))
     }
 
     #[inline]
-    pub fn iter_mut<'a>(&'a mut self) -> Map<
-        <Vec<(&'a K, &'a mut OrderedCell<V>)> as IntoIterator>::IntoIter,
-        fn((&'a K, &'a mut OrderedCell<V>)) -> (&'a K, &'a mut V)
-    > {
+    pub fn iter_mut<'a>(&'a mut self) -> IterMut<'a, K, V> {
         let mut items: Vec<(&K, &mut OrderedCell<V>)> = self.inner.iter_mut().collect();
         items.sort_by(|a, b| a.1.order.cmp(&b.1.order) );
         items.into_iter().map(|(k, v)| (k, v.inner_mut()))
     }
 
     #[inline]
-    pub fn into_iter(self) -> Map<
-        <Vec<(K, OrderedCell<V>)> as IntoIterator>::IntoIter,
-        fn((K, OrderedCell<V>)) -> (K, V)
-    > {
-        let mut items: Vec<(K, OrderedCell<V>)> = self.inner.into_iter().collect();
-        items.sort_by(|a, b| a.1.order.cmp(&b.1.order) );
-        items.into_iter().map(|(k, v)| (k, v.into_inner()))
-    }
-
-    #[inline]
-    pub fn into_values(self) -> Map<
-        <Vec<(K, OrderedCell<V>)> as IntoIterator>::IntoIter,
-        fn((K, OrderedCell<V>)) -> V
-    > {
+    pub fn into_values(self) -> IntoValues<K, V> {
         let mut items: Vec<(K, OrderedCell<V>)> = self.inner.into_iter().collect();
         items.sort_by(|a, b| a.1.order.cmp(&b.1.order) );
         items.into_iter().map(|(_, v)| v.into_inner())
@@ -230,5 +224,13 @@ impl<K, V> OrderedHashMap<K, V> {
     #[inline]
     pub fn clear(&mut self) {
         self.inner.clear()
+    }
+}
+
+impl<K, V> Default for OrderedHashMap<K, V>
+where K: Eq + Hash {
+    #[inline]
+    fn default() -> Self {
+        Self::new()
     }
 }

@@ -102,7 +102,7 @@ impl Cursor {
             let line_end_index = line_start_index + source[line_start_index..].find('\n').unwrap_or(source.len());
             let line = &source[line_start_index..line_end_index];
 
-            write!(write, "{: ^width$} │ {}\n", lineno, line, width = lineno_width)?;
+            writeln!(write, "{: ^width$} │ {}", lineno, line, width = lineno_width)?;
             write!(write, "{: ^width$} │ ", "", width = lineno_width)?;
 
             let start_column = if lineno == start_lineno {
@@ -117,7 +117,7 @@ impl Cursor {
                 get_width(line)
             };
 
-            write!(write, "{: ^before$}{:^^underline$}\n", "", "", before = start_column, underline = (end_column - start_column).max(1))?;
+            writeln!(write, "{: ^before$}{:^^underline$}", "", "", before = start_column, underline = (end_column - start_column).max(1))?;
 
             line_start_index = line_end_index;
             if line_start_index < source.len() && source[line_start_index..].starts_with('\r') {

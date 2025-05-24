@@ -141,7 +141,7 @@ impl From<&Name> for QName {
     }
 }
 
-#[derive(Debug, Clone, Hash, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct QName {
     // actually there would also be: database: Option<Name>
     schema: Option<Name>,
@@ -190,6 +190,15 @@ impl QName {
             name: self.name.clone(),
         }
     }
+
+    pub fn equals(&self, other: &Self) -> bool {
+        self.name() == other.name() &&
+        (if let Some(schema) = self.schema() {
+            if let Some(other_schema) = other.schema() {
+                schema == other_schema
+            } else { true }
+        } else { true })
+    }
 }
 
 impl std::fmt::Display for QName {
@@ -199,16 +208,5 @@ impl std::fmt::Display for QName {
             write!(f, "{schema}.")?;
         }
         self.name.fmt(f)
-    }
-}
-
-impl PartialEq for QName {
-    fn eq(&self, other: &Self) -> bool {
-        self.name() == other.name() &&
-        (if let Some(schema) = self.schema() {
-            if let Some(other_schema) = other.schema() {
-                schema == other_schema
-            } else { true }
-        } else { true })
     }
 }

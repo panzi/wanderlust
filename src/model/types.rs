@@ -255,8 +255,8 @@ impl Value {
     pub fn to_parsed_token(&self) -> ParsedToken {
         match self {
             Value::String(value) => ParsedToken::String(value.clone()),
-            Value::Integer(value) => ParsedToken::Integer(value.clone()),
-            Value::Float(value) => ParsedToken::Float(value.clone()),
+            Value::Integer(value) => ParsedToken::Integer(*value),
+            Value::Float(value) => ParsedToken::Float(*value),
         }
     }
 

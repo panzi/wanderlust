@@ -3007,6 +3007,5 @@ fn strip_dollar_string(value: &str) -> &str {
     let index = value.find('$').unwrap();
     let value = &value[index + 1..];
     let index = value.rfind('$').unwrap();
-    let value = &value[..index];
-    value
+    &value[..index]
 }

@@ -83,7 +83,7 @@ impl Error {
 
     #[inline]
     pub fn message(&self) -> Option<&str> {
-        self.message.as_ref().map(|s| s.as_str())
+        self.message.as_deref()
     }
 
     #[inline]
@@ -95,10 +95,10 @@ impl Error {
     pub fn write(&self, filename: &str, source: &str, write: &mut impl std::fmt::Write) -> std::fmt::Result {
         if let Some(cursor) = &self.cursor {
             let start = cursor.locate_start(source);
-            write!(write, "{filename}:{}:{}: {self}\n", start.lineno(), start.column())?;
+            writeln!(write, "{filename}:{}:{}: {self}", start.lineno(), start.column())?;
             cursor.write(source, write)?;
         } else {
-            write!(write, "{filename}: {self}\n")?;
+            writeln!(write, "{filename}: {self}")?;
         }
 
         Ok(())

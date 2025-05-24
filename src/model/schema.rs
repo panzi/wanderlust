@@ -27,17 +27,17 @@ pub struct Schema {
 
 impl std::fmt::Display for Schema {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{BEGIN};\n")?;
+        writeln!(f, "{BEGIN};")?;
         for (_, type_def) in &self.types {
-            write!(f, "{type_def}\n")?;
+            writeln!(f, "{type_def}")?;
         }
         for (_, table) in &self.tables {
-            write!(f, "{table}\n")?;
+            writeln!(f, "{table}")?;
         }
         for (_, index) in &self.indices {
-            write!(f, "{index}\n")?;
+            writeln!(f, "{index}")?;
         }
-        write!(f, "{COMMIT};\n")
+        writeln!(f, "{COMMIT};")
     }
 }
 
@@ -475,7 +475,7 @@ impl Schema {
                                         ));
                                     }
 
-                                    Rc::make_mut(&mut table).columns_mut().insert(column.name().clone(), column.clone());
+                                    Rc::make_mut(table).columns_mut().insert(column.name().clone(), column.clone());
                                 }
                                 AlterTableAction::AddConstraint { constraint } => {
                                     let mut constraint = constraint.clone();
@@ -493,10 +493,10 @@ impl Schema {
                                         ));
                                     }
 
-                                    Rc::make_mut(&mut table).constraints_mut().insert(constraint_name.clone(), constraint);
+                                    Rc::make_mut(table).constraints_mut().insert(constraint_name.clone(), constraint);
                                 }
                                 AlterTableAction::AlterColumn { alter_column } => {
-                                    let Some(mut column) = Rc::make_mut(&mut table).columns_mut().get_mut(alter_column.column_name()) else {
+                                    let Some(column) = Rc::make_mut(table).columns_mut().get_mut(alter_column.column_name()) else {
                                         if *if_exists {
                                             return Ok(());
                                         }
@@ -510,7 +510,7 @@ impl Schema {
                                             None
                                         ));
                                     };
-                                    let column = Rc::make_mut(&mut column);
+                                    let column = Rc::make_mut(column);
 
                                     match alter_column.data() {
                                         AlterColumnData::DropDefault => {
@@ -532,7 +532,7 @@ impl Schema {
                                     }
                                 }
                                 AlterTableAction::AlterConstraint { constraint_name, deferrable, initially_deferred } => {
-                                    let Some(mut constraint) = Rc::make_mut(&mut table).constraints_mut().get_mut(constraint_name) else {
+                                    let Some(mut constraint) = Rc::make_mut(table).constraints_mut().get_mut(constraint_name) else {
                                         return Err(Error::new(
                                             ErrorKind::ConstraintNotExists,
                                             None,
@@ -544,7 +544,7 @@ impl Schema {
                                         ));
                                     };
 
-                                    let constraint = Rc::make_mut(&mut constraint);
+                                    let constraint = Rc::make_mut(constraint);
 
                                     if deferrable.is_some() {
                                         constraint.set_deferrable(*deferrable);
@@ -556,7 +556,7 @@ impl Schema {
                                 }
                                 AlterTableAction::DropColumn { if_exists, column_name, drop_option } => {
                                     // TODO: CASCADE and RESTRICT will be some work!
-                                    if Rc::make_mut(&mut table).columns_mut().remove(column_name).is_none() {
+                                    if Rc::make_mut(table).columns_mut().remove(column_name).is_none() {
                                         if *if_exists {
                                             return Ok(());
                                         }
@@ -573,7 +573,7 @@ impl Schema {
                                 }
                                 AlterTableAction::DropConstraint { if_exists, constraint_name, drop_option } => {
                                     // TODO: CASCADE and RESTRICT will be some work!
-                                    if Rc::make_mut(&mut table).constraints_mut().remove(constraint_name).is_none() {
+                                    if Rc::make_mut(table).constraints_mut().remove(constraint_name).is_none() {
                                         if *if_exists {
                                             return Ok(());
                                         }
