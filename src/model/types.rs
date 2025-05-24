@@ -5,7 +5,7 @@ use std::rc::Rc;
 use crate::format::format_iso_string;
 use crate::make_tokens;
 
-use super::alter::ValuePosition;
+use super::alter::types::ValuePosition;
 use super::name::QName;
 use super::token::{ParsedToken, ToTokens};
 use super::words::*;

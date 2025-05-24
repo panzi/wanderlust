@@ -5,7 +5,7 @@
 
 use std::{num::NonZeroU32, rc::Rc};
 
-use crate::{error::{Error, ErrorKind, Result}, model::{alter::{AlterColumn, AlterColumnData, AlterTable, AlterTableAction, AlterTableData, AlterType, AlterTypeData, DropOption, Owner, ValuePosition}, column::{Column, ColumnConstraint, ColumnConstraintData, ColumnMatch, ReferentialAction}, index::{CreateIndex, Direction, Index, IndexItem, IndexItemData, NullsPosition}, integers::{Integer, SignedInteger, UnsignedInteger}, name::{Name, QName}, schema::Schema, syntax::{Cursor, Parser, SourceLocation, Tokenizer}, table::{CreateTable, Table, TableConstraint, TableConstraintData}, token::{ParsedToken, ToTokens, Token, TokenKind}, types::{ColumnDataType, DataType, IntervalFields, TypeDef, Value}}, ordered_hash_map::OrderedHashMap, peek_token};
+use crate::{error::{Error, ErrorKind, Result}, model::{alter::{table::{AlterColumn, AlterColumnData, AlterTable, AlterTableAction, AlterTableData}, types::{AlterType, AlterTypeData, ValuePosition}, DropOption, Owner}, column::{Column, ColumnConstraint, ColumnConstraintData, ColumnMatch, ReferentialAction}, index::{CreateIndex, Direction, Index, IndexItem, IndexItemData, NullsPosition}, integers::{Integer, SignedInteger, UnsignedInteger}, name::{Name, QName}, schema::Schema, syntax::{Cursor, Parser, SourceLocation, Tokenizer}, table::{CreateTable, Table, TableConstraint, TableConstraintData}, token::{ParsedToken, ToTokens, Token, TokenKind}, types::{ColumnDataType, DataType, IntervalFields, TypeDef, Value}}, ordered_hash_map::OrderedHashMap, peek_token};
 use crate::model::words::*;
 
 pub fn uunescape(string: &str, escape: char) -> Option<String> {

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::model::{alter::{AlterColumn, AlterTable, AlterType}, column::{Column, ColumnConstraintData}, schema::Schema, name::{Name, QName}, statement::Statement, table::Table};
+use crate::model::{alter::{table::{AlterColumn, AlterTable}, types::AlterType}, column::{Column, ColumnConstraintData}, name::{Name, QName}, schema::Schema, statement::Statement, table::Table};
 
 pub fn generate_migration(old: &Schema, new: &Schema) -> Vec<Statement> {
     let public = Name::new("public");
@@ -32,10 +32,14 @@ pub fn generate_migration(old: &Schema, new: &Schema) -> Vec<Statement> {
                         ));
                     }
                 } else {
-                    let mut tmp_name = QName::unqual(format!("_wanderlust_tmp_type_{tmp_id}"));
+                    let schema = type_def.name().schema();
+                    let mut tmp_name = QName::new(
+                        schema.cloned(),
+                        Name::new(format!("_wanderlust_tmp_type_{tmp_id}"))
+                    );
                     while old_types.contains_key(&tmp_name) {
                         tmp_id += 1;
-                        tmp_name = QName::unqual(format!("_wanderlust_tmp_type_{tmp_id}"));
+                        tmp_name.set_name(Name::new(format!("_wanderlust_tmp_type_{tmp_id}")));
                     }
 
                     let tmp_type_def = type_def.with_name(tmp_name.clone());

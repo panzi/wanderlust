@@ -3,11 +3,11 @@ use std::rc::Rc;
 
 use crate::error::{Error, ErrorKind, Result};
 use crate::format::IsoString;
-use crate::model::alter::{AlterTableAction, AlterTableData, AlterTypeData, ValuePosition};
+use crate::model::alter::table::{AlterColumnData, AlterTable, AlterTableAction, AlterTableData};
+use crate::model::alter::types::{AlterType, AlterTypeData, ValuePosition};
 use crate::model::types::TypeData;
 use crate::ordered_hash_map::OrderedHashMap;
 
-use super::alter::{AlterColumnData, AlterTable, AlterType};
 use super::column::Column;
 use super::index::CreateIndex;
 use super::name::{Name, QName};
@@ -532,7 +532,7 @@ impl Schema {
                                     }
                                 }
                                 AlterTableAction::AlterConstraint { constraint_name, deferrable, initially_deferred } => {
-                                    let Some(mut constraint) = Rc::make_mut(table).constraints_mut().get_mut(constraint_name) else {
+                                    let Some(constraint) = Rc::make_mut(table).constraints_mut().get_mut(constraint_name) else {
                                         return Err(Error::new(
                                             ErrorKind::ConstraintNotExists,
                                             None,

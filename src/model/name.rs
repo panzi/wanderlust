@@ -141,9 +141,12 @@ impl From<&Name> for QName {
     }
 }
 
+/// Qualified name
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct QName {
-    // actually there would also be: database: Option<Name>
+    // actually there would also be (at least for PostgreSQL): database: Option<Name>
+
+    /// Option because some DMBSs don't have that and thus there can't be statements generated with qualified names.
     schema: Option<Name>,
     name: Name,
 }

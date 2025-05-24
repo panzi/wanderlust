@@ -1,6 +1,8 @@
 use std::rc::Rc;
 
-use super::{alter::{AlterTable, AlterType, DropOption}, index::Index, name::QName, table::Table, types::TypeDef};
+use super::alter::table::AlterTable;
+use super::alter::types::AlterType;
+use super::{alter::DropOption, index::Index, name::QName, table::Table, types::TypeDef};
 
 use super::words::*;
 
