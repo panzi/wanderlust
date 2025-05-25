@@ -225,7 +225,7 @@ impl Function {
 
         write_token_list_with_options(&self.body, f, true)?;
 
-        f.write_str(";")
+        f.write_str(";\n")
     }
 }
 

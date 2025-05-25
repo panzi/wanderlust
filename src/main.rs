@@ -30,9 +30,19 @@ fn main() {
                         let migrations = generate_migration(&old_ddl, &new_ddl);
 
                         println!("{BEGIN};");
-                        for stmt in &migrations {
-                            println!("{stmt}");
+                        println!();
+                        let mut iter = migrations.iter();
+                        if let Some(mut prev) = iter.next() {
+                            println!("{prev}");
+                            for stmt in iter {
+                                if !prev.is_same_variant(stmt) {
+                                    println!();
+                                }
+                                println!("{stmt}");
+                                prev = stmt;
+                            }
                         }
+                        println!();
                         println!("{COMMIT};");
                     }
                     Err(err) => {

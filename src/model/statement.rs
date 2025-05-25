@@ -68,6 +68,11 @@ impl Statement {
     pub fn drop_function(drop_signature: DropFunctionSignature) -> Self {
         Self::DropFunction { if_exists: false, signatures: vec![drop_signature], behavior: None }
     }
+
+    #[inline]
+    pub fn is_same_variant(&self, other: &Statement) -> bool {
+        std::mem::discriminant(self) == std::mem::discriminant(other)
+    }
 }
 
 impl std::fmt::Display for Statement {
