@@ -20,14 +20,14 @@ fn main() {
     let mut parser = PostgreSQLParser::new(&old_source);
 
     match parser.parse() {
-        Ok(old_ddl) => {
+        Ok(old_schema) => {
             if let Some(new) = args.next() {
                 let new_source = std::fs::read_to_string(&new).unwrap();
                 let mut parser = PostgreSQLParser::new(&new_source);
 
                 match parser.parse() {
-                    Ok(new_ddl) => {
-                        let migrations = generate_migration(&old_ddl, &new_ddl);
+                    Ok(new_schema) => {
+                        let migrations = generate_migration(&old_schema, &new_schema);
 
                         println!("{BEGIN};");
                         println!();
@@ -51,7 +51,7 @@ fn main() {
                     }
                 }
             } else {
-                println!("{old_ddl}");
+                println!("{old_schema}");
             }
         }
         Err(err) => {
@@ -59,6 +59,4 @@ fn main() {
             std::process::exit(1);
         }
     }
-
-    //let new = args.next().unwrap();
 }
