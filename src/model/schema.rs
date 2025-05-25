@@ -14,6 +14,7 @@ use super::function::{CreateFunction, Function, FunctionSignature};
 use super::index::CreateIndex;
 use super::name::{Name, QName};
 use super::table::CreateTable;
+use super::trigger::CreateTrigger;
 use super::types::BasicType;
 use super::{index::Index, table::Table, types::TypeDef};
 
@@ -208,6 +209,35 @@ impl Schema {
             create_function.into_function()
         );
         true
+    }
+
+    pub fn create_trigger(&mut self, create_trigger: CreateTrigger) -> Result<()> {
+        let Some(table) = self.tables.get_mut(create_trigger.trigger().table_name()) else {
+            return Err(Error::new(
+                ErrorKind::TableNotExists,
+                None,
+                Some(format!("table {} not found: {create_trigger}", create_trigger.trigger().table_name())),
+                None
+            ));
+        };
+
+        if !create_trigger.or_replace() && table.triggers().contains_key(create_trigger.trigger().name()) {
+            return Err(Error::new(
+                ErrorKind::TriggerExists,
+                None,
+                Some(format!("trigger {} already exists in table {} not found: {create_trigger}",
+                    create_trigger.trigger().name(),
+                    create_trigger.trigger().table_name())),
+                None
+            ));
+        }
+
+        Rc::make_mut(table).triggers_mut().insert(
+            create_trigger.trigger().name().clone(),
+            create_trigger.into_trigger()
+        );
+
+        Ok(())
     }
 
     pub fn find_columns_with_type(&self, type_name: &QName) -> Vec<(&QName, &Rc<Column>)> {

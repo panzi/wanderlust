@@ -48,10 +48,25 @@ impl Cursor {
     }
 
     #[inline]
+    pub fn set_start_offset(&mut self, start_offset: usize) {
+        self.start_offset = start_offset;
+    }
+
+    #[inline]
+    pub fn set_end_offset(&mut self, end_offset: usize) {
+        self.end_offset = end_offset;
+    }
+
+    #[inline]
+    pub fn set_offsets(&mut self, start_offset: usize, end_offset: usize) {
+        self.start_offset = start_offset;
+        self.end_offset   = end_offset;
+    }
+
+    #[inline]
     pub fn get<'a>(&self, source: &'a str) -> &'a str {
         &source[self.start_offset..self.end_offset]
     }
-
 
     #[inline]
     pub fn locate_start(&self, source: &str) -> SourceLocation {

@@ -214,3 +214,17 @@ impl<'a> std::fmt::Display for IsoString<'a> {
         format_iso_string(f, self.0)
     }
 }
+
+pub fn join_into<T: std::fmt::Display>(delim: &str, items: &[T], f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    let mut iter = items.iter();
+    if let Some(first) = iter.next() {
+        std::fmt::Display::fmt(first, f)?;
+
+        for item in iter {
+            f.write_str(delim)?;
+            std::fmt::Display::fmt(item, f)?;
+        }
+    }
+
+    Ok(())
+}

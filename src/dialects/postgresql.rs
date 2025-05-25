@@ -12,18 +12,7 @@ use crate::{
             table::{AlterColumn, AlterColumnData, AlterTable, AlterTableAction, AlterTableData},
             types::{AlterType, AlterTypeData, ValuePosition},
             DropBehavior, Owner
-        },
-        column::{Column, ColumnConstraint, ColumnConstraintData, ColumnMatch, ReferentialAction},
-        extension::{CreateExtension, Extension, Version},
-        function::{self, Argmode, Argument, CreateFunction, Function, ReturnType},
-        index::{CreateIndex, Direction, Index, IndexItem, IndexItemData, NullsPosition},
-        integers::{Integer, SignedInteger, UnsignedInteger},
-        name::{Name, QName},
-        schema::Schema,
-        syntax::{Cursor, Parser, SourceLocation, Tokenizer},
-        table::{CreateTable, Table, TableConstraint, TableConstraintData},
-        token::{ParsedToken, ToTokens, Token, TokenKind},
-        types::{BasicType, DataType, IntervalFields, TypeDef, Value}
+        }, column::{Column, ColumnConstraint, ColumnConstraintData, ColumnMatch, ReferentialAction}, extension::{CreateExtension, Extension, Version}, function::{self, Argmode, Argument, CreateFunction, Function, ReturnType}, index::{CreateIndex, Direction, Index, IndexItem, IndexItemData, NullsPosition}, integers::{Integer, SignedInteger, UnsignedInteger}, name::{Name, QName}, schema::Schema, syntax::{Cursor, Parser, SourceLocation, Tokenizer}, table::{CreateTable, Table, TableConstraint, TableConstraintData}, token::{ParsedToken, ToTokens, Token, TokenKind}, trigger::CreateTrigger, types::{BasicType, DataType, IntervalFields, TypeDef, Value}
     },
     ordered_hash_map::OrderedHashMap,
     peek_token
@@ -2572,6 +2561,11 @@ impl<'a> PostgreSQLParser<'a> {
 
         Ok(CreateFunction::new(or_replace, Function::new(name, arguments, returns, body)))
     }
+
+    fn parse_trigger_intern(&self, or_replace: bool) -> Result<CreateTrigger> {
+        // "CREATE [OR REPLACE] TRIGGER" is already parsed
+        unimplemented!()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2826,7 +2820,7 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                         ));
                     }
                 } else if self.parse_word(OR)? {
-                    // CREATE OR REPLACE FUNCTION/PROCEDURE
+                    // CREATE OR REPLACE FUNCTION/PROCEDURE/TRIGGER
                     self.expect_word(REPLACE)?;
 
                     if self.parse_word(FUNCTION)? {
@@ -2845,20 +2839,24 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                                 Cursor::new(start_offset, self.tokenizer.offset())
                             ));
                         }
+                    } else if self.parse_word(TRIGGER)? {
+                        let trigger = self.parse_trigger_intern(true)?;
+                        Rc::make_mut(&mut self.schema).create_trigger(trigger).map_err(|mut err| {
+                            *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
+                            err
+                        })?
                     } else {
                         return Err(self.expected_one_of(&[
                             FUNCTION, PROCEDURE
                         ]));
                     }
                 } else if self.parse_word(TRIGGER)? {
-                    // TODO: CREATE TRIGGER?
-                    self.parse_token_list(false, true)?;
-                    self.expect_semicolon_or_eof()?;
-
-                    let end_offset = self.tokenizer.offset();
-                    let source = self.tokenizer.get_offset(start_offset, end_offset);
-
-                    eprintln!("TODO: parse CREATE TRIGGER statements: {source}");
+                    // CREATE TRIGGER
+                    let trigger = self.parse_trigger_intern(false)?;
+                    Rc::make_mut(&mut self.schema).create_trigger(trigger).map_err(|mut err| {
+                        *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
+                        err
+                    })?
                 } else {
                     return Err(self.expected_one_of(&[
                         TABLE, "[UNIQUE] INDEX", TYPE, EXTENSION, SEQUENCE, FUNCTION, PROCEDURE, TRIGGER
@@ -2875,10 +2873,16 @@ impl<'a> Parser for PostgreSQLParser<'a> {
 
                 if self.parse_word(TABLE)? {
                     let alter_table = self.parse_alter_table_intern()?;
-                    Rc::make_mut(&mut self.schema).alter_table(&alter_table)?;
+                    Rc::make_mut(&mut self.schema).alter_table(&alter_table).map_err(|mut err| {
+                        *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
+                        err
+                    })?;
                 } else if self.parse_word(TYPE)? {
                     let alter_type = self.parse_alter_type_intern()?;
-                    Rc::make_mut(&mut self.schema).alter_type(&alter_type)?;
+                    Rc::make_mut(&mut self.schema).alter_type(&alter_type).map_err(|mut err| {
+                        *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
+                        err
+                    })?;
                 } else {
                     // TODO: ALTER INDEX|FUNCTION|TRIGGER|...?
                     self.parse_token_list(false, true)?;

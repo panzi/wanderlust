@@ -14,6 +14,7 @@ pub enum ErrorKind {
     ValueExists,
     ExtensionExists,
     FunctionExists,
+    TriggerExists,
 
     TableNotExists,
     ColumnNotExists,
@@ -41,6 +42,7 @@ impl std::fmt::Display for ErrorKind {
             Self::ValueExists         => f.write_str("Enum Value Exists"),
             Self::ExtensionExists     => f.write_str("Extension Exists"),
             Self::FunctionExists      => f.write_str("Function Exists"),
+            Self::TriggerExists       => f.write_str("Trigger Exists"),
 
             Self::TableNotExists      => f.write_str("Table Not Exists"),
             Self::IndexNotExists      => f.write_str("Index Not Exists"),
@@ -91,6 +93,21 @@ impl Error {
     #[inline]
     pub fn message(&self) -> Option<&str> {
         self.message.as_deref()
+    }
+
+    #[inline]
+    pub fn cursor_mut(&mut self) -> &mut Option<Cursor> {
+        &mut self.cursor
+    }
+
+    #[inline]
+    pub fn message_mut(&mut self) -> &mut Option<String> {
+        &mut self.message
+    }
+
+    #[inline]
+    pub fn source_mut(&mut self) -> &mut Option<Box<dyn std::error::Error>> {
+        &mut self.source
     }
 
     #[inline]

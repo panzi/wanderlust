@@ -242,6 +242,13 @@ pub enum BasicType {
     ColumnType { table_name: QName, column_name: Name },
 }
 
+impl BasicType {
+    #[inline]
+    pub fn is_serial(&self) -> bool {
+        matches!(self, Self::Serial | Self::BigSerial | Self::SmallSerial)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Value {
     String(Rc<str>),

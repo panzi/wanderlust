@@ -1,4 +1,4 @@
-use std::{num::NonZeroU32, rc::Rc};
+use std::{num::NonZeroU32, rc::Rc, str::Matches};
 
 use crate::format::format_iso_string;
 
@@ -132,10 +132,18 @@ impl ParsedToken {
         Self::Operator(value.into())
     }
 
-
     #[inline]
     pub(crate) fn new_unquoted(name: impl Into<Rc<str>>) -> Self {
         Self::Name(Name::new_unquoted(name))
+    }
+
+    #[inline]
+    pub fn is_word(&self, word: &str) -> bool {
+        if let ParsedToken::Name(name) = self {
+            name.name().eq_ignore_ascii_case(word)
+        } else {
+            false
+        }
     }
 }
 

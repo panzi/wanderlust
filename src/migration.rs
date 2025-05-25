@@ -1,6 +1,8 @@
-use std::{collections::HashMap, rc::Rc};
+use std::{collections::HashMap, ops::Deref, rc::Rc};
 
-use crate::model::{alter::{extension::{AlterExtension, AlterExtensionData}, table::{AlterColumn, AlterTable}, types::AlterType}, column::{Column, ColumnConstraintData}, extension::CreateExtension, function::CreateFunction, name::{Name, QName}, schema::Schema, statement::Statement, table::Table};
+use crate::model::{alter::{extension::{AlterExtension, AlterExtensionData}, table::{AlterColumn, AlterTable}, types::AlterType}, column::{Column, ColumnConstraintData}, extension::CreateExtension, function::CreateFunction, name::{Name, QName}, schema::Schema, statement::Statement, table::Table, token::ParsedToken};
+
+use crate::model::words::*;
 
 pub fn generate_migration(old: &Schema, new: &Schema) -> Vec<Statement> {
     let mut stmts = Vec::new();
@@ -338,10 +340,54 @@ fn migrate_column(table_name: &QName, old_column: &Column, new_column: &Column, 
             stmts.push(Statement::AlterTable(
                 AlterTable::alter_column(table_name.clone(), AlterColumn::set_default(new_column.name().clone(), new_default.clone()))
             ));
-        } else {
+        } else if !new_column.data_type().basic_type().is_serial() || !is_nextval(old_default.map(Deref::deref).unwrap_or_default()) {
+            // FIXME: DBMS specific!
+            // E.g. PostgreSQL generates DEFAULT nextval('schema.sequence'::regclass) for SERIAL columns.
+            // These should not be removed!
             stmts.push(Statement::AlterTable(
                 AlterTable::alter_column(table_name.clone(), AlterColumn::drop_default(new_column.name().clone()))
             ));
         }
+    }
+}
+
+fn is_nextval(expr: &[ParsedToken]) -> bool {
+    // nextval('schema.sequence'::regclass)
+    // nextval('schema.sequence')
+    // nextval(CAST('schema.sequence' AS regclass))
+
+    if expr.len() < 4 {
+        return false;
+    }
+
+    if !expr[0].is_word("nextval") {
+        return false;
+    }
+
+    if expr[1] != ParsedToken::LParen {
+        return false;
+    }
+
+    match expr.len() {
+        4 => {
+            matches!(expr[2], ParsedToken::String(..)) &&
+            expr[3] == ParsedToken::RParen
+        }
+        6 => {
+            matches!(expr[2], ParsedToken::String(..)) &&
+            expr[3] == ParsedToken::DoubleColon &&
+            expr[4].is_word("regclass") &&
+            expr[5] == ParsedToken::RParen
+        }
+        9 => {
+            expr[2].is_word(CAST) &&
+            expr[3] == ParsedToken::LParen &&
+            matches!(expr[4], ParsedToken::String(..)) &&
+            expr[5].is_word(AS) &&
+            expr[6].is_word("regclass") &&
+            expr[7] == ParsedToken::RParen &&
+            expr[8] == ParsedToken::RParen
+        }
+        _ => false
     }
 }

@@ -1,6 +1,8 @@
-use std::rc::Rc;
+use std::{ops::Deref, rc::Rc};
 
 use super::{name::{Name, QName}, token::ParsedToken};
+
+use crate::{format::{join_into, write_token_list}, model::words::*};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Trigger {
@@ -9,9 +11,9 @@ pub struct Trigger {
     when: When,
     events: Rc<[Event]>,
     table_name: QName,
+    ref_table: Option<QName>,
     referencing: Option<Rc<[ReferencedTable]>>,
     for_each_row: bool,
-    ref_table: Option<QName>,
     deferrable: bool,
     initially_deferred: bool,
     predicate: Option<Rc<[ParsedToken]>>,
@@ -27,9 +29,9 @@ impl Trigger {
         when: When,
         events: Rc<[Event]>,
         table_name: QName,
+        ref_table: Option<QName>,
         referencing: Option<Rc<[ReferencedTable]>>,
         for_each_row: bool,
-        ref_table: Option<QName>,
         deferrable: bool,
         initially_deferred: bool,
         predicate: Option<Rc<[ParsedToken]>>,
@@ -42,9 +44,9 @@ impl Trigger {
             when,
             events,
             table_name,
+            ref_table,
             referencing,
             for_each_row,
-            ref_table,
             deferrable,
             initially_deferred,
             predicate,
@@ -117,6 +119,71 @@ impl Trigger {
     pub fn arguments(&self) -> &Rc<[Rc<str>]> {
         &self.arguments
     }
+
+    fn write(&self, or_replace: bool, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(CREATE)?;
+
+        if or_replace {
+            write!(f, " {OR} {REPLACE}")?;
+        }
+
+        if self.constraint {
+            write!(f, " {CONSTRAINT}")?;
+        }
+
+        write!(f, " {TRIGGER} {} {} ", self.name, self.when)?;
+
+        join_into(" OR ", self.events.deref(), f)?;
+        
+        write!(f, "\n{ON} {}", self.table_name)?;
+
+        if let Some(ref_table) = &self.ref_table {
+            write!(f, "\n{FROM} {}", ref_table)?;
+        }
+
+        if self.deferrable {
+            write!(f, " {DEFERRABLE}")?;
+
+            if self.initially_deferred {
+                write!(f, " {INITIALLY} {DEFERRED}")?;
+            } else {
+                write!(f, " {INITIALLY} {IMMEDIATE}")?;
+            }
+        } else {
+            write!(f, " {NOT} {DEFERRABLE}")?;
+        }
+
+        if let Some(referencing) = &self.referencing {
+            for item in referencing.deref() {
+                write!(f, "\n{REFERENCING} {item}")?;
+            }
+        }
+
+        if self.for_each_row {
+            write!(f, "\n{FOR} {EACH} {ROW}")?;
+        } else {
+            write!(f, "\n{FOR} {EACH} {STATEMENT}")?;
+        }
+
+        if let Some(predicate) = &self.predicate {
+            write!(f, "\n{WHEN} (");
+            write_token_list(predicate.deref(), f)?;
+            f.write_str(")");
+        }
+
+        write!(f, "\n{EXECUTE} {FUNCTION} {} (", self.function_name)?;
+
+        let mut iter = self.arguments.iter();
+        if let Some(first) = iter.next() {
+            std::fmt::Display::fmt(first, f)?;
+            for arg in iter {
+                write!(f, ", {arg}")?;
+            }
+        }
+        f.write_str(");\n")?;
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -126,12 +193,40 @@ pub enum When {
     InsteadOf,
 }
 
+impl std::fmt::Display for When {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Before    => f.write_str(BEFORE),
+            Self::After     => f.write_str(AFTER),
+            Self::InsteadOf => write!(f, "{INSTEAD} {OF}"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Event {
     Insert,
     Update { columns: Option<Rc<[Name]>> },
     Delete,
     Truncate,
+}
+
+impl std::fmt::Display for Event {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Insert => f.write_str(INSERT),
+            Self::Update { columns } => {
+                f.write_str(UPDATE)?;
+                if let Some(columns) = columns {
+                    write!(f, " {ON} ")?;
+                    join_into(", ", columns, f)?;
+                }
+                Ok(())
+            }
+            Self::Delete => f.write_str(DELETE),
+            Self::Truncate => f.write_str(TRUNCATE),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -157,10 +252,27 @@ impl ReferencedTable {
     }
 }
 
+impl std::fmt::Display for ReferencedTable {
+    #[inline]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {TABLE} {AS} {}", self.life_cycle, self.transition_relation_name)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LifeCycle {
     Old,
     New,
+}
+
+impl std::fmt::Display for LifeCycle {
+    #[inline]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Old => f.write_str(OLD),
+            Self::New => f.write_str(NEW),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -183,5 +295,17 @@ impl CreateTrigger {
     #[inline]
     pub fn trigger(&self) -> &Rc<Trigger> {
         &self.trigger
+    }
+
+    #[inline]
+    pub fn into_trigger(self) -> Rc<Trigger> {
+        self.trigger
+    }
+}
+
+impl From<CreateTrigger> for Rc<Trigger> {
+    #[inline]
+    fn from(value: CreateTrigger) -> Self {
+        value.into_trigger()
     }
 }
