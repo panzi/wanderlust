@@ -10,6 +10,7 @@ use crate::ordered_hash_map::OrderedHashMap;
 
 use super::column::Column;
 use super::extension::{CreateExtension, Extension};
+use super::function::{CreateFunction, Function, FunctionSignature};
 use super::index::CreateIndex;
 use super::name::{Name, QName};
 use super::table::CreateTable;
@@ -24,6 +25,7 @@ pub struct Schema {
     tables: OrderedHashMap<QName, Rc<Table>>,
     indices: OrderedHashMap<QName, Rc<Index>>,
     extensions: OrderedHashMap<QName, Rc<Extension>>,
+    functions: OrderedHashMap<FunctionSignature, Rc<Function>>,
     default_schema: Name,
     search_path: Vec<Name>,
 }
@@ -52,6 +54,7 @@ impl Schema {
             tables: OrderedHashMap::new(),
             indices: OrderedHashMap::new(),
             extensions: OrderedHashMap::new(),
+            functions: OrderedHashMap::new(),
             default_schema: default_schema.clone(),
             search_path: vec![default_schema],
         }
@@ -133,6 +136,11 @@ impl Schema {
     }
 
     #[inline]
+    pub fn functions(&self) -> &OrderedHashMap<FunctionSignature, Rc<Function>> {
+        &self.functions
+    }
+
+    #[inline]
     pub fn search_path(&self) -> &[Name] {
         &self.search_path
     }
@@ -177,6 +185,28 @@ impl Schema {
         }
         let name = create_extension.extension().name().clone();
         self.extensions.insert(name, create_extension.into());
+        true
+    }
+
+    pub fn create_function(&mut self, create_function: CreateFunction) -> bool {
+        let signature = create_function.function().signature();
+
+        if create_function.or_replace() {
+            self.functions.insert(
+                signature,
+                create_function.into_function()
+            );
+            return true;
+        }
+
+        if self.functions.contains_key(&signature) {
+            return false;
+        }
+
+        self.functions.insert(
+            signature,
+            create_function.into_function()
+        );
         true
     }
 

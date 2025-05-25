@@ -585,8 +585,24 @@ impl DataType {
     }
 
     #[inline]
-    pub fn with_array(data_type: BasicType, array_dimensions: impl Into<Rc<[Option<u32>]>>) -> Self {
-        Self { basic_type: data_type, array_dimensions: Some(array_dimensions.into()) }
+    pub fn to_array(&self, dimensions: Option<u32>) -> Self {
+        if let Some(array_dimensions) = &self.array_dimensions {
+            let mut new_array_dimensions = Vec::with_capacity(array_dimensions.len() + 1);
+
+            // not sure if front or back is correct
+            new_array_dimensions.push(dimensions);
+            new_array_dimensions.extend(array_dimensions.deref());
+
+            Self {
+                basic_type: self.basic_type.clone(),
+                array_dimensions: Some(new_array_dimensions.into())
+            }
+        } else {
+            Self {
+                basic_type: self.basic_type.clone(),
+                array_dimensions: Some([dimensions].into())
+            }
+        }
     }
 
     #[inline]

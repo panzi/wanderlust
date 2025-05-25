@@ -1,3 +1,5 @@
+use std::{hash::{DefaultHasher, Hasher}};
+
 use crate::model::{name::Name, token::ParsedToken};
 
 #[derive(Debug)]
@@ -42,7 +44,12 @@ pub fn write_paren_names(names: &[Name], f: &mut impl std::fmt::Write) -> std::f
     Ok(())
 }
 
+#[inline]
 pub fn write_token_list(tokens: &[ParsedToken], f: &mut impl std::fmt::Write) -> std::fmt::Result {
+    write_token_list_with_options(tokens, f, false)
+}
+
+pub fn write_token_list_with_options(tokens: &[ParsedToken], mut f: &mut impl std::fmt::Write, for_functions: bool) -> std::fmt::Result {
     let mut iter = tokens.iter();
     if let Some(first) = iter.next() {
         write!(f, "{first}")?;
@@ -88,9 +95,18 @@ pub fn write_token_list(tokens: &[ParsedToken], f: &mut impl std::fmt::Write) ->
                     ParsedToken::LParen |
                     ParsedToken::LBracket))
             {
-                write!(f, "{token}")?;
+                // pass
             } else {
-                write!(f, " {token}")?;
+                f.write_str(" ")?;
+            }
+            if for_functions {
+                if let ParsedToken::String(value) = token {
+                    format_string_for_functions(&mut f, value)?;
+                } else {
+                    write!(f, "{token}")?;
+                }
+            } else {
+                write!(f, "{token}")?;
             }
             prev = token;
         }
@@ -98,33 +114,61 @@ pub fn write_token_list(tokens: &[ParsedToken], f: &mut impl std::fmt::Write) ->
     Ok(())
 }
 
-pub fn format_iso_string(mut write: impl std::fmt::Write, value: &str) -> std::fmt::Result {
-    if value.contains(|c: char| c < ' ' || c > '~') {
-        write.write_str("U&'")?;
+pub fn format_dollar_string(mut write: impl std::fmt::Write, value: &str) -> std::fmt::Result {
+    if value.contains("$$") {
+        use std::fmt::Write;
+        use std::hash::Hash;
 
-        let mut tail = value;
-        while let Some(index) = tail.find(|c: char| c < ' ' || c > '~' || c == '\'' || c == '\\') {
-            write.write_str(&tail[..index])?;
-            let ch = tail[index..].chars().next().unwrap();
-            if ch == '\'' {
-                write.write_str("''")?;
-            } else if ch == '\\' {
-                write.write_str("\\\\")?;
-            } else {
-                let num = ch as u32;
-                if num > 0xFFFF {
-                    write!(write, "\\+{:06x}", num)?;
-                } else {
-                    write!(write, "\\{:04x}", num)?;
-                }
+        // get some random-ish number
+        let mut state = DefaultHasher::new();
+        value.hash(&mut state);
+        let mut number = state.finish();
+
+        let mut quote = String::new();
+
+        loop {
+            quote.clear();
+            write!(quote, "$WANDERLUST{number}$")?;
+
+            if !value.contains(&quote) {
+                break;
             }
-            tail = &tail[index + ch.len_utf8()..];
+
+            number = number.wrapping_add(1);
         }
-        write.write_str(tail)?;
 
-        return write.write_str("'");
+        return write!(write, "{quote}{value}{quote}");
     }
+    write!(write, "$${value}$$")
+}
 
+pub fn format_ustring(mut write: impl std::fmt::Write, value: &str) -> std::fmt::Result {
+    write.write_str("U&'")?;
+
+    let mut tail = value;
+    while let Some(index) = tail.find(|c: char| c < ' ' || c > '~' || c == '\'' || c == '\\') {
+        write.write_str(&tail[..index])?;
+        let ch = tail[index..].chars().next().unwrap();
+        if ch == '\'' {
+            write.write_str("''")?;
+        } else if ch == '\\' {
+            write.write_str("\\\\")?;
+        } else {
+            let num = ch as u32;
+            if num > 0xFFFF {
+                write!(write, "\\+{:06x}", num)?;
+            } else {
+                write!(write, "\\{:04x}", num)?;
+            }
+        }
+        tail = &tail[index + ch.len_utf8()..];
+    }
+    write.write_str(tail)?;
+
+    return write.write_str("'");
+}
+
+fn fomrat_simple_string(mut write: impl std::fmt::Write, value: &str) -> std::fmt::Result {
     write.write_str("'")?;
     let mut tail = value;
     while let Some(index) = tail.find("'") {
@@ -135,6 +179,30 @@ pub fn format_iso_string(mut write: impl std::fmt::Write, value: &str) -> std::f
     write.write_str(tail)?;
 
     write.write_str("'")
+}
+
+pub fn format_iso_string(write: impl std::fmt::Write, value: &str) -> std::fmt::Result {
+    if value.contains(|c: char| c < ' ' || c > '~') {
+        return format_ustring(write, value);
+    }
+    fomrat_simple_string(write, value)
+}
+
+pub fn format_string_for_functions(write: impl std::fmt::Write, value: &str) -> std::fmt::Result {
+    let mut dollar = false;
+    for ch in value.chars() {
+        if ch == '\n' || ch == '\'' {
+            dollar = true;
+        } else if ch < ' ' || ch > '~' {
+            return format_ustring(write, value);
+        }
+    }
+
+    if dollar {
+        format_dollar_string(write, value)
+    } else {
+        fomrat_simple_string(write, value)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

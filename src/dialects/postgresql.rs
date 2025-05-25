@@ -5,7 +5,30 @@
 
 use std::{num::NonZeroU32, rc::Rc};
 
-use crate::{error::{Error, ErrorKind, Result}, model::{alter::{table::{AlterColumn, AlterColumnData, AlterTable, AlterTableAction, AlterTableData}, types::{AlterType, AlterTypeData, ValuePosition}, DropBehavior, Owner}, column::{Column, ColumnConstraint, ColumnConstraintData, ColumnMatch, ReferentialAction}, extension::{CreateExtension, Extension, Version}, index::{CreateIndex, Direction, Index, IndexItem, IndexItemData, NullsPosition}, integers::{Integer, SignedInteger, UnsignedInteger}, name::{Name, QName}, schema::Schema, syntax::{Cursor, Parser, SourceLocation, Tokenizer}, table::{CreateTable, Table, TableConstraint, TableConstraintData}, token::{ParsedToken, ToTokens, Token, TokenKind}, types::{BasicType, DataType, IntervalFields, TypeDef, Value}}, ordered_hash_map::OrderedHashMap, peek_token};
+use crate::{
+    error::{Error, ErrorKind, Result},
+    model::{
+        alter::{
+            table::{AlterColumn, AlterColumnData, AlterTable, AlterTableAction, AlterTableData},
+            types::{AlterType, AlterTypeData, ValuePosition},
+            DropBehavior, Owner
+        },
+        column::{Column, ColumnConstraint, ColumnConstraintData, ColumnMatch, ReferentialAction},
+        extension::{CreateExtension, Extension, Version},
+        function::{self, Argmode, Argument, CreateFunction, Function, ReturnType},
+        index::{CreateIndex, Direction, Index, IndexItem, IndexItemData, NullsPosition},
+        integers::{Integer, SignedInteger, UnsignedInteger},
+        name::{Name, QName},
+        schema::Schema,
+        syntax::{Cursor, Parser, SourceLocation, Tokenizer},
+        table::{CreateTable, Table, TableConstraint, TableConstraintData},
+        token::{ParsedToken, ToTokens, Token, TokenKind},
+        types::{BasicType, DataType, IntervalFields, TypeDef, Value}
+    },
+    ordered_hash_map::OrderedHashMap,
+    peek_token
+};
+
 use crate::model::words::*;
 
 pub fn uunescape(string: &str, escape: char) -> Option<String> {
@@ -893,7 +916,7 @@ impl<'a> PostgreSQLParser<'a> {
 
         match token.kind() {
             TokenKind::LParen => {
-                return self.parse_token_list(true);
+                return self.parse_token_list(true, true);
             }
             TokenKind::Comma | TokenKind::SemiColon | TokenKind::Colon | TokenKind::DoubleColon | TokenKind::Period | TokenKind::RParen | TokenKind::RBracket => {
                 let actual = self.tokenizer.get(token.cursor());
@@ -924,7 +947,7 @@ impl<'a> PostgreSQLParser<'a> {
                 }
                 TokenKind::LParen | TokenKind::LBracket => {
                     expr.push(self.tokenizer.parse()?);
-                    self.parse_token_list_into(&mut expr, false)?;
+                    self.parse_token_list_into(&mut expr, true, true)?;
 
                     token = if let Some(token) = self.tokenizer.peek()? {
                         token
@@ -965,15 +988,15 @@ impl<'a> PostgreSQLParser<'a> {
         Ok(expr)
     }
 
-    fn parse_token_list(&mut self, early_stop: bool) -> Result<Vec<ParsedToken>> {
+    fn parse_token_list(&mut self, stop_on_comma: bool, stop_on_semicolon: bool) -> Result<Vec<ParsedToken>> {
         let mut tokens = Vec::new();
 
-        self.parse_token_list_into(&mut tokens, early_stop)?;
+        self.parse_token_list_into(&mut tokens, stop_on_comma, stop_on_semicolon)?;
 
         Ok(tokens)
     }
 
-    fn parse_token_list_into(&mut self, tokens: &mut Vec<ParsedToken>, early_stop: bool) -> Result<()> {
+    fn parse_token_list_into(&mut self, tokens: &mut Vec<ParsedToken>, stop_on_comma: bool, stop_on_semicolon: bool) -> Result<()> {
         let mut stack = Vec::new();
 
         while let Some(token) = self.tokenizer.peek()? {
@@ -1010,7 +1033,10 @@ impl<'a> PostgreSQLParser<'a> {
                         return Ok(());
                     }
                 }
-                TokenKind::SemiColon | TokenKind::Comma if early_stop && stack.is_empty() => {
+                TokenKind::SemiColon if stop_on_semicolon && stack.is_empty() => {
+                    return Ok(());
+                }
+                TokenKind::Comma if stop_on_comma && stack.is_empty() => {
                     return Ok(());
                 }
                 _ => {}
@@ -1687,7 +1713,7 @@ impl<'a> PostgreSQLParser<'a> {
             self.expect_some()?;
 
             self.expect_token(TokenKind::LParen)?;
-            let expr = self.parse_token_list(false)?;
+            let expr = self.parse_token_list(false, false)?;
             self.expect_token(TokenKind::RParen)?;
 
             let mut inherit = true;
@@ -1849,7 +1875,7 @@ impl<'a> PostgreSQLParser<'a> {
                 constraint_data = ColumnConstraintData::Null;
             } else if self.parse_word(CHECK)? {
                 self.expect_token(TokenKind::LParen)?;
-                let expr = self.parse_token_list(false)?;
+                let expr = self.parse_token_list(false, false)?;
                 self.expect_token(TokenKind::RParen)?;
 
                 let mut inherit = true;
@@ -2004,7 +2030,7 @@ impl<'a> PostgreSQLParser<'a> {
     fn parse_index_item(&mut self) -> Result<IndexItem> {
         let data;
         if self.parse_token(TokenKind::LParen)? {
-            let expr = self.parse_token_list(false)?;
+            let expr = self.parse_token_list(false, false)?;
             data = IndexItemData::Expr(expr.into());
             self.expect_token(TokenKind::RParen)?;
         } else {
@@ -2090,7 +2116,7 @@ impl<'a> PostgreSQLParser<'a> {
 
         let mut predicate = None;
         if self.parse_word(WHERE)? {
-            predicate = Some(self.parse_token_list(true)?);
+            predicate = Some(self.parse_token_list(false, true)?);
         }
 
         self.expect_semicolon_or_eof()?;
@@ -2470,6 +2496,82 @@ impl<'a> PostgreSQLParser<'a> {
             Ok(Version::String(self.expect_string()?))
         }
     }
+
+    fn parse_function_argument(&mut self) -> Result<Argument> {
+        let mode = if self.parse_word(IN)? {
+            Argmode::In
+        } else if self.parse_word(OUT)? {
+            Argmode::Out
+        } else if self.parse_word(INOUT)? {
+            Argmode::InOut
+        } else if self.parse_word(VARIADIC)? {
+            Argmode::Variadic
+        } else {
+            Argmode::In
+        };
+
+        let offset = self.tokenizer.offset();
+        let mut name = Some(self.expect_name()?);
+
+        if self.peek_word(DEFAULT)? || peek_token!(self, TokenKind::Equal | TokenKind::LParen | TokenKind::LBracket | TokenKind::RParen | TokenKind::Comma)?.is_some() {
+            // backtracking: no arg name, just type!
+            name = None;
+            self.tokenizer.move_to(offset);
+        }
+
+        let data_type = self.parse_data_type()?;
+        let default = if self.parse_word(DEFAULT)? || self.parse_token(TokenKind::Equal)? {
+            Some(self.parse_expr()?.into())
+        } else {
+            None
+        };
+
+        Ok(Argument::new(mode, name, data_type, default))
+    }
+
+    fn parse_function_intern(&mut self, is_procedure: bool, or_replace: bool) -> Result<CreateFunction> {
+        // "CREATE [OR REPLACE] {FUNCTION|PROCEDURE}" is already parsed
+        let name = self.parse_qual_name()?;
+
+        let mut arguments = Vec::new();
+        self.expect_token(TokenKind::LParen)?;
+        while !self.peek_kind(TokenKind::RParen)? {
+            let arg = self.parse_function_argument()?;
+            arguments.push(arg);
+
+            if !self.parse_token(TokenKind::Comma)? {
+                break;
+            }
+        }
+        self.expect_token(TokenKind::RParen)?;
+
+        let mut returns = None;
+        if !is_procedure && self.parse_word(RETURNS)? {
+            returns = Some(if self.parse_word(TABLE)? {
+                let mut columns = Vec::new();
+                self.expect_token(TokenKind::LParen)?;
+                loop {
+                    let column_name = self.expect_name()?;
+                    let column_type = self.parse_data_type()?;
+                    columns.push(function::Column::new(column_name, column_type));
+
+                    if !self.parse_token(TokenKind::Comma)? {
+                        break;
+                    }
+                }
+                self.expect_token(TokenKind::RParen)?;
+                ReturnType::Table { columns: columns.into() }
+            } else {
+                ReturnType::Type(self.parse_data_type()?)
+            });
+        }
+
+        let body = self.parse_token_list(false, true)?;
+
+        self.expect_semicolon_or_eof()?;
+
+        Ok(CreateFunction::new(or_replace, Function::new(name, arguments, returns, body)))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2620,7 +2722,7 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                     }
                 } else {
                     // ignored. store it somewhere?
-                    self.parse_token_list(true)?;
+                    self.parse_token_list(false, true)?;
                 }
 
                 self.expect_semicolon_or_eof()?;
@@ -2659,7 +2761,7 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                     }
                 } else if self.parse_word(SEQUENCE)? {
                     // TODO: CREATE SEQUENCE?
-                    self.parse_token_list(true)?;
+                    self.parse_token_list(false, true)?;
                     self.expect_semicolon_or_eof()?;
 
                     let end_offset = self.tokenizer.offset();
@@ -2667,7 +2769,7 @@ impl<'a> Parser for PostgreSQLParser<'a> {
 
                     eprintln!("TODO: parse CREATE SEQUENCE statements: {source}");
                 } else if self.parse_word(EXTENSION)? {
-                    // TODO: CREATE EXTENSION?
+                    // CREATE EXTENSION
                     let if_not_exists = self.parse_if_not_exists()?;
 
                     let name = self.expect_name()?;
@@ -2705,18 +2807,52 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                             Cursor::new(start_offset, self.tokenizer.offset())
                         ));
                     }
-                } else if self.parse_word(FUNCTION)? || self.parse_word(PROCEDURE)? {
-                    // TODO: CREATE FUNCTION/PROCEDURE?
-                    self.parse_token_list(true)?;
-                    self.expect_semicolon_or_eof()?;
+                } else if self.parse_word(FUNCTION)? {
+                    // CREATE FUNCTION/PROCEDURE
+                    let function = self.parse_function_intern(false, true)?;
+                    if !Rc::make_mut(&mut self.schema).create_function(function) {
+                        return Err(Error::with_cursor(
+                            ErrorKind::FunctionExists,
+                            Cursor::new(start_offset, self.tokenizer.offset())
+                        ));
+                    }
+                } else if self.parse_word(PROCEDURE)? {
+                    // CREATE FUNCTION/PROCEDURE
+                    let function = self.parse_function_intern(true, true)?;
+                    if !Rc::make_mut(&mut self.schema).create_function(function) {
+                        return Err(Error::with_cursor(
+                            ErrorKind::FunctionExists,
+                            Cursor::new(start_offset, self.tokenizer.offset())
+                        ));
+                    }
+                } else if self.parse_word(OR)? {
+                    // CREATE OR REPLACE FUNCTION/PROCEDURE
+                    self.expect_word(REPLACE)?;
 
-                    let end_offset = self.tokenizer.offset();
-                    let source = self.tokenizer.get_offset(start_offset, end_offset);
-
-                    eprintln!("TODO: parse CREATE FUNCTION/PROCEDURE statements: {source}");
+                    if self.parse_word(FUNCTION)? {
+                        let function = self.parse_function_intern(false, true)?;
+                        if !Rc::make_mut(&mut self.schema).create_function(function) {
+                            return Err(Error::with_cursor(
+                                ErrorKind::FunctionExists,
+                                Cursor::new(start_offset, self.tokenizer.offset())
+                            ));
+                        }
+                    } else if self.parse_word(PROCEDURE)? {
+                        let function = self.parse_function_intern(true, true)?;
+                        if !Rc::make_mut(&mut self.schema).create_function(function) {
+                            return Err(Error::with_cursor(
+                                ErrorKind::FunctionExists,
+                                Cursor::new(start_offset, self.tokenizer.offset())
+                            ));
+                        }
+                    } else {
+                        return Err(self.expected_one_of(&[
+                            FUNCTION, PROCEDURE
+                        ]));
+                    }
                 } else if self.parse_word(TRIGGER)? {
                     // TODO: CREATE TRIGGER?
-                    self.parse_token_list(true)?;
+                    self.parse_token_list(false, true)?;
                     self.expect_semicolon_or_eof()?;
 
                     let end_offset = self.tokenizer.offset();
@@ -2730,7 +2866,7 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                 }
             } else if self.parse_word(SELECT)? {
                 // ignore SELECT
-                self.parse_token_list(true)?;
+                self.parse_token_list(false, true)?;
                 self.expect_semicolon_or_eof()?;
             } else if self.parse_word(ALTER)? {
                 // TODO: ALTER
@@ -2744,8 +2880,8 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                     let alter_type = self.parse_alter_type_intern()?;
                     Rc::make_mut(&mut self.schema).alter_type(&alter_type)?;
                 } else {
-                    // TODO: ALTER INDEX?
-                    self.parse_token_list(true)?;
+                    // TODO: ALTER INDEX|FUNCTION|TRIGGER|...?
+                    self.parse_token_list(false, true)?;
                     self.expect_semicolon_or_eof()?;
 
                     let end_offset = self.tokenizer.offset();
@@ -2755,7 +2891,7 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                 }
             } else if self.parse_word(COMMENT)? {
                 // ignore COMMENT?
-                self.parse_token_list(true)?;
+                self.parse_token_list(false, true)?;
                 self.expect_semicolon_or_eof()?;
 
                 let end_offset = self.tokenizer.offset();
@@ -2764,7 +2900,7 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                 eprintln!("TODO: parse COMMENT statements: {source}");
             } else if self.parse_word(DROP)? {
                 // TODO: DROP...
-                self.parse_token_list(true)?;
+                self.parse_token_list(false, true)?;
                 self.expect_semicolon_or_eof()?;
 
                 let end_offset = self.tokenizer.offset();

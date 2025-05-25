@@ -4,6 +4,7 @@ use super::alter::extension::AlterExtension;
 use super::alter::table::AlterTable;
 use super::alter::types::AlterType;
 use super::extension::{CreateExtension, Extension, Version};
+use super::function::{CreateFunction, DropFunctionSignature};
 use super::index::{CreateIndex, Index};
 use super::table::{CreateTable, Table};
 use super::{alter::DropBehavior, name::QName, types::TypeDef};
@@ -16,6 +17,7 @@ pub enum Statement {
     CreateType(Rc<TypeDef>),
     CreateIndex(Rc<CreateIndex>),
     CreateExtension(Rc<CreateExtension>),
+    CreateFunction(Rc<CreateFunction>),
     AlterTable(Rc<AlterTable>),
     AlterType(Rc<AlterType>),
     AlterExtension(Rc<AlterExtension>),
@@ -23,6 +25,7 @@ pub enum Statement {
     DropIndex { concurrently: bool, if_exists: bool, names: Vec<QName>, behavior: Option<DropBehavior> },
     DropType { if_exists: bool, names: Vec<QName>, behavior: Option<DropBehavior> },
     DropExtension { if_exists: bool, names: Vec<QName>, behavior: Option<DropBehavior> },
+    DropFunction { if_exists: bool, signatures: Vec<DropFunctionSignature>, behavior: Option<DropBehavior> },
 }
 
 impl Statement {
@@ -60,6 +63,11 @@ impl Statement {
     pub fn drop_extension(name: QName) -> Self {
         Self::DropExtension { if_exists: false, names: vec![name], behavior: None }
     }
+
+    #[inline]
+    pub fn drop_function(drop_signature: DropFunctionSignature) -> Self {
+        Self::DropFunction { if_exists: false, signatures: vec![drop_signature], behavior: None }
+    }
 }
 
 impl std::fmt::Display for Statement {
@@ -69,6 +77,7 @@ impl std::fmt::Display for Statement {
             Self::CreateType(type_def)  => type_def.fmt(f),
             Self::CreateIndex(index)    => index.fmt(f),
             Self::CreateExtension(ext)  => ext.fmt(f),
+            Self::CreateFunction(func)  => func.fmt(f),
             Self::AlterTable(alter)     => alter.fmt(f),
             Self::AlterType(alter)      => alter.fmt(f),
             Self::AlterExtension(alter) => alter.fmt(f),
@@ -147,6 +156,27 @@ impl std::fmt::Display for Statement {
                     first.fmt(f)?;
                     for name in iter {
                         write!(f, ", {name}")?;
+                    }
+                }
+
+                if let Some(behavior) = behavior {
+                    write!(f, " {behavior}")?;
+                }
+
+                f.write_str(";")
+            }
+            Self::DropFunction { if_exists, signatures, behavior } => {
+                write!(f, "{DROP} {FUNCTION} ")?;
+
+                if *if_exists {
+                    write!(f, "{IF} {EXISTS} ")?;
+                }
+
+                let mut iter = signatures.iter();
+                if let Some(first) = iter.next() {
+                    first.fmt(f)?;
+                    for signature in iter {
+                        write!(f, ", {signature}")?;
                     }
                 }
 

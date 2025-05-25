@@ -1,6 +1,6 @@
 use std::{collections::HashMap, rc::Rc};
 
-use crate::model::{alter::{extension::{AlterExtension, AlterExtensionData}, table::{AlterColumn, AlterTable}, types::AlterType}, column::{Column, ColumnConstraintData}, extension::{CreateExtension}, name::{Name, QName}, schema::Schema, statement::Statement, table::Table};
+use crate::model::{alter::{extension::{AlterExtension, AlterExtensionData}, table::{AlterColumn, AlterTable}, types::AlterType}, column::{Column, ColumnConstraintData}, extension::CreateExtension, function::CreateFunction, name::{Name, QName}, schema::Schema, statement::Statement, table::Table};
 
 pub fn generate_migration(old: &Schema, new: &Schema) -> Vec<Statement> {
     let mut stmts = Vec::new();
@@ -71,15 +71,21 @@ pub fn generate_migration(old: &Schema, new: &Schema) -> Vec<Statement> {
         }
     }
 
+    for table in old_tables.values() {
+        if !new_tables.contains_key(table.name()) {
+            stmts.push(Statement::drop_table(table.name().clone()));
+        }
+    }
+
     for extension in old.extensions().values() {
         if !new.extensions().contains_key(extension.name()) {
             stmts.push(Statement::drop_extension(extension.name().clone()));
         }
     }
 
-    for table in old_tables.values() {
-        if !new_tables.contains_key(table.name()) {
-            stmts.push(Statement::drop_table(table.name().clone()));
+    for function in old.functions().values() {
+        if !new.functions().contains_key(&function.signature()) {
+            stmts.push(Statement::drop_function(function.drop_signature()));
         }
     }
 
@@ -113,6 +119,20 @@ pub fn generate_migration(old: &Schema, new: &Schema) -> Vec<Statement> {
         } else {
             stmts.push(Statement::CreateExtension(
                 Rc::new(CreateExtension::new(false, extension.clone(), false))
+            ));
+        }
+    }
+
+    for function in new.functions().values() {
+        if let Some(old_function) = old.functions().get(&function.signature()) {
+            if function != old_function {
+                stmts.push(Statement::CreateFunction(
+                    Rc::new(CreateFunction::new(true, function.clone()))
+                ));
+            }
+        } else {
+            stmts.push(Statement::CreateFunction(
+                Rc::new(CreateFunction::new(false, function.clone()))
             ));
         }
     }

@@ -2,17 +2,17 @@ use std::{ops::Deref, rc::Rc};
 
 use super::{name::{Name, QName}, token::ParsedToken, types::DataType};
 
-use crate::{format::write_token_list, model::words::*};
+use crate::{format::{write_token_list, write_token_list_with_options}, model::words::*};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FunctionSignature {
     name: QName,
-    arguments: Rc<[SignatureArgument]>,
+    arguments: Rc<[DataType]>,
 }
 
 impl FunctionSignature {
     #[inline]
-    pub fn new(name: QName, arguments: impl Into<Rc<[SignatureArgument]>>) -> Self {
+    pub fn new(name: QName, arguments: impl Into<Rc<[DataType]>>) -> Self {
         Self { name, arguments: arguments.into() }
     }
 
@@ -22,21 +22,66 @@ impl FunctionSignature {
     }
 
     #[inline]
-    pub fn arguments(&self) -> &Rc<[SignatureArgument]> {
+    pub fn arguments(&self) -> &Rc<[DataType]> {
         &self.arguments
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct SignatureArgument {
+pub struct DropFunctionSignature {
+    name: QName,
+    arguments: Vec<DropArgument>,
+}
+
+impl DropFunctionSignature {
+    #[inline]
+    pub fn new(name: QName, arguments: impl Into<Vec<DropArgument>>) -> Self {
+        Self { name, arguments: arguments.into() }
+    }
+
+    #[inline]
+    pub fn name(&self) -> &QName {
+        &self.name
+    }
+
+    #[inline]
+    pub fn arguments(&self) -> &[DropArgument] {
+        &self.arguments
+    }
+}
+
+impl std::fmt::Display for DropFunctionSignature {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} (", self.name)?;
+
+        let mut iter = self.arguments.iter();
+        if let Some(first) = iter.next() {
+            first.fmt(f)?;
+            for arg in iter {
+                write!(f, ", {arg}")?;
+            }
+        }
+
+        f.write_str(")")
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct DropArgument {
+    mode: Argmode,
     name: Option<Name>,
     data_type: DataType,
 }
 
-impl SignatureArgument {
+impl DropArgument {
     #[inline]
-    pub fn new(name: Option<Name>, data_type: DataType) -> Self {
-        Self { name, data_type }
+    pub fn new(mode: Argmode, name: Option<Name>, data_type: DataType) -> Self {
+        Self { mode, name, data_type }
+    }
+
+    #[inline]
+    pub fn mode(&self) -> Argmode {
+        self.mode
     }
 
     #[inline]
@@ -47,6 +92,25 @@ impl SignatureArgument {
     #[inline]
     pub fn data_type(&self) -> &DataType {
         &self.data_type
+    }
+}
+
+impl std::fmt::Display for DropArgument {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.mode.fmt(f)?;
+
+        if let Some(name) = &self.name {
+            write!(f, " {name}")?;
+        }
+
+        write!(f, " {}", self.data_type)
+    }
+}
+
+impl From<&Argument> for DropArgument {
+    #[inline]
+    fn from(value: &Argument) -> Self {
+        Self::new(value.mode(), value.name().cloned(), value.data_type.clone())
     }
 }
 
@@ -113,15 +177,27 @@ impl Function {
     pub fn signature(&self) -> FunctionSignature {
         let mut args = Vec::new();
         for arg in self.arguments.deref() {
-            if matches!(arg.mode(), Argmode::In | Argmode::InOut | Argmode::Variadic) {
-                args.push(SignatureArgument::new(
-                    arg.name().cloned(),
-                    arg.data_type.clone()
-                ));
+            match arg.mode() {
+                Argmode::In | Argmode::InOut => {
+                    args.push(arg.data_type.clone());
+                }
+                Argmode::Variadic => {
+                    // XXX: not sure if this is correct
+                    args.push(arg.data_type.to_array(None));
+                }
+                Argmode::Out => {}
             }
         }
 
         FunctionSignature::new(self.name.clone(), args)
+    }
+
+    /// Signature as wanted by DROP FUNCTION
+    pub fn drop_signature(&self) -> DropFunctionSignature {
+        DropFunctionSignature::new(
+            self.name.clone(),
+            self.arguments.iter().map(Into::into).collect::<Vec<_>>()
+        )
     }
 
     pub fn write(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -141,13 +217,13 @@ impl Function {
             }
         }
 
-        f.write_str(")")?;
+        f.write_str(")\n")?;
 
         if let Some(returns) = &self.returns {
-            write!(f, " {RETURNS} {returns}")?;
+            write!(f, "{RETURNS} {returns}\n")?;
         }
 
-        write_token_list(&self.body, f)?;
+        write_token_list_with_options(&self.body, f, true)?;
 
         f.write_str(";")
     }
@@ -156,7 +232,8 @@ impl Function {
 impl std::fmt::Display for Function {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{CREATE} {self}")
+        write!(f, "{CREATE} ")?;
+        self.write(f)
     }
 }
 
@@ -182,8 +259,8 @@ impl Argument {
     }
 
     #[inline]
-    pub fn mode(&self) -> &Argmode {
-        &self.mode
+    pub fn mode(&self) -> Argmode {
+        self.mode
     }
 
     #[inline]
