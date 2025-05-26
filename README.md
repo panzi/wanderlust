@@ -12,3 +12,6 @@ own schema language. This is supposed to be in the DDL of your DBMS.
 
 At first I will try to write this for PostgreSQL, later I'll maybe add SQLite
 support. It might always be limited to my own needs, if I ever finish it at all.
+
+**UPDATE:** It turned out to be very database specific, i.e. only PostgreSQL.
+Don't know if I still somehow support different DBMSs.
