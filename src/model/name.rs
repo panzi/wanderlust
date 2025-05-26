@@ -9,10 +9,15 @@ pub struct Name {
 impl Name {
     #[inline]
     pub fn needs_quoting(name: &str) -> bool {
-        if !name.starts_with(|c: char| c.is_alphabetic() || c == '_' || c == '$') {
-            return true;
+        let Some(c) = name.chars().next() else {
+            return false;
+        };
+
+        if !c.is_alphabetic() && c != '_' {
+            return false;
         }
-        name[1..].contains(|c: char| !c.is_alphanumeric() && c != '_' && c != '$')
+
+        name[c.len_utf8()..].contains(|c: char| !c.is_alphanumeric() && c != '_' && c != '$')
     }
 
     #[inline]
