@@ -352,7 +352,7 @@ pub trait Parser {
             return Ok(false);
         };
 
-        return Ok(token.kind() == kind);
+        Ok(token.kind() == kind)
     }
 
     #[inline]

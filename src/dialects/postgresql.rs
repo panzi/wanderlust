@@ -134,7 +134,7 @@ impl<'a> PostgreSQLTokenizer<'a> {
                     return Err(Error::with_message(
                         ErrorKind::UnexpectedEOF,
                         Cursor::new(start_offset, end_offset),
-                        format!("actual: <EOF>, expected: */")
+                        "actual: <EOF>, expected: */".to_string()
                     ));
                 }
             } else {
@@ -161,7 +161,7 @@ impl<'a> PostgreSQLTokenizer<'a> {
             return Err(Error::with_message(
                 ErrorKind::UnexpectedToken,
                 Cursor::new(self.offset, self.offset + 1),
-                format!("expected: <string>")
+                "expected: <string>".to_string()
             ));
         }
 
@@ -173,7 +173,7 @@ impl<'a> PostgreSQLTokenizer<'a> {
                 return Err(Error::with_message(
                     ErrorKind::IllegalToken,
                     Cursor::new(self.offset, self.offset + len),
-                    format!("expected: <string>, actual: <EOF>")
+                    "expected: <string>, actual: <EOF>".to_string()
                 ));
             };
 
@@ -188,7 +188,7 @@ impl<'a> PostgreSQLTokenizer<'a> {
             }
         }
 
-        return Ok(self.offset + len);
+        Ok(self.offset + len)
     }
 
     fn find_quot_name_end(&mut self) -> Result<usize> {
@@ -197,7 +197,7 @@ impl<'a> PostgreSQLTokenizer<'a> {
             return Err(Error::with_message(
                 ErrorKind::UnexpectedToken,
                 Cursor::new(self.offset, self.offset + 1),
-                format!("expected: <quoted name>")
+                "expected: <quoted name>".to_string()
             ));
         }
 
@@ -209,7 +209,7 @@ impl<'a> PostgreSQLTokenizer<'a> {
                 return Err(Error::with_message(
                     ErrorKind::IllegalToken,
                     Cursor::new(self.offset, self.offset + len),
-                    format!("expected: <quoted name>, actual: <EOF>")
+                    "expected: <quoted name>, actual: <EOF>".to_string()
                 ));
             };
 
@@ -224,7 +224,7 @@ impl<'a> PostgreSQLTokenizer<'a> {
             }
         }
 
-        return Ok(self.offset + len);
+        Ok(self.offset + len)
     }
 
     fn find_estring_end(&mut self) -> Result<usize> {
@@ -233,7 +233,7 @@ impl<'a> PostgreSQLTokenizer<'a> {
             return Err(Error::with_message(
                 ErrorKind::UnexpectedToken,
                 Cursor::new(self.offset, self.offset + 1),
-                format!("expected: <estring>")
+                "expected: <estring>".to_string()
             ));
         }
 
@@ -245,7 +245,7 @@ impl<'a> PostgreSQLTokenizer<'a> {
                 return Err(Error::with_message(
                     ErrorKind::IllegalToken,
                     Cursor::new(self.offset, self.offset + len),
-                    format!("expected: <estring>, actual: <EOF>")
+                    "expected: <estring>, actual: <EOF>".to_string()
                 ));
             };
 
@@ -261,7 +261,7 @@ impl<'a> PostgreSQLTokenizer<'a> {
                     return Err(Error::with_message(
                         ErrorKind::IllegalToken,
                         Cursor::new(self.offset, self.offset + len),
-                        format!("expected: <estring>, actual: <EOF>")
+                        "expected: <estring>, actual: <EOF>".to_string()
                     ));
                 }
                 slice = &slice[2..];
@@ -278,7 +278,7 @@ impl<'a> PostgreSQLTokenizer<'a> {
             }
         }
 
-        return Ok(self.offset + len);
+        Ok(self.offset + len)
     }
 
     fn parse_uescape(&mut self) -> Result<char> {
@@ -290,7 +290,7 @@ impl<'a> PostgreSQLTokenizer<'a> {
                     return Err(Error::with_message(
                         ErrorKind::IllegalToken,
                         *next.cursor(),
-                        format!("expected: <single char string>, actual: <EOF>")
+                        "expected: <single char string>, actual: <EOF>".to_string()
                     ));
                 };
 
@@ -506,10 +506,10 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                         ));
                     }
                     self.offset = end_offset;
-                    return Ok(Some(Token::new(
+                    Ok(Some(Token::new(
                         TokenKind::HexInt,
                         Cursor::new(start_offset, end_offset)
-                    )));
+                    )))
                 } else if tail.starts_with("0o") || tail.starts_with("0O") {
                     // octal
                     self.offset += 2;
@@ -526,10 +526,10 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                         ));
                     }
                     self.offset = end_offset;
-                    return Ok(Some(Token::new(
+                    Ok(Some(Token::new(
                         TokenKind::OctInt,
                         Cursor::new(start_offset, end_offset)
-                    )));
+                    )))
                 } else if tail.starts_with("0b") || tail.starts_with("0B") {
                     // binary
                     self.offset += 2;
@@ -546,10 +546,10 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                         ));
                     }
                     self.offset = end_offset;
-                    return Ok(Some(Token::new(
+                    Ok(Some(Token::new(
                         TokenKind::BinInt,
                         Cursor::new(start_offset, end_offset)
-                    )));
+                    )))
                 } else {
                     let mut end_offset = if let Some(index) = self.source[self.offset..].find(|c: char| !c.is_ascii_digit() && c != '_') {
                         self.offset + index
@@ -595,10 +595,10 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                     }
 
                     self.offset = end_offset;
-                    return Ok(Some(Token::new(
+                    Ok(Some(Token::new(
                         if float { TokenKind::Float } else { TokenKind::DecInt },
                         Cursor::new(start_offset, end_offset)
-                    )));
+                    )))
                 }
             }
             'E' if self.source[self.offset + 1..].starts_with('\'') => {
@@ -608,10 +608,10 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                 let end_offset = self.find_estring_end()?;
                 self.offset = end_offset;
 
-                return Ok(Some(Token::new(
+                Ok(Some(Token::new(
                     TokenKind::EString,
                     Cursor::new(start_offset, end_offset)
-                )));
+                )))
             }
             'U' if self.source[self.offset + 1..].starts_with("&'") => {
                 // U& string
@@ -620,10 +620,10 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                 let end_offset = self.find_string_end()?;
                 self.offset = end_offset;
 
-                return Ok(Some(Token::new(
+                Ok(Some(Token::new(
                     TokenKind::UString,
                     Cursor::new(start_offset, end_offset)
-                )));
+                )))
             }
             'U' if self.source[self.offset + 1..].starts_with("&\"") => {
                 // U& identifier
@@ -632,10 +632,10 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                 let end_offset = self.find_quot_name_end()?;
                 self.offset = end_offset;
 
-                return Ok(Some(Token::new(
+                Ok(Some(Token::new(
                     TokenKind::UName,
                     Cursor::new(start_offset, end_offset)
-                )));
+                )))
             }
             _ if ch.is_alphabetic() || ch == '_' => {
                 // word/identifier
@@ -646,9 +646,10 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                     self.source.len()
                 };
                 self.offset = end_offset;
-                return Ok(Some(Token::new(
+
+                Ok(Some(Token::new(
                     TokenKind::Word,
-                    Cursor::new(start_offset, end_offset))));
+                    Cursor::new(start_offset, end_offset))))
             }
             '\'' => {
                 // string
@@ -656,10 +657,10 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                 let end_offset = self.find_string_end()?;
                 self.offset = end_offset;
 
-                return Ok(Some(Token::new(
+                Ok(Some(Token::new(
                     TokenKind::String,
                     Cursor::new(start_offset, end_offset)
-                )));
+                )))
             }
             '"' => {
                 // quoted identifier
@@ -667,10 +668,10 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                 let end_offset = self.find_quot_name_end()?;
                 self.offset = end_offset;
 
-                return Ok(Some(Token::new(
+                Ok(Some(Token::new(
                     TokenKind::QuotName,
                     Cursor::new(start_offset, end_offset)
-                )));
+                )))
             }
             '$' => {
                 // dollar string or single dollar?
@@ -680,7 +681,7 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                     return Err(Error::with_message(
                         ErrorKind::IllegalToken,
                         Cursor::new(start_offset, start_offset + 2),
-                        format!("expected: <dollar string>")
+                        "expected: <dollar string>".to_string()
                     ));
                 }
 
@@ -690,7 +691,7 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                     return Err(Error::with_message(
                         ErrorKind::IllegalToken,
                         Cursor::new(start_offset, self.source.len()),
-                        format!("expected: <dollar string>")
+                        "expected: <dollar string>".to_string()
                     ));
                 };
 
@@ -698,7 +699,7 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                     return Err(Error::with_message(
                         ErrorKind::IllegalToken,
                         Cursor::new(start_offset, end_offset),
-                        format!("expected: <dollar string>")
+                        "expected: <dollar string>".to_string()
                     ));
                 }
 
@@ -711,16 +712,16 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                     return Err(Error::with_message(
                         ErrorKind::IllegalToken,
                         Cursor::new(start_offset, self.source.len()),
-                        format!("expected: <dollar string>")
+                        "expected: <dollar string>".to_string()
                     ));
                 };
                 let end_offset = end_offset + tag.len();
                 self.offset = end_offset;
 
-                return Ok(Some(Token::new(
+                Ok(Some(Token::new(
                     TokenKind::DollarString,
                     Cursor::new(start_offset, end_offset)
-                )));
+                )))
             }
             ':' => {
                 let start_offset = self.offset;
@@ -732,75 +733,84 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                     )));
                 }
                 self.offset += 1;
-                return Ok(Some(Token::new(
+
+                Ok(Some(Token::new(
                     TokenKind::Colon,
                     Cursor::new(start_offset, self.offset),
-                )));
+                )))
             }
             ',' => {
                 let start_offset = self.offset;
                 self.offset += 1;
-                return Ok(Some(Token::new(
+
+                Ok(Some(Token::new(
                     TokenKind::Comma,
                     Cursor::new(start_offset, self.offset),
-                )));
+                )))
             }
             ';' => {
                 let start_offset = self.offset;
                 self.offset += 1;
-                return Ok(Some(Token::new(
+
+                Ok(Some(Token::new(
                     TokenKind::SemiColon,
                     Cursor::new(start_offset, self.offset),
-                )));
+                )))
             }
             '.' => {
                 let start_offset = self.offset;
                 self.offset += 1;
-                return Ok(Some(Token::new(
+
+                Ok(Some(Token::new(
                     TokenKind::Period,
                     Cursor::new(start_offset, self.offset),
-                )));
+                )))
             }
             '(' => {
                 let start_offset = self.offset;
                 self.offset += 1;
-                return Ok(Some(Token::new(
+
+                Ok(Some(Token::new(
                     TokenKind::LParen,
                     Cursor::new(start_offset, self.offset),
-                )));
+                )))
             }
             ')' => {
                 let start_offset = self.offset;
                 self.offset += 1;
-                return Ok(Some(Token::new(
+
+                Ok(Some(Token::new(
                     TokenKind::RParen,
                     Cursor::new(start_offset, self.offset),
-                )));
+                )))
             }
             '[' => {
                 let start_offset = self.offset;
                 self.offset += 1;
-                return Ok(Some(Token::new(
+
+                Ok(Some(Token::new(
                     TokenKind::LBracket,
                     Cursor::new(start_offset, self.offset),
-                )));
+                )))
             }
             ']' => {
                 let start_offset = self.offset;
                 self.offset += 1;
-                return Ok(Some(Token::new(
+
+                Ok(Some(Token::new(
                     TokenKind::RBracket,
                     Cursor::new(start_offset, self.offset),
-                )));
+                )))
             }
             '=' if !self.source[self.offset + 1..].starts_with(|c: char| is_operator!(c)) => {
                 // equal
                 let start_offset = self.offset;
                 self.offset += 1;
-                return Ok(Some(Token::new(
+
+                Ok(Some(Token::new(
                     TokenKind::Equal,
                     Cursor::new(start_offset, self.offset))
-                ));
+                ))
             }
             operators!() => {
                 // operator
@@ -811,17 +821,18 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                 } else {
                     self.source.len()
                 };
-                return Ok(Some(Token::new(
+
+                Ok(Some(Token::new(
                     TokenKind::Operator,
                     Cursor::new(start_offset, self.offset))
-                ));
+                ))
             }
             _ => {
-                return Err(Error::with_message(
+                Err(Error::with_message(
                     ErrorKind::IllegalToken,
                     Cursor::new(self.offset, self.offset + 1),
                     format!("unexpected: {ch}")
-                ));
+                ))
             }
         }
     }
@@ -900,7 +911,8 @@ impl<'a> PostgreSQLParser<'a> {
             return Err(Error::with_message(
                 ErrorKind::UnexpectedEOF,
                 Cursor::new(self.tokenizer.offset(), self.tokenizer.offset()),
-                format!("expected: <expression>, actual: <EOF>")));
+                "expected: <expression>, actual: <EOF>".to_string()
+            ));
         };
 
         match token.kind() {
@@ -912,7 +924,8 @@ impl<'a> PostgreSQLParser<'a> {
                 return Err(Error::with_message(
                     ErrorKind::UnexpectedToken,
                     *token.cursor(),
-                    format!("expected: <expression>, actual: {actual}")));
+                    format!("expected: <expression>, actual: {actual}")
+                ));
             }
             _ => {}
         }
@@ -944,7 +957,8 @@ impl<'a> PostgreSQLParser<'a> {
                         return Err(Error::with_message(
                             ErrorKind::UnexpectedEOF,
                             Cursor::new(self.tokenizer.offset(), self.tokenizer.offset()),
-                            format!("expected: expression, actual: <EOF>")));
+                            "expected: expression, actual: <EOF>".to_string()
+                        ));
                     };
 
                     if next.kind() == TokenKind::LParen {
@@ -1105,7 +1119,7 @@ impl<'a> PostgreSQLParser<'a> {
             return Err(Error::with_message(
                 ErrorKind::UnexpectedToken,
                 *token.cursor(),
-                format!("precision may not be zero")
+                "precision may not be zero".to_string()
             ));
         };
         Ok(value)
@@ -1277,11 +1291,11 @@ impl<'a> PostgreSQLParser<'a> {
                 Ok(Value::String(strip_dollar_string(source).into()))
             },
             _ => {
-                return Err(Error::with_message(
+                Err(Error::with_message(
                     ErrorKind::UnexpectedToken,
                     *token.cursor(),
                     format!("expected: <string>, <integer>, or <float>, actual: {source}")
-                ));
+                ))
             }
         }
     }
@@ -1684,32 +1698,28 @@ impl<'a> PostgreSQLParser<'a> {
     }
 
     fn parse_qual_name_tail(&mut self, mut name: Name) -> Result<QName> {
-        let schema;
-
-        if self.parse_token(TokenKind::Period)? {
+        let schema = if self.parse_token(TokenKind::Period)? {
             let mut temp = self.expect_name()?;
             std::mem::swap(&mut temp, &mut name);
-            schema = Some(temp);
+            temp
         } else {
-            schema = Some(self.schema.search_path().first().unwrap_or(&self.default_schema).clone());
-        }
+            self.schema.search_path().first().unwrap_or(&self.default_schema).clone()
+        };
 
-        Ok(QName::new(schema, name))
+        Ok(QName::new(Some(schema), name))
     }
 
     fn parse_qual_name_with_default_schema(&mut self, default_schema: Option<&Name>) -> Result<QName> {
         let mut name = self.expect_name()?;
-        let schema;
-
-        if self.parse_token(TokenKind::Period)? {
+        let schema = if self.parse_token(TokenKind::Period)? {
             let mut temp = self.expect_name()?;
             std::mem::swap(&mut temp, &mut name);
-            schema = Some(temp);
+            temp
         } else {
-            schema = Some(default_schema.unwrap_or(self.schema.search_path().first().unwrap_or(&self.default_schema)).clone());
-        }
+            default_schema.unwrap_or(self.schema.search_path().first().unwrap_or(&self.default_schema)).clone()
+        };
 
-        Ok(QName::new(schema, name))
+        Ok(QName::new(Some(schema), name))
     }
 
     fn parse_operator(&mut self, op: &str) -> Result<bool> {
@@ -2941,7 +2951,7 @@ impl<'a> Parser for PostgreSQLParser<'a> {
 
                 if name.name().eq_ignore_ascii_case("search_path") {
                     if self.parse_word(DEFAULT)? {
-                        let search_path = Rc::make_mut(&mut self.schema).set_default_search_path();
+                        Rc::make_mut(&mut self.schema).set_default_search_path();
                     } else {
                         let mut new_search_path = Vec::new();
 
@@ -3223,7 +3233,7 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                 return Err(Error::with_message(
                     ErrorKind::UnexpectedToken,
                     Cursor::new(start_offset, self.tokenizer.offset()),
-                    format!("transaction rollback is not supported")
+                    "transaction rollback is not supported".to_string()
                 ));
             } else {
                 return Err(self.expected_one_of(&[
@@ -3249,7 +3259,7 @@ pub fn parse_uint<I: UnsignedInteger>(token: &Token, mut source: &str) -> Result
         source = &source[1..];
     }
 
-    let value = parse_int_intern(&token, source)?;
+    let value = parse_int_intern(token, source)?;
 
     Ok(value)
 }
@@ -3262,7 +3272,7 @@ pub fn parse_int<I: SignedInteger>(token: &Token, mut source: &str) -> Result<I>
         source = &source[1..];
     }
 
-    parse_int_intern(&token, source)
+    parse_int_intern(token, source)
 }
 
 fn parse_int_intern<I: Integer>(token: &Token, mut source: &str) -> Result<I> {
@@ -3393,7 +3403,7 @@ pub fn parse_string(source: &str) -> Option<String> {
         source = &source[index + 2..];
     }
 
-    value.push_str(&source);
+    value.push_str(source);
     value.shrink_to_fit();
 
     Some(value)
@@ -3418,7 +3428,7 @@ pub fn parse_quot_name(source: &str) -> Option<String> {
         }
     }
 
-    value.push_str(&source);
+    value.push_str(source);
     value.shrink_to_fit();
 
     Some(value)
@@ -3443,7 +3453,7 @@ pub fn parse_uname(source: &str) -> Option<String> {
         }
     }
 
-    value.push_str(&source);
+    value.push_str(source);
     value.shrink_to_fit();
 
     Some(value)
@@ -3468,7 +3478,7 @@ pub fn parse_ustring(source: &str) -> Option<String> {
         }
     }
 
-    value.push_str(&source);
+    value.push_str(source);
     value.shrink_to_fit();
 
     Some(value)
@@ -3499,9 +3509,7 @@ pub fn parse_estring(source: &str) -> Option<String> {
                 'r' => value.push_str("\r"),
                 't' => value.push_str("\t"),
                 'u' => {
-                    let Some(slice) = source.get(..4) else {
-                        return None;
-                    };
+                    let slice = source.get(..4)?;
                     let Ok(ch) = u32::from_str_radix(slice, 16) else {
                         return None;
                     };
@@ -3509,9 +3517,7 @@ pub fn parse_estring(source: &str) -> Option<String> {
                     source = &source[4..];
                 }
                 'U' => {
-                    let Some(slice) = source.get(..8) else {
-                        return None;
-                    };
+                    let slice = source.get(..8)?;
                     let Ok(ch) = u32::from_str_radix(slice, 16) else {
                         return None;
                     };
@@ -3578,7 +3584,7 @@ pub fn parse_estring(source: &str) -> Option<String> {
         }
     }
 
-    value.push_str(&source);
+    value.push_str(source);
     value.shrink_to_fit();
 
     Some(value)

@@ -8,6 +8,7 @@ use crate::model::alter::types::{AlterType, AlterTypeData, ValuePosition};
 use crate::model::types::TypeData;
 use crate::ordered_hash_map::OrderedHashMap;
 
+use super::alter::extension::{AlterExtension, AlterExtensionData};
 use super::column::Column;
 use super::extension::{CreateExtension, Extension};
 use super::function::{CreateFunction, Function, FunctionSignature};
@@ -183,7 +184,7 @@ impl Schema {
     pub fn create_index(&mut self, mut create_index: CreateIndex) -> bool {
         let index_name = create_index.index_mut().ensure_name();
 
-        if self.indices.contains_key(&index_name) {
+        if self.indices.contains_key(index_name) {
             return create_index.if_not_exists();
         }
         self.indices.insert(index_name.clone(), create_index.into());
@@ -527,7 +528,7 @@ impl Schema {
                 }
             }
             _ => {
-                let Some(mut table) = self.tables.get_mut(alter_table.name()) else {
+                let Some(table) = self.tables.get_mut(alter_table.name()) else {
                     if alter_table.data().if_exists() {
                         return Ok(());
                     }
@@ -558,7 +559,7 @@ impl Schema {
                             ));
                         }
 
-                        let table = Rc::make_mut(&mut table);
+                        let table = Rc::make_mut(table);
                         if let Some(mut column) = table.columns_mut().remove(column_name) {
                             Rc::make_mut(&mut column).set_name(new_column_name.clone());
                             table.columns_mut().insert(new_column_name.clone(), column);
@@ -592,7 +593,7 @@ impl Schema {
                             ));
                         }
 
-                        let table = Rc::make_mut(&mut table);
+                        let table = Rc::make_mut(table);
                         if let Some(mut constraint) = table.constraints_mut().remove(constraint_name) {
                             Rc::make_mut(&mut constraint).set_name(Some(new_constraint_name.clone()));
                             table.constraints_mut().insert(constraint_name.clone(), constraint);
@@ -752,6 +753,38 @@ impl Schema {
                     }
                     AlterTableData::RenameTable { .. } => Ok(()),
                     AlterTableData::SetSchema { .. } => Ok(())
+                }
+            }
+        }
+    }
+
+    pub fn alter_extension(&mut self, alter_extension: &Rc<AlterExtension>) -> bool {
+        match alter_extension.data() {
+            AlterExtensionData::Update(version) => {
+                let Some(extension) = self.extensions.get_mut(alter_extension.name()) else {
+                    return false;
+                };
+
+                Rc::make_mut(extension).set_version(version.clone());
+
+                true
+            }
+            AlterExtensionData::SetSchema(new_schema) => {
+                let new_name = QName::new(
+                    Some(new_schema.clone()),
+                    alter_extension.name().name().clone()
+                );
+
+                if self.extensions.contains_key(&new_name) {
+                    return false;
+                }
+
+                if let Some(mut extension) = self.extensions.remove(alter_extension.name()) {
+                    Rc::make_mut(&mut extension).set_schema(Some(new_schema.clone()));
+                    self.extensions.insert(new_name, extension);
+                    true
+                } else {
+                    false
                 }
             }
         }

@@ -22,6 +22,7 @@ pub struct Trigger {
 }
 
 impl Trigger {
+    #[allow(clippy::too_many_arguments)]
     #[inline]
     pub fn new(
         constraint: bool,

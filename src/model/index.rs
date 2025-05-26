@@ -198,13 +198,13 @@ impl Index {
             match item.data() {
                 IndexItemData::Column(column) => {
                     index_name.push_str("_");
-                    index_name.push_str(&column.name());
+                    index_name.push_str(column.name());
                 }
                 IndexItemData::Expr(expr) => {
                     for token in expr.deref() {
                         if let ParsedToken::Name(name) = token {
                             index_name.push_str("_");
-                            index_name.push_str(&name.name());
+                            index_name.push_str(name.name());
                         }
                     }
                 }

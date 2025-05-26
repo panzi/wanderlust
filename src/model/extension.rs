@@ -40,10 +40,10 @@ impl CreateExtension {
     }
 }
 
-impl Into<Rc<Extension>> for CreateExtension {
+impl From<CreateExtension> for Rc<Extension> {
     #[inline]
-    fn into(self) -> Rc<Extension> {
-        self.into_extension()
+    fn from(value: CreateExtension) -> Self {
+        value.into_extension()
     }
 }
 
@@ -101,6 +101,11 @@ impl Extension {
     #[inline]
     pub fn version(&self) -> Option<&Version> {
         self.version.as_ref()
+    }
+
+    #[inline]
+    pub fn set_version(&mut self, version: Option<Version>) {
+        self.version = version;
     }
 
     pub fn write(&self, cascade: bool, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

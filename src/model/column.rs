@@ -122,15 +122,13 @@ impl Column {
 
     pub fn drop_constraint(&mut self, name: &Name) -> Option<Rc<ColumnConstraint>> {
         let some_name = Some(name);
-        let Some(index) = self.constraints.iter().position(|c| c.name() == some_name) else {
-            return None;
-        };
+        let index = self.constraints.iter().position(|c| c.name() == some_name)?;
 
         Some(self.constraints.remove(index))
     }
 
     pub fn without_table_constraints(self: &Rc<Self>) -> Rc<Self> {
-        if self.constraints.iter().find(|&constraint| constraint.is_table_constraint()).is_none() {
+        if self.constraints.iter().any(|constraint| constraint.is_table_constraint()) {
             return self.clone();
         }
 
@@ -199,7 +197,7 @@ impl std::fmt::Display for ReferentialAction {
                 write!(f, "{SET} {NULL}")?;
 
                 if let Some(columns) = columns {
-                    write_paren_names(&columns, f)?;
+                    write_paren_names(columns, f)?;
                 }
 
                 Ok(())
@@ -208,7 +206,7 @@ impl std::fmt::Display for ReferentialAction {
                 write!(f, "{SET} {DEFAULT}")?;
 
                 if let Some(columns) = columns {
-                    write_paren_names(&columns, f)?;
+                    write_paren_names(columns, f)?;
                 }
 
                 Ok(())
@@ -491,9 +489,7 @@ impl ColumnConstraint {
                     super::table::TableConstraintData::ForeignKey {
                         columns: [column_name.clone()].into(),
                         ref_table: ref_table.clone(),
-                        ref_columns: if let Some(ref_column) = ref_column {
-                            Some([ref_column.clone()].into())
-                        } else { None },
+                        ref_columns: ref_column.as_ref().map(|ref_column| [ref_column.clone()].into()),
                         column_match: *column_match,
                         on_delete: on_delete.clone(),
                         on_update: on_update.clone(),

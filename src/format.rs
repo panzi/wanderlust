@@ -166,7 +166,7 @@ pub fn format_ustring(mut write: impl std::fmt::Write, value: &str) -> std::fmt:
     }
     write.write_str(tail)?;
 
-    return write.write_str("'");
+    write.write_str("'")
 }
 
 fn fomrat_simple_string(mut write: impl std::fmt::Write, value: &str) -> std::fmt::Result {

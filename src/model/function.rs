@@ -220,7 +220,7 @@ impl Function {
         f.write_str(")\n")?;
 
         if let Some(returns) = &self.returns {
-            write!(f, "{RETURNS} {returns}\n")?;
+            writeln!(f, "{RETURNS} {returns}")?;
         }
 
         write_token_list_with_options(&self.body, f, true)?;
@@ -396,9 +396,9 @@ impl std::fmt::Display for CreateFunction {
     }
 }
 
-impl Into<Rc<Function>> for CreateFunction {
+impl From<CreateFunction> for Rc<Function> {
     #[inline]
-    fn into(self) -> Rc<Function> {
-        self.into_function()
+    fn from(value: CreateFunction) -> Rc<Function> {
+        value.into_function()
     }
 }

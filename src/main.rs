@@ -1,3 +1,7 @@
+#![allow(clippy::collapsible_else_if)]
+#![allow(clippy::single_char_add_str)]
+#![allow(clippy::manual_range_contains)]
+
 use dialects::postgresql::PostgreSQLParser;
 use migration::generate_migration;
 use model::syntax::Parser;

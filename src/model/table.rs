@@ -226,13 +226,13 @@ impl std::fmt::Display for TableConstraintData {
             Self::ForeignKey { columns, ref_table, ref_columns, column_match, on_delete, on_update } => {
                 write!(f, "{FOREIGN} {KEY} ")?;
 
-                write_paren_names(&columns, f)?;
+                write_paren_names(columns, f)?;
 
                 write!(f, " {REFERENCES} {ref_table}")?;
 
                 if let Some(ref_columns) = ref_columns {
                     f.write_str(" ")?;
-                    write_paren_names(&ref_columns, f)?;
+                    write_paren_names(ref_columns, f)?;
                 }
 
                 if let Some(column_match) = column_match {
