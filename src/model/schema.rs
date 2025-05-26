@@ -165,6 +165,11 @@ impl Schema {
         &mut self.search_path
     }
 
+    pub fn set_default_search_path(&mut self) {
+        self.search_path.clear();
+        self.search_path.push(self.default_schema.clone());
+    }
+
     pub fn create_table(&mut self, create_table: CreateTable) -> bool {
         // TODO: use some kind of ordered hashtable?
         if self.tables.contains_key(create_table.table().name()) {

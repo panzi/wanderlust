@@ -2941,9 +2941,7 @@ impl<'a> Parser for PostgreSQLParser<'a> {
 
                 if name.name().eq_ignore_ascii_case("search_path") {
                     if self.parse_word(DEFAULT)? {
-                        let search_path = Rc::make_mut(&mut self.schema).search_path_mut();
-                        search_path.clear();
-                        search_path.push(self.default_schema.clone());
+                        let search_path = Rc::make_mut(&mut self.schema).set_default_search_path();
                     } else {
                         let mut new_search_path = Vec::new();
 
@@ -3123,7 +3121,37 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                     ]));
                 }
             } else if self.parse_word(SELECT)? {
-                // ignore SELECT
+                // SELECT
+                if self.parse_word("pg_catalog")? &&
+                   self.parse_token(TokenKind::Period)? &&
+                   self.parse_word("set_config")? &&
+                   self.parse_token(TokenKind::LParen)? {
+                    if let Ok(conf_var) = self.expect_string() {
+                        if conf_var.eq_ignore_ascii_case("search_path") &&
+                           self.parse_token(TokenKind::Comma)? {
+                            if let Ok(value) = self.expect_string() {
+                                if self.parse_token(TokenKind::Comma)? &&
+                                   (self.parse_word(TRUE)? || self.parse_word(FALSE)?) &&
+                                   self.parse_token(TokenKind::RParen)? &&
+                                   (self.peek_kind(TokenKind::SemiColon)? || self.peek_token()?.is_none()) {
+                                    // matched: SELECT pg_catalog.set_config('search_path', '...', true|false);
+                                    // if true then it should be only for the current transaction
+                                    let value = value.trim();
+                                    let schema = Rc::make_mut(&mut self.schema);
+                                    if value.is_empty() {
+                                        schema.set_default_search_path();
+                                    } else {
+                                        let search_path = schema.search_path_mut();
+                                        search_path.clear();
+                                        for schema_name in value.split(',') {
+                                            search_path.push(Name::new(schema_name.trim()));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 self.parse_token_list(false, true)?;
                 self.expect_semicolon_or_eof()?;
             } else if self.parse_word(ALTER)? {
