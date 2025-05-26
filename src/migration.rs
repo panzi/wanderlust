@@ -379,6 +379,7 @@ fn migrate_column(table_name: &QName, old_column: &Column, new_column: &Column, 
 
 fn is_nextval(expr: &[ParsedToken]) -> bool {
     // nextval('schema.sequence'::regclass)
+    // nextval(regclass 'schema.sequence')
     // nextval('schema.sequence')
     // nextval(CAST('schema.sequence' AS regclass))
 
@@ -398,6 +399,11 @@ fn is_nextval(expr: &[ParsedToken]) -> bool {
         4 => {
             matches!(expr[2], ParsedToken::String(..)) &&
             expr[3] == ParsedToken::RParen
+        }
+        5 => {
+            expr[2].is_word("regclass") &&
+            matches!(expr[3], ParsedToken::String(..)) &&
+            expr[4] == ParsedToken::RParen
         }
         6 => {
             matches!(expr[2], ParsedToken::String(..)) &&

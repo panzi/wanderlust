@@ -637,10 +637,10 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                     Cursor::new(start_offset, end_offset)
                 )));
             }
-            _ if ch.is_ascii_alphabetic() || ch == '_' => {
-                // word
+            _ if ch.is_alphabetic() || ch == '_' => {
+                // word/identifier
                 let start_offset = self.offset;
-                let end_offset = if let Some(index) = self.source[start_offset..].find(|c: char| !c.is_ascii_alphanumeric() && c != '_') {
+                let end_offset = if let Some(index) = self.source[start_offset..].find(|c: char| !c.is_alphanumeric() && c != '_' && c != '$') {
                     start_offset + index
                 } else {
                     self.source.len()
@@ -676,7 +676,7 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                 // dollar string or single dollar?
                 let start_offset = self.offset;
                 self.offset += 1;
-                if !self.source[start_offset..].starts_with(|c: char| c.is_ascii_alphabetic() || c == '_' || c == '$') {
+                if !self.source[start_offset..].starts_with(|c: char| c.is_alphabetic() || c == '_' || c == '$') {
                     return Err(Error::with_message(
                         ErrorKind::IllegalToken,
                         Cursor::new(start_offset, start_offset + 2),
@@ -684,7 +684,7 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
                     ));
                 }
 
-                let end_offset = if let Some(index) = self.source[self.offset..].find(|c: char| !c.is_ascii_alphanumeric() && c != '_') {
+                let end_offset = if let Some(index) = self.source[self.offset..].find(|c: char| !c.is_alphanumeric() && c != '_') {
                     self.offset + index
                 } else {
                     return Err(Error::with_message(
