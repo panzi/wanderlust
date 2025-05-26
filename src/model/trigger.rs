@@ -2,7 +2,7 @@ use std::{ops::Deref, rc::Rc};
 
 use super::{name::{Name, QName}, token::ParsedToken};
 
-use crate::{format::{join_into, write_token_list}, model::words::*};
+use crate::{format::{format_iso_string, join_into, write_token_list}, model::words::*};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Trigger {
@@ -12,7 +12,7 @@ pub struct Trigger {
     events: Rc<[Event]>,
     table_name: QName,
     ref_table: Option<QName>,
-    referencing: Option<Rc<[ReferencedTable]>>,
+    referencing: Rc<[ReferencedTable]>,
     for_each_row: bool,
     deferrable: bool,
     initially_deferred: bool,
@@ -30,7 +30,7 @@ impl Trigger {
         events: Rc<[Event]>,
         table_name: QName,
         ref_table: Option<QName>,
-        referencing: Option<Rc<[ReferencedTable]>>,
+        referencing: Rc<[ReferencedTable]>,
         for_each_row: bool,
         deferrable: bool,
         initially_deferred: bool,
@@ -81,8 +81,8 @@ impl Trigger {
     }
 
     #[inline]
-    pub fn referencing(&self) -> Option<&Rc<[ReferencedTable]>> {
-        self.referencing.as_ref()
+    pub fn referencing(&self) -> &Rc<[ReferencedTable]> {
+        &self.referencing
     }
 
     #[inline]
@@ -120,7 +120,7 @@ impl Trigger {
         &self.arguments
     }
 
-    fn write(&self, or_replace: bool, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn write(&self, or_replace: bool, mut f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(CREATE)?;
 
         if or_replace {
@@ -153,10 +153,8 @@ impl Trigger {
             write!(f, " {NOT} {DEFERRABLE}")?;
         }
 
-        if let Some(referencing) = &self.referencing {
-            for item in referencing.deref() {
-                write!(f, "\n{REFERENCING} {item}")?;
-            }
+        for item in self.referencing.deref() {
+            write!(f, "\n{REFERENCING} {item}")?;
         }
 
         if self.for_each_row {
@@ -166,18 +164,19 @@ impl Trigger {
         }
 
         if let Some(predicate) = &self.predicate {
-            write!(f, "\n{WHEN} (");
+            write!(f, "\n{WHEN} (")?;
             write_token_list(predicate.deref(), f)?;
-            f.write_str(")");
+            f.write_str(")")?;
         }
 
         write!(f, "\n{EXECUTE} {FUNCTION} {} (", self.function_name)?;
 
         let mut iter = self.arguments.iter();
         if let Some(first) = iter.next() {
-            std::fmt::Display::fmt(first, f)?;
+            format_iso_string(&mut f, first)?;
             for arg in iter {
-                write!(f, ", {arg}")?;
+                f.write_str(", ")?;
+                format_iso_string(&mut f, arg)?;
             }
         }
         f.write_str(");\n")?;
@@ -194,6 +193,7 @@ pub enum When {
 }
 
 impl std::fmt::Display for When {
+    #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Before    => f.write_str(BEFORE),
@@ -300,6 +300,13 @@ impl CreateTrigger {
     #[inline]
     pub fn into_trigger(self) -> Rc<Trigger> {
         self.trigger
+    }
+}
+
+impl std::fmt::Display for CreateTrigger {
+    #[inline]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.trigger.write(self.or_replace, f)
     }
 }
 

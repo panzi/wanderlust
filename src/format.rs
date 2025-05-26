@@ -56,7 +56,7 @@ pub fn write_token_list_with_options(tokens: &[ParsedToken], mut f: &mut impl st
         let mut prev = first;
         for token in iter {
             if matches!(token,
-                    ParsedToken::Colon |
+                    ParsedToken::Comma |
                     ParsedToken::SemiColon |
                     ParsedToken::LParen |
                     ParsedToken::RParen |
@@ -96,6 +96,7 @@ pub fn write_token_list_with_options(tokens: &[ParsedToken], mut f: &mut impl st
                     ParsedToken::LBracket))
             {
                 // pass
+                //f.write_str("/* pass */")?;
             } else {
                 f.write_str(" ")?;
             }

@@ -1,6 +1,6 @@
 use std::{collections::HashMap, ops::Deref, rc::Rc};
 
-use crate::model::{alter::{extension::{AlterExtension, AlterExtensionData}, table::{AlterColumn, AlterTable}, types::AlterType}, column::{Column, ColumnConstraintData}, extension::CreateExtension, function::CreateFunction, name::{Name, QName}, schema::Schema, statement::Statement, table::Table, token::ParsedToken};
+use crate::model::{alter::{extension::{AlterExtension, AlterExtensionData}, table::{AlterColumn, AlterTable}, types::AlterType}, column::{Column, ColumnConstraintData}, extension::CreateExtension, function::CreateFunction, name::{Name, QName}, schema::Schema, statement::Statement, table::Table, token::ParsedToken, trigger::CreateTrigger};
 
 use crate::model::words::*;
 
@@ -180,6 +180,17 @@ fn migrate_table(old_table: &Table, new_table: &Table, stmts: &mut Vec<Statement
     let old_columns = old_table.columns();
     let new_columns = new_table.columns();
 
+    // drop triggers
+    for trigger in old_table.triggers().values() {
+        if !new_table.triggers().contains_key(trigger.name()) {
+            stmts.push(Statement::drop_trigger(
+                trigger.name().clone(),
+                new_table.name().clone()
+            ));
+        }
+    }
+
+    // columns
     for column in old_table.columns().values() {
         if let Some(new_column) = new_columns.get(column.name()) {
             if column != new_column {
@@ -246,6 +257,21 @@ fn migrate_table(old_table: &Table, new_table: &Table, stmts: &mut Vec<Statement
         if !old_merged_constraints.iter().any(|other| other.data() == constraint.data()) {
             stmts.push(Statement::AlterTable(
                 AlterTable::add_constraint(new_table.name().clone(), constraint.clone())
+            ));
+        }
+    }
+
+    // create triggers
+    for trigger in new_table.triggers().values() {
+        if let Some(old_trigger) = old_table.triggers().get(trigger.name()) {
+            if trigger != old_trigger {
+                stmts.push(Statement::CreateTrigger(
+                    Rc::new(CreateTrigger::new(true, trigger.clone()))
+                ));
+            }
+        } else {
+            stmts.push(Statement::CreateTrigger(
+                Rc::new(CreateTrigger::new(false, trigger.clone()))
             ));
         }
     }

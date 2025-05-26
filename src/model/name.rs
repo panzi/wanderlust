@@ -50,6 +50,18 @@ impl Name {
             self.name.eq_ignore_ascii_case(name.as_ref())
         }
     }
+
+    #[inline]
+    pub fn into_name(self) -> Rc<str> {
+        self.name
+    }
+}
+
+impl From<Name> for Rc<str> {
+    #[inline]
+    fn from(value: Name) -> Self {
+        value.into_name()
+    }
 }
 
 impl std::fmt::Display for Name {
@@ -201,6 +213,18 @@ impl QName {
                 schema == other_schema
             } else { true }
         } else { true })
+    }
+
+    #[inline]
+    pub fn into_name(self) -> Name {
+        self.name
+    }
+}
+
+impl From<QName> for Name {
+    #[inline]
+    fn from(value: QName) -> Self {
+        value.into_name()
     }
 }
 

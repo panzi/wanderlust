@@ -6,7 +6,9 @@ use super::alter::types::AlterType;
 use super::extension::{CreateExtension, Extension, Version};
 use super::function::{CreateFunction, DropFunctionSignature};
 use super::index::{CreateIndex, Index};
+use super::name::Name;
 use super::table::{CreateTable, Table};
+use super::trigger::CreateTrigger;
 use super::{alter::DropBehavior, name::QName, types::TypeDef};
 
 use super::words::*;
@@ -18,6 +20,7 @@ pub enum Statement {
     CreateIndex(Rc<CreateIndex>),
     CreateExtension(Rc<CreateExtension>),
     CreateFunction(Rc<CreateFunction>),
+    CreateTrigger(Rc<CreateTrigger>),
     AlterTable(Rc<AlterTable>),
     AlterType(Rc<AlterType>),
     AlterExtension(Rc<AlterExtension>),
@@ -26,6 +29,7 @@ pub enum Statement {
     DropType { if_exists: bool, names: Vec<QName>, behavior: Option<DropBehavior> },
     DropExtension { if_exists: bool, names: Vec<QName>, behavior: Option<DropBehavior> },
     DropFunction { if_exists: bool, signatures: Vec<DropFunctionSignature>, behavior: Option<DropBehavior> },
+    DropTrigger { if_exists: bool, name: Name, table_name: QName, behavior: Option<DropBehavior> },
 }
 
 impl Statement {
@@ -70,6 +74,11 @@ impl Statement {
     }
 
     #[inline]
+    pub fn drop_trigger(name: Name, table_name: QName) -> Self {
+        Self::DropTrigger { if_exists: false, name, table_name, behavior: None }
+    }
+
+    #[inline]
     pub fn is_same_variant(&self, other: &Statement) -> bool {
         std::mem::discriminant(self) == std::mem::discriminant(other)
     }
@@ -78,14 +87,15 @@ impl Statement {
 impl std::fmt::Display for Statement {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::CreateTable(table)    => table.fmt(f),
-            Self::CreateType(type_def)  => type_def.fmt(f),
-            Self::CreateIndex(index)    => index.fmt(f),
-            Self::CreateExtension(ext)  => ext.fmt(f),
-            Self::CreateFunction(func)  => func.fmt(f),
-            Self::AlterTable(alter)     => alter.fmt(f),
-            Self::AlterType(alter)      => alter.fmt(f),
-            Self::AlterExtension(alter) => alter.fmt(f),
+            Self::CreateTable(table)     => table.fmt(f),
+            Self::CreateType(type_def)   => type_def.fmt(f),
+            Self::CreateIndex(index)     => index.fmt(f),
+            Self::CreateExtension(ext)   => ext.fmt(f),
+            Self::CreateFunction(func)   => func.fmt(f),
+            Self::CreateTrigger(trigger) => trigger.fmt(f),
+            Self::AlterTable(alter)      => alter.fmt(f),
+            Self::AlterType(alter)       => alter.fmt(f),
+            Self::AlterExtension(alter)  => alter.fmt(f),
             Self::DropTable { if_exists, names, behavior } => {
                 write!(f, "{DROP} {TABLE}")?;
                 if *if_exists {
@@ -184,6 +194,21 @@ impl std::fmt::Display for Statement {
                         write!(f, ", {signature}")?;
                     }
                 }
+
+                if let Some(behavior) = behavior {
+                    write!(f, " {behavior}")?;
+                }
+
+                f.write_str(";")
+            }
+            Self::DropTrigger { if_exists, name, table_name, behavior } => {
+                write!(f, "{DROP} {TRIGGER} ")?;
+
+                if *if_exists {
+                    write!(f, "{IF} {EXISTS} ")?;
+                }
+
+                write!(f, " {name} {ON} {table_name}")?;
 
                 if let Some(behavior) = behavior {
                     write!(f, " {behavior}")?;

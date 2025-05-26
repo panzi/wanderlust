@@ -8,6 +8,7 @@ pub mod name;
 pub mod syntax;
 pub mod words;
 pub mod integers;
+pub mod floats;
 pub mod alter;
 pub mod statement;
 pub mod extension;

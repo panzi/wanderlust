@@ -1,8 +1,8 @@
-use std::{num::NonZeroU32, rc::Rc, str::Matches};
+use std::{num::NonZeroU32, rc::Rc};
 
 use crate::format::format_iso_string;
 
-use super::{name::{Name, QName}, syntax::{Cursor, Locatable}};
+use super::{name::{Name, QName}, syntax::Cursor};
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum TokenKind {
@@ -62,6 +62,38 @@ impl std::fmt::Display for TokenKind {
     }
 }
 
+impl TokenKind {
+    #[inline]
+    pub fn is_name(&self) -> bool {
+        matches!(self, TokenKind::Word | TokenKind::QuotName | TokenKind::UName)
+    }
+
+    #[inline]
+    pub fn is_int(&self) -> bool {
+        matches!(self, TokenKind::BinInt | TokenKind::OctInt | TokenKind::DecInt | TokenKind::HexInt)
+    }
+
+    #[inline]
+    pub fn is_float(&self) -> bool {
+        *self == TokenKind::Float
+    }
+
+    #[inline]
+    pub fn is_number(&self) -> bool {
+        self.is_int() || self.is_float()
+    }
+
+    #[inline]
+    pub fn is_string(&self) -> bool {
+        matches!(self, TokenKind::String | TokenKind::UString | TokenKind::EString | TokenKind::DollarString)
+    }
+
+    #[inline]
+    pub fn is_literal(&self) -> bool {
+        self.is_number() || self.is_string()
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Token {
     kind: TokenKind,
@@ -88,12 +120,42 @@ impl Token {
     pub fn into_cursor(self) -> Cursor {
         self.cursor
     }
+
+    #[inline]
+    pub fn is_name(&self) -> bool {
+        self.kind.is_name()
+    }
+
+    #[inline]
+    pub fn is_int(&self) -> bool {
+        self.kind.is_int()
+    }
+
+    #[inline]
+    pub fn is_float(&self) -> bool {
+        self.kind.is_float()
+    }
+
+    #[inline]
+    pub fn is_number(&self) -> bool {
+        self.kind.is_number()
+    }
+
+    #[inline]
+    pub fn is_string(&self) -> bool {
+        self.kind.is_string()
+    }
+
+    #[inline]
+    pub fn is_literal(&self) -> bool {
+        self.kind.is_literal()
+    }
 }
 
-impl Locatable for Token {
+impl From<Token> for Cursor {
     #[inline]
-    fn cursor(&self) -> &Cursor {
-        &self.cursor
+    fn from(value: Token) -> Self {
+        value.into_cursor()
     }
 }
 

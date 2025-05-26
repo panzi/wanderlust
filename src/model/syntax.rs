@@ -226,17 +226,6 @@ impl SourceSpan {
     }
 }
 
-pub trait Locatable {
-    fn cursor(&self) -> &Cursor;
-}
-
-impl Locatable for Cursor {
-    #[inline]
-    fn cursor(&self) -> &Cursor {
-        self
-    }
-}
-
 pub trait Tokenizer {
     fn get(&self, cursor: &Cursor) -> &str {
         self.get_offset(cursor.start_offset(), cursor.end_offset())

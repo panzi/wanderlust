@@ -12,7 +12,7 @@ use crate::{
             table::{AlterColumn, AlterColumnData, AlterTable, AlterTableAction, AlterTableData},
             types::{AlterType, AlterTypeData, ValuePosition},
             DropBehavior, Owner
-        }, column::{Column, ColumnConstraint, ColumnConstraintData, ColumnMatch, ReferentialAction}, extension::{CreateExtension, Extension, Version}, function::{self, Argmode, Argument, CreateFunction, Function, ReturnType}, index::{CreateIndex, Direction, Index, IndexItem, IndexItemData, NullsPosition}, integers::{Integer, SignedInteger, UnsignedInteger}, name::{Name, QName}, schema::Schema, syntax::{Cursor, Parser, SourceLocation, Tokenizer}, table::{CreateTable, Table, TableConstraint, TableConstraintData}, token::{ParsedToken, ToTokens, Token, TokenKind}, trigger::CreateTrigger, types::{BasicType, DataType, IntervalFields, TypeDef, Value}
+        }, column::{Column, ColumnConstraint, ColumnConstraintData, ColumnMatch, ReferentialAction}, extension::{CreateExtension, Extension, Version}, floats::Float, function::{self, Argmode, Argument, CreateFunction, Function, ReturnType}, index::{CreateIndex, Direction, Index, IndexItem, IndexItemData, NullsPosition}, integers::{Integer, SignedInteger, UnsignedInteger}, name::{Name, QName}, schema::Schema, syntax::{Cursor, Parser, SourceLocation, Tokenizer}, table::{CreateTable, Table, TableConstraint, TableConstraintData}, token::{ParsedToken, ToTokens, Token, TokenKind}, trigger::{CreateTrigger, Event, LifeCycle, ReferencedTable, Trigger, When}, types::{BasicType, DataType, IntervalFields, TypeDef, Value}
     },
     ordered_hash_map::OrderedHashMap,
     peek_token
@@ -1053,12 +1053,50 @@ impl<'a> PostgreSQLParser<'a> {
         Ok((token, value))
     }
 
+    #[inline]
+    fn expect_uint<I: UnsignedInteger>(&mut self) -> Result<I> {
+        Ok(self.parse_uint()?.1)
+    }
+
     fn parse_int<I: SignedInteger>(&mut self) -> Result<(Token, I)> {
         let token = self.expect_some()?;
         let source = self.get_source(token.cursor());
         let value = parse_int(&token, source)?;
 
         Ok((token, value))
+    }
+
+    #[inline]
+    fn expect_int<I: SignedInteger>(&mut self) -> Result<I> {
+        Ok(self.parse_int()?.1)
+    }
+
+    fn parse_float<F: Float>(&mut self) -> Result<(Token, F)> {
+        let token = self.expect_some()?;
+        let source = self.get_source(token.cursor());
+
+        if !matches!(token.kind(), TokenKind::Float | TokenKind::DecInt) {
+            return Err(Error::with_message(
+                ErrorKind::UnexpectedToken,
+                *token.cursor(),
+                format!("expected: <floating-point number>, actual: {source}")
+            ));
+        }
+
+        let Ok(value) = source.replace("_", "").parse() else {
+            return Err(Error::with_message(
+                ErrorKind::UnexpectedToken,
+                *token.cursor(),
+                format!("expected: <floating-point number>, actual: {source}")
+            ));
+        };
+
+        Ok((token, value))
+    }
+
+    #[inline]
+    fn expect_float<F: Float>(&mut self) -> Result<F> {
+        Ok(self.parse_float()?.1)
     }
 
     fn parse_precision(&mut self) -> Result<NonZeroU32> {
@@ -1618,6 +1656,18 @@ impl<'a> PostgreSQLParser<'a> {
             Ok(QName::new(Some(first), second))
         } else {
             Ok(self.schema.resolve_type_name(&first))
+        }
+    }
+
+    #[inline]
+    fn parse_ref_function(&mut self) -> Result<QName> {
+        let first = self.expect_name()?;
+
+        if self.parse_token(TokenKind::Period)? {
+            let second = self.expect_name()?;
+            Ok(QName::new(Some(first), second))
+        } else {
+            Ok(self.schema.resolve_function_name(&first))
         }
     }
 
@@ -2550,6 +2600,8 @@ impl<'a> PostgreSQLParser<'a> {
                 }
                 self.expect_token(TokenKind::RParen)?;
                 ReturnType::Table { columns: columns.into() }
+            } else if self.parse_word(TRIGGER)? {
+                ReturnType::Trigger
             } else {
                 ReturnType::Type(self.parse_data_type()?)
             });
@@ -2562,9 +2614,201 @@ impl<'a> PostgreSQLParser<'a> {
         Ok(CreateFunction::new(or_replace, Function::new(name, arguments, returns, body)))
     }
 
-    fn parse_trigger_intern(&self, or_replace: bool) -> Result<CreateTrigger> {
-        // "CREATE [OR REPLACE] TRIGGER" is already parsed
-        unimplemented!()
+    fn parse_trigger_event(&mut self) -> Result<Event> {
+        if self.parse_word(INSERT)? {
+            Ok(Event::Insert)
+        } else if self.parse_word(UPDATE)? {
+            let columns = if self.parse_word(OF)? {
+                let mut columns = Vec::new();
+                loop {
+                    let column = self.expect_name()?;
+                    columns.push(column);
+
+                    if !self.parse_token(TokenKind::Comma)? {
+                        break;
+                    }
+                }
+
+                Some(columns.into())
+            } else {
+                None
+            };
+
+            Ok(Event::Update { columns })
+        } else if self.parse_word(DELETE)? {
+            Ok(Event::Delete)
+        } else if self.parse_word(TRUNCATE)? {
+            Ok(Event::Truncate)
+        } else {
+            Err(self.expected_one_of(&[
+                INSERT, UPDATE, DELETE, TRUNCATE
+            ]))
+        }
+    }
+
+    fn parse_trigger_intern(&mut self, or_replace: bool, constraint: bool) -> Result<CreateTrigger> {
+        // "CREATE [OR REPLACE] [CONSTRAINT] TRIGGER" is already parsed
+        let name = self.expect_name()?;
+
+        let when = if self.parse_word(BEFORE)? {
+            When::Before
+        } else if self.parse_word(AFTER)? {
+            When::After
+        } else if self.parse_word(INSTEAD)? {
+            self.expect_word(OF)?;
+            When::InsteadOf
+        } else {
+            return Err(self.expected_one_of(&[
+                BEFORE, AFTER, "INSTEAD OF"
+            ]))
+        };
+
+        let mut events = Vec::new();
+        loop {
+            let event = self.parse_trigger_event()?;
+            events.push(event);
+
+            if !self.parse_word(OR)? {
+                break;
+            }
+        }
+
+        self.expect_word(ON)?;
+
+        let table_name = self.parse_ref_table()?;
+
+        let ref_table = if self.parse_word(FROM)? {
+            Some(self.parse_ref_table()?)
+        } else {
+            None
+        };
+
+        let deferrable;
+        let mut initially_deferred = false;
+        if self.parse_word(NOT)? {
+            self.expect_word(DEFERRABLE)?;
+            deferrable = false;
+        } else {
+            deferrable = self.parse_word(DEFERRABLE)?;
+
+            if self.parse_word(INITIALLY)? {
+                if self.parse_word(IMMEDIATE)? {
+                    initially_deferred = false;
+                } else if self.parse_word(DEFERRED)? {
+                    initially_deferred = true;
+                } else {
+                    return Err(self.expected_one_of(&[
+                        IMMEDIATE, DEFERRED
+                    ]));
+                }
+            }
+        }
+
+        let mut referencing = Vec::new();
+        while self.parse_word(REFERENCING)? {
+            let life_cycle = if self.parse_word(OLD)? {
+                LifeCycle::Old
+            } else if self.parse_word(NEW)? {
+                LifeCycle::New
+            } else {
+                return Err(self.expected_one_of(&[
+                    OLD, NEW
+                ]));
+            };
+
+            self.expect_word(TABLE)?;
+            self.parse_word(AS)?;
+
+            let transition_relation_name = self.expect_name()?;
+
+            referencing.push(ReferencedTable::new(life_cycle, transition_relation_name));
+        }
+
+        let mut for_each_row = false;
+        if self.parse_word(FOR)? {
+            self.parse_word(EACH)?;
+
+            if self.parse_word(ROW)? {
+                for_each_row = true;
+            } else if self.parse_word(STATEMENT)? {
+                for_each_row = false;
+            } else {
+                return Err(self.expected_one_of(&[
+                    ROW, STATEMENT
+                ]));
+            }
+        }
+
+        let predicate = if self.parse_word(WHEN)? {
+            self.expect_token(TokenKind::LParen)?;
+            let tokens = self.parse_token_list(false, false)?;
+            self.expect_token(TokenKind::RParen)?;
+            Some(tokens.into())
+        } else {
+            None
+        };
+
+        self.expect_word(EXECUTE)?;
+        if !self.parse_word(FUNCTION)? && !self.parse_word(PROCEDURE)? {
+            return Err(self.expected_one_of(&[
+                FUNCTION, PROCEDURE
+            ]));
+        }
+
+        let function_name = self.parse_ref_function()?;
+
+        self.expect_token(TokenKind::LParen)?;
+        let mut arguments = Vec::new();
+
+        while !self.peek_kind(TokenKind::RParen)? {
+            let Some(token) = self.peek_token()? else {
+                break;
+            };
+
+            if token.is_name() {
+                arguments.push(self.expect_name()?.into());
+            } else if token.is_int() {
+                arguments.push(self.expect_int::<i64>()?.to_string().into());
+            } else if token.is_float() {
+                let value = self.expect_float::<f64>()?;
+                arguments.push(format!("{value:?}").into());
+            } else if token.is_name() {
+                arguments.push(self.expect_name()?.into());
+            } else if token.is_string() {
+                arguments.push(self.expect_string()?);
+            } else {
+                return Err(self.expected_one_of(&[
+                    "<literal>", "<name>"
+                ]));
+            }
+
+            if !self.parse_token(TokenKind::Comma)? {
+                break;
+            }
+        }
+
+        self.expect_token(TokenKind::RParen)?;
+
+        self.expect_semicolon_or_eof()?;
+
+        Ok(CreateTrigger::new(
+            or_replace,
+            Trigger::new(
+                constraint,
+                name,
+                when,
+                events.into(),
+                table_name,
+                ref_table,
+                referencing.into(),
+                for_each_row,
+                deferrable,
+                initially_deferred,
+                predicate,
+                function_name,
+                arguments.into()
+            )
+        ))
     }
 }
 
@@ -2839,27 +3083,43 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                                 Cursor::new(start_offset, self.tokenizer.offset())
                             ));
                         }
+                    } else if self.parse_word(CONSTRAINT)? {
+                        // CREATE CONSTRAINT TRIGGER
+                        self.expect_word(TRIGGER)?;
+                        let trigger = self.parse_trigger_intern(true, true)?;
+                        Rc::make_mut(&mut self.schema).create_trigger(trigger).map_err(|mut err| {
+                            *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
+                            err
+                        })?
                     } else if self.parse_word(TRIGGER)? {
-                        let trigger = self.parse_trigger_intern(true)?;
+                        let trigger = self.parse_trigger_intern(true, false)?;
                         Rc::make_mut(&mut self.schema).create_trigger(trigger).map_err(|mut err| {
                             *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
                             err
                         })?
                     } else {
                         return Err(self.expected_one_of(&[
-                            FUNCTION, PROCEDURE
+                            FUNCTION, PROCEDURE, "[CONSTRAINT] TRIGGER"
                         ]));
                     }
                 } else if self.parse_word(TRIGGER)? {
                     // CREATE TRIGGER
-                    let trigger = self.parse_trigger_intern(false)?;
+                    let trigger = self.parse_trigger_intern(false, false)?;
+                    Rc::make_mut(&mut self.schema).create_trigger(trigger).map_err(|mut err| {
+                        *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
+                        err
+                    })?
+                } else if self.parse_word(CONSTRAINT)? {
+                    // CREATE CONSTRAINT TRIGGER
+                    self.expect_word(TRIGGER)?;
+                    let trigger = self.parse_trigger_intern(false, true)?;
                     Rc::make_mut(&mut self.schema).create_trigger(trigger).map_err(|mut err| {
                         *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
                         err
                     })?
                 } else {
                     return Err(self.expected_one_of(&[
-                        TABLE, "[UNIQUE] INDEX", TYPE, EXTENSION, SEQUENCE, FUNCTION, PROCEDURE, TRIGGER
+                        TABLE, "[UNIQUE] INDEX", TYPE, EXTENSION, SEQUENCE, FUNCTION, PROCEDURE, "[CONSTRAINT] TRIGGER"
                     ]));
                 }
             } else if self.parse_word(SELECT)? {

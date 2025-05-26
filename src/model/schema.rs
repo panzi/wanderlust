@@ -111,6 +111,20 @@ impl Schema {
         QName::new(Some(self.default_schema.clone()), name.clone())
     }
 
+    /// Resolve function name using the current search_path
+    pub fn resolve_function_name(&self, name: &Name) -> QName {
+        for schema in &self.search_path {
+            let some_schema = Some(schema);
+            for sig in self.functions.keys_unordered() {
+                if sig.name().schema() == some_schema && sig.name().name() == name {
+                    return sig.name().clone();
+                }
+            }
+        }
+
+        QName::new(Some(self.default_schema.clone()), name.clone())
+    }
+
     #[inline]
     pub fn default_schema(&self) -> &Name {
         &self.default_schema
