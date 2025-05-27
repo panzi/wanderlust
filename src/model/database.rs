@@ -406,7 +406,16 @@ impl Database {
     }
 
     pub fn create_trigger(&mut self, create_trigger: CreateTrigger) -> Result<()> {
-        let Some(table) = self.get_table_mut(create_trigger.trigger().table_name()) else {
+        let schema = self.get_schema_mut(create_trigger.trigger().table_name())?;
+
+        println!("TABLE NAME: {}", create_trigger.trigger().table_name());
+        println!("SCHEMA: {}", schema.name());
+        println!("TABLES:");
+        for table_name in schema.tables().keys() {
+            println!("    {table_name}");
+        }
+
+        let Some(table) = schema.tables_mut().get_mut(create_trigger.trigger().table_name().name()) else {
             return Err(Error::new(
                 ErrorKind::TableNotExists,
                 None,
