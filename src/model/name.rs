@@ -134,6 +134,7 @@ impl PartialEq for Name {
 
 impl Hash for Name {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write_usize(self.name.len());
         if self.quoted {
             for c in self.name.chars() {
                 c.hash(state);
