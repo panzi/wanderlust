@@ -108,14 +108,18 @@ impl Cursor {
 
         let start_lineno = span.start().lineno();
         let end_lineno = span.end().lineno();
-        let lineno_width = get_digits(end_lineno);
+        let lineno_width = count_digits(end_lineno);
 
         let mut line_start_index = get_last_line_start(head);
         let mut lineno = span.start().lineno();
 
-        while line_start_index < self.end_offset {
-            let line_end_index = line_start_index + source[line_start_index..].find('\n').unwrap_or(source.len());
-            let line = &source[line_start_index..line_end_index];
+        loop {
+            let line_end_index = if let Some(index) = source[line_start_index..].find('\n') {
+                line_start_index + index
+            } else {
+                source.len()
+            };
+            let line = &source[line_start_index..line_end_index].trim_end_matches('\r');
 
             writeln!(write, "{: ^width$} │ {}", lineno, line, width = lineno_width)?;
             write!(write, "{: ^width$} │ ", "", width = lineno_width)?;
@@ -134,10 +138,11 @@ impl Cursor {
 
             writeln!(write, "{: ^before$}{:^^underline$}", "", "", before = start_column, underline = (end_column - start_column).max(1))?;
 
-            line_start_index = line_end_index;
-            if line_start_index < source.len() && source[line_start_index..].starts_with('\r') {
-                line_start_index += 1;
+            if lineno == end_lineno || line_end_index >= source.len() {
+                break;
             }
+
+            line_start_index = line_end_index + 1;
             lineno += 1;
         }
 
@@ -153,7 +158,7 @@ impl Cursor {
 }
 
 #[inline]
-fn get_digits(mut value: usize) -> usize {
+fn count_digits(mut value: usize) -> usize {
     let mut count = 1;
 
     while value >= 10 {
