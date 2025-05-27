@@ -2236,9 +2236,7 @@ impl<'a> PostgreSQLParser<'a> {
                         format!("illegal token {ONLY} for {RENAME} {COLUMN}")
                     ));
                 }
-                // TODO: can new_name be qualified? What schema does it default to, the
-                //       same as the old schema or the `public` schema?
-                let new_name = self.parse_qual_name_with_default_schema(table_name.schema())?;
+                let new_name = self.expect_name()?;
 
                 data = AlterTableData::RenameTable { if_exists, new_name };
             } else if self.parse_word(CONSTRAINT)? {
@@ -2507,7 +2505,7 @@ impl<'a> PostgreSQLParser<'a> {
             Ok(AlterType::owner_to(type_name, new_owner))
         } else if self.parse_word(RENAME)? {
             if self.parse_word(TO)? {
-                let new_name = self.parse_qual_name()?;
+                let new_name = self.expect_name()?;
                 self.expect_semicolon_or_eof()?;
 
                 Ok(AlterType::rename(type_name, new_name))
@@ -2992,36 +2990,28 @@ impl<'a> Parser for PostgreSQLParser<'a> {
             } else if self.parse_word(CREATE)? {
                 if self.parse_word(TABLE)? {
                     let table = self.parse_table_intern()?;
-                    if !Rc::make_mut(&mut self.schema).create_table(table) {
-                        return Err(Error::with_cursor(
-                            ErrorKind::TableExists,
-                            Cursor::new(start_offset, self.tokenizer.offset())
-                        ));
-                    }
+                    Rc::make_mut(&mut self.schema).create_table(table).map_err(|mut err| {
+                        *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
+                        err
+                    })?;
                 } else if self.parse_word(INDEX)? {
                     let index = self.parse_index_intern(false)?;
-                    if !Rc::make_mut(&mut self.schema).create_index(index) {
-                        return Err(Error::with_cursor(
-                            ErrorKind::IndexExists,
-                            Cursor::new(start_offset, self.tokenizer.offset())
-                        ));
-                    }
+                    Rc::make_mut(&mut self.schema).create_index(index).map_err(|mut err| {
+                        *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
+                        err
+                    })?;
                 } else if self.parse_word(UNIQUE)? && self.parse_word(INDEX)? {
                     let index = self.parse_index_intern(true)?;
-                    if !Rc::make_mut(&mut self.schema).create_index(index) {
-                        return Err(Error::with_cursor(
-                            ErrorKind::IndexExists,
-                            Cursor::new(start_offset, self.tokenizer.offset())
-                        ));
-                    }
+                    Rc::make_mut(&mut self.schema).create_index(index).map_err(|mut err| {
+                        *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
+                        err
+                    })?;
                 } else if self.parse_word(TYPE)? {
                     let type_def = self.parse_type_def_intern()?;
-                    if !Rc::make_mut(&mut self.schema).create_type(type_def) {
-                        return Err(Error::with_cursor(
-                            ErrorKind::TypeExists,
-                            Cursor::new(start_offset, self.tokenizer.offset())
-                        ));
-                    }
+                    Rc::make_mut(&mut self.schema).create_type(type_def).map_err(|mut err| {
+                        *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
+                        err
+                    })?;
                 } else if self.parse_word(SEQUENCE)? {
                     // TODO: CREATE SEQUENCE?
                     self.parse_token_list(false, true)?;
@@ -3064,50 +3054,40 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                         cascade
                     );
 
-                    if !Rc::make_mut(&mut self.schema).create_extension(extension) {
-                        return Err(Error::with_cursor(
-                            ErrorKind::ExtensionExists,
-                            Cursor::new(start_offset, self.tokenizer.offset())
-                        ));
-                    }
+                    Rc::make_mut(&mut self.schema).create_extension(extension).map_err(|mut err| {
+                        *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
+                        err
+                    })?;
                 } else if self.parse_word(FUNCTION)? {
                     // CREATE FUNCTION/PROCEDURE
                     let function = self.parse_function_intern(false, true)?;
-                    if !Rc::make_mut(&mut self.schema).create_function(function) {
-                        return Err(Error::with_cursor(
-                            ErrorKind::FunctionExists,
-                            Cursor::new(start_offset, self.tokenizer.offset())
-                        ));
-                    }
+                    Rc::make_mut(&mut self.schema).create_function(function).map_err(|mut err| {
+                        *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
+                        err
+                    })?;
                 } else if self.parse_word(PROCEDURE)? {
                     // CREATE FUNCTION/PROCEDURE
                     let function = self.parse_function_intern(true, true)?;
-                    if !Rc::make_mut(&mut self.schema).create_function(function) {
-                        return Err(Error::with_cursor(
-                            ErrorKind::FunctionExists,
-                            Cursor::new(start_offset, self.tokenizer.offset())
-                        ));
-                    }
+                    Rc::make_mut(&mut self.schema).create_function(function).map_err(|mut err| {
+                        *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
+                        err
+                    })?;
                 } else if self.parse_word(OR)? {
                     // CREATE OR REPLACE FUNCTION/PROCEDURE/TRIGGER
                     self.expect_word(REPLACE)?;
 
                     if self.parse_word(FUNCTION)? {
                         let function = self.parse_function_intern(false, true)?;
-                        if !Rc::make_mut(&mut self.schema).create_function(function) {
-                            return Err(Error::with_cursor(
-                                ErrorKind::FunctionExists,
-                                Cursor::new(start_offset, self.tokenizer.offset())
-                            ));
-                        }
+                        Rc::make_mut(&mut self.schema).create_function(function).map_err(|mut err| {
+                            *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
+                            err
+                        })?;
                     } else if self.parse_word(PROCEDURE)? {
                         let function = self.parse_function_intern(true, true)?;
-                        if !Rc::make_mut(&mut self.schema).create_function(function) {
-                            return Err(Error::with_cursor(
-                                ErrorKind::FunctionExists,
-                                Cursor::new(start_offset, self.tokenizer.offset())
-                            ));
-                        }
+                        Rc::make_mut(&mut self.schema).create_function(function).map_err(|mut err| {
+                            *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
+                            err
+                        })?;
                     } else if self.parse_word(CONSTRAINT)? {
                         // CREATE CONSTRAINT TRIGGER
                         self.expect_word(TRIGGER)?;

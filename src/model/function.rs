@@ -2,7 +2,7 @@ use std::{ops::Deref, rc::Rc};
 
 use super::{name::{Name, QName}, token::ParsedToken, types::DataType};
 
-use crate::{format::{write_token_list, write_token_list_with_options}, model::words::*};
+use crate::{format::{join_into, write_token_list, write_token_list_with_options}, model::words::*};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FunctionSignature {
@@ -24,6 +24,16 @@ impl FunctionSignature {
     #[inline]
     pub fn arguments(&self) -> &Rc<[DataType]> {
         &self.arguments
+    }
+}
+
+impl std::fmt::Display for FunctionSignature {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}(", self.name)?;
+
+        join_into(", ", &self.arguments, f)?;
+
+        f.write_str(")")
     }
 }
 

@@ -73,6 +73,7 @@ impl Database {
 
     pub fn clear(&mut self) {
         self.schemas.clear();
+        self.schemas.insert(self.default_schema.clone(), Schema::new(self.default_schema.clone()));
         self.search_path.clear();
         self.search_path.push(self.default_schema.clone());
     }
@@ -287,63 +288,121 @@ impl Database {
         self.search_path.push(self.default_schema.clone());
     }
 
-    pub fn create_table(&mut self, create_table: CreateTable) -> bool {
-        if self.has_table(create_table.table().name()) {
-            return create_table.if_not_exists();
+    fn get_schema_mut(&mut self, name: &QName) -> Result<&mut Schema> {
+        let schema_name = name.schema().unwrap_or(&self.default_schema);
+        if let Some(schema) = self.schemas.get_mut(schema_name) {
+            Ok(schema)
+        } else {
+            Err(Error::new(
+                ErrorKind::SchemaNotExists,
+                None,
+                Some(format!("schema {} not found", schema_name)),
+                None
+            ))
         }
-        let name = create_table.table().name().clone();
-        self.tables.insert(name, create_table.into());
-        true
     }
 
-    pub fn create_index(&mut self, mut create_index: CreateIndex) -> bool {
-        let index_name = create_index.index_mut().ensure_name();
-
-        if self.has_index(index_name) {
-            return create_index.if_not_exists();
+    pub fn create_table(&mut self, create_table: CreateTable) -> Result<()> {
+        let schema = self.get_schema_mut(create_table.table().name())?;
+        if schema.tables().contains_key(create_table.table().name().name()) {
+            if create_table.if_not_exists() {
+                return Ok(());
+            } else {
+                return Err(Error::new(
+                    ErrorKind::TableExists,
+                    None,
+                    Some(format!("table {} already exists", create_table.table().name())),
+                    None
+                ));
+            }
         }
-        self.indices.insert(index_name.clone(), create_index.into());
-        true
+        let name = create_table.table().name().name().clone();
+        schema.tables_mut().insert(name, create_table.into());
+        Ok(())
     }
 
-    pub fn create_type(&mut self, type_def: impl Into<Rc<TypeDef>>) -> bool {
+    pub fn create_index(&mut self, mut create_index: CreateIndex) -> Result<()> {
+        let index_name = create_index.index_mut().ensure_name().clone();
+        let schema = self.get_schema_mut(&index_name)?;
+
+        if schema.indices().contains_key(index_name.name()) {
+            if create_index.if_not_exists() {
+                return Ok(());
+            } else {
+                return Err(Error::new(
+                    ErrorKind::IndexExists,
+                    None,
+                    Some(format!("index {} already exists", index_name)),
+                    None
+                ));
+            }
+        }
+        schema.indices_mut().insert(index_name.into_name(), create_index.into());
+        Ok(())
+    }
+
+    pub fn create_type(&mut self, type_def: impl Into<Rc<TypeDef>>) -> Result<()> {
         let type_def = type_def.into();
-        if self.has_type(type_def.name()) {
-            return false;
+        let schema = self.get_schema_mut(type_def.name())?;
+
+        if schema.types().contains_key(type_def.name().name()) {
+            return Err(Error::new(
+                ErrorKind::TypeExists,
+                None,
+                Some(format!("type {} already exists", type_def.name())),
+                None
+            ));
         }
-        self.types.insert(type_def.name().clone(), type_def);
-        true
+        schema.types_mut().insert(type_def.name().name().clone(), type_def);
+        Ok(())
     }
 
-    pub fn create_extension(&mut self, create_extension: CreateExtension) -> bool {
-        if self.has_extension(create_extension.extension().name()) {
-            return create_extension.if_not_exists();
+    pub fn create_extension(&mut self, create_extension: CreateExtension) -> Result<()> {
+        let schema = self.get_schema_mut(create_extension.extension().name())?;
+
+        let name = create_extension.extension().name().name();
+        if schema.extensions().contains_key(name) {
+            if create_extension.if_not_exists() {
+                return Ok(());
+            } else {
+                return Err(Error::new(
+                    ErrorKind::ExtensionExists,
+                    None,
+                    Some(format!("extension {} already exists", name)),
+                    None
+                ));
+            }
         }
-        let name = create_extension.extension().name().clone();
-        self.extensions.insert(name, create_extension.into());
-        true
+        schema.extensions_mut().insert(name.clone(), create_extension.into());
+        Ok(())
     }
 
-    pub fn create_function(&mut self, create_function: CreateFunction) -> bool {
+    pub fn create_function(&mut self, create_function: CreateFunction) -> Result<()> {
         let signature = create_function.function().signature();
+        let schema = self.get_schema_mut(signature.name())?;
 
         if create_function.or_replace() {
-            self.functions.insert(
+            schema.functions_mut().insert(
                 signature,
                 create_function.into_function()
             );
-            return true;
+            return Ok(());
         }
 
-        if self.has_function(&signature) {
-            return false;
+        if schema.functions().contains_key(&signature) {
+            return Err(Error::new(
+                ErrorKind::FunctionExists,
+                None,
+                Some(format!("function {} already exists", signature)),
+                None
+            ));
         }
 
-        self.functions.insert(
+        schema.functions_mut().insert(
             signature,
             create_function.into_function()
         );
-        true
+        Ok(())
     }
 
     pub fn create_trigger(&mut self, create_trigger: CreateTrigger) -> Result<()> {
@@ -396,7 +455,9 @@ impl Database {
     pub fn alter_type(&mut self, alter_type: &AlterType) -> Result<()> {
         match alter_type.data() {
             AlterTypeData::Rename { new_name } => {
-                if self.has_type(new_name) {
+                let schema = self.get_schema_mut(alter_type.type_name())?;
+
+                if schema.types().contains_key(new_name) {
                     return Err(Error::new(
                         ErrorKind::TypeExists,
                         None,
@@ -408,9 +469,9 @@ impl Database {
                     ));
                 }
 
-                if let Some(mut type_def) = self.types.remove(alter_type.type_name()) {
-                    Rc::make_mut(&mut type_def).set_name(new_name.clone());
-                    self.types.insert(new_name.clone(), type_def);
+                if let Some(mut type_def) = schema.types_mut().remove(alter_type.type_name().name()) {
+                    Rc::make_mut(&mut type_def).name_mut().set_name(new_name.clone());
+                    schema.types_mut().insert(new_name.clone(), type_def);
 
                     Ok(())
                 } else {
@@ -442,9 +503,9 @@ impl Database {
                     ));
                 }
 
-                if let Some(mut type_def) = self.types.remove(alter_type.type_name()) {
+                if let Some(mut type_def) = self.get_schema_mut(alter_type.type_name())?.types_mut().remove(alter_type.type_name().name()) {
                     Rc::make_mut(&mut type_def).set_name(new_name.clone());
-                    self.types.insert(new_name, type_def);
+                    self.get_schema_mut(&new_name)?.types_mut().insert(new_name.into_name(), type_def);
                 } else {
                     return Err(Error::new(
                         ErrorKind::TypeNotExists,
@@ -569,15 +630,28 @@ impl Database {
         }
     }
 
-    pub fn drop_table(&mut self, table_name: &QName) -> bool {
-        self.indices.retain(|_, v| v.table_name() != table_name);
-        self.tables.remove(table_name).is_some()
+    pub fn drop_table(&mut self, table_name: &QName) -> Result<()> {
+        let schema = self.get_schema_mut(table_name)?;
+        
+        schema.indices_mut().retain(|_, v| v.table_name() != table_name);
+        if schema.tables_mut().remove(table_name.name()).is_none() {
+            return Err(Error::new(
+                ErrorKind::TableNotExists,
+                None,
+                Some(format!("table {table_name} not found")),
+                None
+            ));
+        }
+
+        Ok(())
     }
 
     pub fn alter_table(&mut self, alter_table: &Rc<AlterTable>) -> Result<()> {
         match alter_table.data() {
             AlterTableData::RenameTable { if_exists, new_name } => {
-                if self.has_table(new_name) {
+                let schema = self.get_schema_mut(alter_table.name())?;
+
+                if schema.tables().contains_key(new_name) {
                     return Err(Error::new(
                         ErrorKind::TableExists,
                         None,
@@ -589,9 +663,9 @@ impl Database {
                     ));
                 }
 
-                if let Some(mut table) = self.tables.remove(alter_table.name()) {
-                    Rc::make_mut(&mut table).set_name(new_name.clone());
-                    self.tables.insert(new_name.clone(), table);
+                if let Some(mut table) = schema.tables_mut().remove(alter_table.name().name()) {
+                    Rc::make_mut(&mut table).name_mut().set_name(new_name.clone());
+                    schema.tables_mut().insert(new_name.clone(), table);
 
                     Ok(())
                 } else if *if_exists {
@@ -625,9 +699,9 @@ impl Database {
                     ));
                 }
 
-                if let Some(mut table) = self.tables.remove(alter_table.name()) {
-                    Rc::make_mut(&mut table).set_name(new_name.clone());
-                    self.tables.insert(new_name, table);
+                if let Some(mut table) = self.get_schema_mut(alter_table.name())?.tables_mut().remove(alter_table.name().name()) {
+                    Rc::make_mut(&mut table).name_mut().set_schema(Some(new_schema.clone()));
+                    self.get_schema_mut(&new_name)?.tables_mut().insert(new_name.into_name(), table);
 
                     Ok(())
                 } else if *if_exists {
@@ -875,36 +949,49 @@ impl Database {
         }
     }
 
-    pub fn alter_extension(&mut self, alter_extension: &Rc<AlterExtension>) -> bool {
-        let Some(schema) = self.schemas.get_mut(alter_extension.name().schema().unwrap_or(&self.default_schema)) else {
-            return false;
-        };
+    pub fn alter_extension(&mut self, alter_extension: &Rc<AlterExtension>) -> Result<()> {
         match alter_extension.data() {
             AlterExtensionData::Update(version) => {
-                let Some(extension) = self.get_extension_mut(alter_extension.name()) else {
-                    return false;
+                let schema = self.get_schema_mut(alter_extension.name())?;
+                let Some(extension) = schema.extensions_mut().get_mut(alter_extension.name().name()) else {
+                    return Err(Error::new(
+                        ErrorKind::ExtensionNotExists,
+                        None,
+                        Some(format!("extension {} not found", alter_extension.name())),
+                        None
+                    ));
                 };
 
                 Rc::make_mut(extension).set_version(version.clone());
 
-                true
+                Ok(())
             }
-            AlterExtensionData::SetSchema(new_schema) => {
+            AlterExtensionData::SetSchema(new_schema) => { // XXX: WRONG
                 let new_name = QName::new(
                     Some(new_schema.clone()),
                     alter_extension.name().name().clone()
                 );
 
-                if schema.extensions().contains_key(new_name.name()) {
-                    return false;
+                if self.has_extension(&new_name) {
+                    return Err(Error::new(
+                        ErrorKind::ExtensionExists,
+                        None,
+                        Some(format!("extension {} already exists", alter_extension.name())),
+                        None
+                    ));
                 }
 
-                if let Some(mut extension) = schema.extensions_mut().remove(alter_extension.name().name()) {
+                if let Some(mut extension) = self.get_schema_mut(alter_extension.name())?.extensions_mut().remove(alter_extension.name().name()) {
                     Rc::make_mut(&mut extension).set_schema(Some(new_schema.clone()));
-                    schema.extensions_mut().insert(new_name.into_name(), extension);
-                    true
+                    self.get_schema_mut(&new_name)?.extensions_mut().insert(new_name.into_name(), extension);
+                    Ok(())
                 } else {
-                    false
+                    return Err(Error::new(
+                        ErrorKind::ExtensionNotExists,
+                        None,
+                        Some(format!("extension {} not found", alter_extension.name())),
+                        None
+                    ));
                 }
             }
         }

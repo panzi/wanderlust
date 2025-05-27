@@ -20,7 +20,7 @@ impl AlterType {
     }
 
     #[inline]
-    pub fn rename(type_name: QName, new_name: QName) -> Rc<Self> {
+    pub fn rename(type_name: QName, new_name: Name) -> Rc<Self> {
         Rc::new(Self { type_name, data: AlterTypeData::Rename { new_name } })
     }
 
@@ -64,7 +64,7 @@ impl std::fmt::Display for AlterType {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AlterTypeData {
-    Rename { new_name: QName },
+    Rename { new_name: Name },
     AddValue { if_not_exists: bool, value: Rc<str>, position: Option<ValuePosition> },
     RenameValue { existing_value: Rc<str>, new_value: Rc<str> },
     OwnerTo { new_owner: Owner },

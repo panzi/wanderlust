@@ -144,17 +144,10 @@ impl Hash for Name {
     }
 }
 
-impl From<Name> for QName {
+impl From<QName> for Name {
     #[inline]
-    fn from(value: Name) -> Self {
-        QName::new(None, value)
-    }
-}
-
-impl From<&Name> for QName {
-    #[inline]
-    fn from(value: &Name) -> Self {
-        QName::new(None, value.clone())
+    fn from(value: QName) -> Self {
+        value.into_name()
     }
 }
 
@@ -226,13 +219,6 @@ impl QName {
     }
 }
 
-impl From<QName> for Name {
-    #[inline]
-    fn from(value: QName) -> Self {
-        value.into_name()
-    }
-}
-
 impl std::fmt::Display for QName {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -240,5 +226,19 @@ impl std::fmt::Display for QName {
             write!(f, "{schema}.")?;
         }
         self.name.fmt(f)
+    }
+}
+
+impl From<Name> for QName {
+    #[inline]
+    fn from(value: Name) -> Self {
+        QName::new(None, value)
+    }
+}
+
+impl From<&Name> for QName {
+    #[inline]
+    fn from(value: &Name) -> Self {
+        QName::new(None, value.clone())
     }
 }

@@ -114,7 +114,7 @@ pub fn migrate_schema(old_database: &Database, old: &Schema, new: &Schema, stmts
 
                     stmts.push(Statement::drop_type(type_def.name().clone()));
                     stmts.push(Statement::AlterType(
-                        AlterType::rename(tmp_name, type_def.name().clone())
+                        AlterType::rename(tmp_name, type_def.name().name().clone())
                     ));
                 }
             }
