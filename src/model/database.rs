@@ -7,28 +7,24 @@ use crate::format::IsoString;
 use crate::model::alter::table::{AlterColumnData, AlterTable, AlterTableAction, AlterTableData};
 use crate::model::alter::types::{AlterType, AlterTypeData, ValuePosition};
 use crate::model::types::TypeData;
-use crate::ordered_hash_map::OrderedHashMap;
 
 use super::alter::extension::{AlterExtension, AlterExtensionData};
 use super::column::Column;
 use super::extension::{CreateExtension, Extension};
 use super::function::{CreateFunction, Function, FunctionSignature};
-use super::index::CreateIndex;
+use super::index::{CreateIndex, Index};
 use super::name::{Name, QName};
-use super::table::CreateTable;
+use super::schema::Schema;
+use super::table::{CreateTable, Table};
 use super::trigger::CreateTrigger;
 use super::types::BasicType;
-use super::{index::Index, table::Table, types::TypeDef};
+use super::types::TypeDef;
 
 use super::words::*;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Database {
-    types: OrderedHashMap<QName, Rc<TypeDef>>,
-    tables: OrderedHashMap<QName, Rc<Table>>,
-    indices: OrderedHashMap<QName, Rc<Index>>,
-    extensions: OrderedHashMap<QName, Rc<Extension>>,
-    functions: OrderedHashMap<FunctionSignature, Rc<Function>>,
+    schemas: HashMap<Name, Schema>,
     default_schema: Name,
     search_path: Vec<Name>,
 }
@@ -36,25 +32,27 @@ pub struct Database {
 impl std::fmt::Display for Database {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "{BEGIN};")?;
-        for extension in self.extensions.values() {
-            writeln!(f, "{extension}")?;
-        }
-        for type_def in self.types.values() {
-            writeln!(f, "{type_def}")?;
-        }
-        for function in self.functions.values() {
-            writeln!(f, "{function}")?;
-        }
-        for table in self.tables.values() {
-            writeln!(f, "{table}")?;
-        }
-        for table in self.tables.values() {
-            for trigger in table.triggers().values() {
-                writeln!(f, "{trigger}")?;
+        for schema in self.schemas.values() {
+            for extension in schema.extensions().values() {
+                writeln!(f, "{extension}")?;
             }
-        }
-        for index in self.indices.values() {
-            writeln!(f, "{index}")?;
+            for type_def in schema.types().values() {
+                writeln!(f, "{type_def}")?;
+            }
+            for function in schema.functions().values() {
+                writeln!(f, "{function}")?;
+            }
+            for table in schema.tables().values() {
+                writeln!(f, "{table}")?;
+            }
+            for table in schema.tables().values() {
+                for trigger in table.triggers().values() {
+                    writeln!(f, "{trigger}")?;
+                }
+            }
+            for index in schema.indices().values() {
+                writeln!(f, "{index}")?;
+            }
         }
         writeln!(f, "{COMMIT};")
     }
@@ -63,32 +61,157 @@ impl std::fmt::Display for Database {
 impl Database {
     #[inline]
     pub fn new(default_schema: Name) -> Self {
+        let mut schemas = HashMap::new();
+        schemas.insert(default_schema.clone(), Schema::new(default_schema.clone()));
+
         Self {
-            types: OrderedHashMap::new(),
-            tables: OrderedHashMap::new(),
-            indices: OrderedHashMap::new(),
-            extensions: OrderedHashMap::new(),
-            functions: OrderedHashMap::new(),
+            schemas,
             default_schema: default_schema.clone(),
             search_path: vec![default_schema],
         }
     }
 
     pub fn clear(&mut self) {
-        self.types.clear();
-        self.tables.clear();
-        self.indices.clear();
+        self.schemas.clear();
         self.search_path.clear();
         self.search_path.push(self.default_schema.clone());
     }
 
+    #[inline]
+    pub fn schemas(&self) -> &HashMap<Name, Schema> {
+        &self.schemas
+    }
+
+    // TODO: fix search_path based name resolution
+    pub fn has_table(&self, name: &QName) -> bool {
+        if let Some(schema) = self.schemas.get(name.schema().unwrap_or(&self.default_schema)) {
+            schema.tables().contains_key(name.name())
+        } else {
+            false
+        }
+    }
+
+    pub fn get_table(&self, name: &QName) -> Option<&Rc<Table>> {
+        if let Some(schema) = self.schemas.get(name.schema().unwrap_or(&self.default_schema)) {
+            schema.tables().get(name.name())
+        } else {
+            None
+        }
+    }
+
+    pub fn get_table_mut(&mut self, name: &QName) -> Option<&mut Rc<Table>> {
+        if let Some(schema) = self.schemas.get_mut(name.schema().unwrap_or(&self.default_schema)) {
+            schema.tables_mut().get_mut(name.name())
+        } else {
+            None
+        }
+    }
+
+    pub fn has_index(&self, name: &QName) -> bool {
+        if let Some(schema) = self.schemas.get(name.schema().unwrap_or(&self.default_schema)) {
+            schema.indices().contains_key(name.name())
+        } else {
+            false
+        }
+    }
+
+    pub fn get_index(&self, name: &QName) -> Option<&Rc<Index>> {
+        if let Some(schema) = self.schemas.get(name.schema().unwrap_or(&self.default_schema)) {
+            schema.indices().get(name.name())
+        } else {
+            None
+        }
+    }
+
+    pub fn get_index_mut(&mut self, name: &QName) -> Option<&mut Rc<Index>> {
+        if let Some(schema) = self.schemas.get_mut(name.schema().unwrap_or(&self.default_schema)) {
+            schema.indices_mut().get_mut(name.name())
+        } else {
+            None
+        }
+    }
+
+    pub fn has_type(&self, name: &QName) -> bool {
+        if let Some(schema) = self.schemas.get(name.schema().unwrap_or(&self.default_schema)) {
+            schema.types().contains_key(name.name())
+        } else {
+            false
+        }
+    }
+
+    pub fn get_type(&self, name: &QName) -> Option<&Rc<TypeDef>> {
+        if let Some(schema) = self.schemas.get(name.schema().unwrap_or(&self.default_schema)) {
+            schema.types().get(name.name())
+        } else {
+            None
+        }
+    }
+
+    pub fn get_type_mut(&mut self, name: &QName) -> Option<&mut Rc<TypeDef>> {
+        if let Some(schema) = self.schemas.get_mut(name.schema().unwrap_or(&self.default_schema)) {
+            schema.types_mut().get_mut(name.name())
+        } else {
+            None
+        }
+    }
+
+    pub fn has_extension(&self, name: &QName) -> bool {
+        if let Some(schema) = self.schemas.get(name.schema().unwrap_or(&self.default_schema)) {
+            schema.extensions().contains_key(name.name())
+        } else {
+            false
+        }
+    }
+
+    pub fn get_extension(&self, name: &QName) -> Option<&Rc<Extension>> {
+        if let Some(schema) = self.schemas.get(name.schema().unwrap_or(&self.default_schema)) {
+            schema.extensions().get(name.name())
+        } else {
+            None
+        }
+    }
+
+    pub fn get_extension_mut(&mut self, name: &QName) -> Option<&mut Rc<Extension>> {
+        if let Some(schema) = self.schemas.get_mut(name.schema().unwrap_or(&self.default_schema)) {
+            schema.extensions_mut().get_mut(name.name())
+        } else {
+            None
+        }
+    }
+
+    pub fn has_function(&self, signature: &FunctionSignature) -> bool {
+        if let Some(schema) = self.schemas.get(signature.name().schema().unwrap_or(&self.default_schema)) {
+            schema.functions().contains_key(signature)
+        } else {
+            false
+        }
+    }
+
+    pub fn get_function(&self, signature: &FunctionSignature) -> Option<&Rc<Function>> {
+        if let Some(schema) = self.schemas.get(signature.name().schema().unwrap_or(&self.default_schema)) {
+            schema.functions().get(signature)
+        } else {
+            None
+        }
+    }
+
+    pub fn get_function_mut(&mut self, signature: &FunctionSignature) -> Option<&mut Rc<Function>> {
+        if let Some(schema) = self.schemas.get_mut(signature.name().schema().unwrap_or(&self.default_schema)) {
+            schema.functions_mut().get_mut(signature)
+        } else {
+            None
+        }
+    }
+
     /// Resolve table name using the current search_path
     pub fn resolve_table_name(&self, name: &Name) -> QName {
-        for schema in &self.search_path {
-            let some_schema = Some(schema);
-            for qname in self.tables.keys_unordered() {
-                if qname.schema() == some_schema && qname.name() == name {
-                    return qname.clone();
+        for schema_name in &self.search_path {
+            if let Some(schema) = self.schemas.get(schema_name) {
+                if schema.tables().contains_key(name) {
+                    return QName::new(
+                        Some(schema_name.clone()),
+                        name.clone()
+                    );
                 }
             }
         }
@@ -98,11 +221,13 @@ impl Database {
 
     /// Resolve type name using the current search_path
     pub fn resolve_type_name(&self, name: &Name) -> QName {
-        for schema in &self.search_path {
-            let some_schema = Some(schema);
-            for qname in self.types.keys_unordered() {
-                if qname.schema() == some_schema && qname.name() == name {
-                    return qname.clone();
+        for schema_name in &self.search_path {
+            if let Some(schema) = self.schemas.get(schema_name) {
+                if schema.types().contains_key(name) {
+                    return QName::new(
+                        Some(schema_name.clone()),
+                        name.clone()
+                    );
                 }
             }
         }
@@ -112,11 +237,13 @@ impl Database {
 
     /// Resolve index name using the current search_path
     pub fn resolve_index_name(&self, name: &Name) -> QName {
-        for schema in &self.search_path {
-            let some_schema = Some(schema);
-            for qname in self.indices.keys_unordered() {
-                if qname.schema() == some_schema && qname.name() == name {
-                    return qname.clone();
+        for schema_name in &self.search_path {
+            if let Some(schema) = self.schemas.get(schema_name) {
+                if schema.indices().contains_key(name) {
+                    return QName::new(
+                        Some(schema_name.clone()),
+                        name.clone()
+                    );
                 }
             }
         }
@@ -126,11 +253,13 @@ impl Database {
 
     /// Resolve function name using the current search_path
     pub fn resolve_function_name(&self, name: &Name) -> QName {
-        for schema in &self.search_path {
-            let some_schema = Some(schema);
-            for sig in self.functions.keys_unordered() {
-                if sig.name().schema() == some_schema && sig.name().name() == name {
-                    return sig.name().clone();
+        for schema_name in &self.search_path {
+            if let Some(schema) = self.schemas.get(schema_name) {
+                if schema.functions().keys_unordered().any(|sig| sig.name().name() == name) {
+                    return QName::new(
+                        Some(schema_name.clone()),
+                        name.clone()
+                    );
                 }
             }
         }
@@ -141,31 +270,6 @@ impl Database {
     #[inline]
     pub fn default_schema(&self) -> &Name {
         &self.default_schema
-    }
-
-    #[inline]
-    pub fn types(&self) -> &OrderedHashMap<QName, Rc<TypeDef>> {
-        &self.types
-    }
-
-    #[inline]
-    pub fn tables(&self) -> &OrderedHashMap<QName, Rc<Table>> {
-        &self.tables
-    }
-
-    #[inline]
-    pub fn indices(&self) -> &OrderedHashMap<QName, Rc<Index>> {
-        &self.indices
-    }
-
-    #[inline]
-    pub fn extensions(&self) -> &OrderedHashMap<QName, Rc<Extension>> {
-        &self.extensions
-    }
-
-    #[inline]
-    pub fn functions(&self) -> &OrderedHashMap<FunctionSignature, Rc<Function>> {
-        &self.functions
     }
 
     #[inline]
@@ -184,8 +288,7 @@ impl Database {
     }
 
     pub fn create_table(&mut self, create_table: CreateTable) -> bool {
-        // TODO: use some kind of ordered hashtable?
-        if self.tables.contains_key(create_table.table().name()) {
+        if self.has_table(create_table.table().name()) {
             return create_table.if_not_exists();
         }
         let name = create_table.table().name().clone();
@@ -196,7 +299,7 @@ impl Database {
     pub fn create_index(&mut self, mut create_index: CreateIndex) -> bool {
         let index_name = create_index.index_mut().ensure_name();
 
-        if self.indices.contains_key(index_name) {
+        if self.has_index(index_name) {
             return create_index.if_not_exists();
         }
         self.indices.insert(index_name.clone(), create_index.into());
@@ -205,7 +308,7 @@ impl Database {
 
     pub fn create_type(&mut self, type_def: impl Into<Rc<TypeDef>>) -> bool {
         let type_def = type_def.into();
-        if self.types.contains_key(type_def.name()) {
+        if self.has_type(type_def.name()) {
             return false;
         }
         self.types.insert(type_def.name().clone(), type_def);
@@ -213,7 +316,7 @@ impl Database {
     }
 
     pub fn create_extension(&mut self, create_extension: CreateExtension) -> bool {
-        if self.extensions.contains_key(create_extension.extension().name()) {
+        if self.has_extension(create_extension.extension().name()) {
             return create_extension.if_not_exists();
         }
         let name = create_extension.extension().name().clone();
@@ -232,7 +335,7 @@ impl Database {
             return true;
         }
 
-        if self.functions.contains_key(&signature) {
+        if self.has_function(&signature) {
             return false;
         }
 
@@ -244,7 +347,7 @@ impl Database {
     }
 
     pub fn create_trigger(&mut self, create_trigger: CreateTrigger) -> Result<()> {
-        let Some(table) = self.tables.get_mut(create_trigger.trigger().table_name()) else {
+        let Some(table) = self.get_table_mut(create_trigger.trigger().table_name()) else {
             return Err(Error::new(
                 ErrorKind::TableNotExists,
                 None,
@@ -275,11 +378,13 @@ impl Database {
     pub fn find_columns_with_type(&self, type_name: &QName) -> Vec<(&QName, &Rc<Column>)> {
         let mut found_columns = Vec::new();
 
-        for table in self.tables.values_unordered() {
-            for column in table.columns().values_unordered() {
-                if let BasicType::UserDefined { name, .. } = column.data_type().basic_type() {
-                    if type_name == name {
-                        found_columns.push((table.name(), column));
+        for schema in self.schemas.values() {
+            for table in schema.tables().values_unordered() {
+                for column in table.columns().values_unordered() {
+                    if let BasicType::UserDefined { name, .. } = column.data_type().basic_type() {
+                        if type_name == name {
+                            found_columns.push((table.name(), column));
+                        }
                     }
                 }
             }
@@ -291,7 +396,7 @@ impl Database {
     pub fn alter_type(&mut self, alter_type: &AlterType) -> Result<()> {
         match alter_type.data() {
             AlterTypeData::Rename { new_name } => {
-                if self.types.contains_key(new_name) {
+                if self.has_type(new_name) {
                     return Err(Error::new(
                         ErrorKind::TypeExists,
                         None,
@@ -325,7 +430,7 @@ impl Database {
                     Some(new_schema.clone()),
                     alter_type.type_name().name().clone()
                 );
-                if self.types.contains_key(&new_name) {
+                if self.has_type(&new_name) {
                     return Err(Error::new(
                         ErrorKind::TypeExists,
                         None,
@@ -354,7 +459,7 @@ impl Database {
                 Ok(())
             }
             _ => {
-                if let Some(type_def) = self.types.get_mut(alter_type.type_name()) {
+                if let Some(type_def) = self.get_type_mut(alter_type.type_name()) {
                     match alter_type.data() {
                         AlterTypeData::OwnerTo { .. } => {}, // TODO: should I care about ownership?
                         AlterTypeData::AddValue { if_not_exists, value, position } => {
@@ -472,7 +577,7 @@ impl Database {
     pub fn alter_table(&mut self, alter_table: &Rc<AlterTable>) -> Result<()> {
         match alter_table.data() {
             AlterTableData::RenameTable { if_exists, new_name } => {
-                if self.tables.contains_key(new_name) {
+                if self.has_table(new_name) {
                     return Err(Error::new(
                         ErrorKind::TableExists,
                         None,
@@ -508,7 +613,7 @@ impl Database {
                     Some(new_schema.clone()),
                     alter_table.name().name().clone()
                 );
-                if self.tables.contains_key(&new_name) {
+                if self.has_table(&new_name) {
                     return Err(Error::new(
                         ErrorKind::TableExists,
                         None,
@@ -540,7 +645,7 @@ impl Database {
                 }
             }
             _ => {
-                let Some(table) = self.tables.get_mut(alter_table.name()) else {
+                let Some(table) = self.get_table_mut(alter_table.name()) else {
                     if alter_table.data().if_exists() {
                         return Ok(());
                     }
@@ -771,9 +876,12 @@ impl Database {
     }
 
     pub fn alter_extension(&mut self, alter_extension: &Rc<AlterExtension>) -> bool {
+        let Some(schema) = self.schemas.get_mut(alter_extension.name().schema().unwrap_or(&self.default_schema)) else {
+            return false;
+        };
         match alter_extension.data() {
             AlterExtensionData::Update(version) => {
-                let Some(extension) = self.extensions.get_mut(alter_extension.name()) else {
+                let Some(extension) = self.get_extension_mut(alter_extension.name()) else {
                     return false;
                 };
 
@@ -787,13 +895,13 @@ impl Database {
                     alter_extension.name().name().clone()
                 );
 
-                if self.extensions.contains_key(&new_name) {
+                if schema.extensions().contains_key(new_name.name()) {
                     return false;
                 }
 
-                if let Some(mut extension) = self.extensions.remove(alter_extension.name()) {
+                if let Some(mut extension) = schema.extensions_mut().remove(alter_extension.name().name()) {
                     Rc::make_mut(&mut extension).set_schema(Some(new_schema.clone()));
-                    self.extensions.insert(new_name, extension);
+                    schema.extensions_mut().insert(new_name.into_name(), extension);
                     true
                 } else {
                     false

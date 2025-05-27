@@ -1,11 +1,63 @@
 use std::{collections::HashMap, ops::Deref, rc::Rc};
 
-use crate::model::{alter::{extension::{AlterExtension, AlterExtensionData}, table::{AlterColumn, AlterTable}, types::AlterType}, column::{Column, ColumnConstraintData}, extension::CreateExtension, function::CreateFunction, name::{Name, QName}, database::Database, statement::Statement, table::Table, token::ParsedToken, trigger::CreateTrigger};
+use crate::model::{alter::{extension::{AlterExtension, AlterExtensionData}, table::{AlterColumn, AlterTable}, types::AlterType}, column::{Column, ColumnConstraintData}, database::Database, extension::CreateExtension, function::CreateFunction, name::{Name, QName}, schema::Schema, statement::Statement, table::Table, token::ParsedToken, trigger::CreateTrigger};
 
 use crate::model::words::*;
 
 pub fn generate_migration(old: &Database, new: &Database) -> Vec<Statement> {
     let mut stmts = Vec::new();
+
+    for schema in old.schemas().values() {
+        if let Some(new_schema) = new.schemas().get(schema.name()) {
+            migrate_schema(old, schema, new_schema, &mut stmts);
+        } else {
+            stmts.push(Statement::drop_schema(schema.name().clone()));
+        }
+    }
+
+    for schema in new.schemas().values() {
+        if !old.schemas().contains_key(schema.name()) {
+            stmts.push(Statement::create_schema(schema.name().clone()));
+
+            for extension in schema.extensions().values() {
+                stmts.push(Statement::create_extension(
+                    extension.name().clone(),
+                    extension.version().cloned()
+                ));
+            }
+
+            for type_def in schema.types().values() {
+                stmts.push(Statement::CreateType(type_def.clone()));
+            }
+
+            for function in schema.functions().values() {
+                stmts.push(Statement::CreateFunction(
+                    Rc::new(CreateFunction::new(false, function.clone()))
+                ));
+            }
+
+            for table in schema.tables().values() {
+                stmts.push(Statement::create_table(table.clone()));
+            }
+
+            for table in schema.tables().values() {
+                for trigger in table.triggers().values() {
+                    stmts.push(Statement::CreateTrigger(
+                        Rc::new(CreateTrigger::new(false, trigger.clone()))
+                    ));
+                }
+            }
+
+            for index in schema.indices().values() {
+                stmts.push(Statement::create_index(index.clone()));
+            }
+        }
+    }
+
+    stmts
+}
+
+pub fn migrate_schema(old_database: &Database, old: &Schema, new: &Schema, stmts: &mut Vec<Statement>) {
     let mut create_indices = Vec::new();
 
     let old_tables = old.tables();
@@ -22,7 +74,7 @@ pub fn generate_migration(old: &Database, new: &Database) -> Vec<Statement> {
     let mut tmp_id = 0u64;
 
     for type_def in new.types().values() {
-        if let Some(old_type_def) = old_types.get(type_def.name()) {
+        if let Some(old_type_def) = old_types.get(type_def.name().name()) {
             if type_def != old_type_def {
                 if let Some(missing_values) = old_type_def.missing_enum_values(type_def) {
                     // strictly only new values
@@ -33,19 +85,17 @@ pub fn generate_migration(old: &Database, new: &Database) -> Vec<Statement> {
                     }
                 } else {
                     let schema = type_def.name().schema();
-                    let mut tmp_name = QName::new(
-                        schema.cloned(),
-                        Name::new(format!("_wanderlust_tmp_type_{tmp_id}"))
-                    );
+                    let mut tmp_name = Name::new(format!("_wanderlust_tmp_type_{tmp_id}"));
                     while old_types.contains_key(&tmp_name) {
                         tmp_id += 1;
-                        tmp_name.set_name(Name::new(format!("_wanderlust_tmp_type_{tmp_id}")));
+                        tmp_name = Name::new(format!("_wanderlust_tmp_type_{tmp_id}"));
                     }
+                    let tmp_name = QName::new(schema.cloned(), tmp_name.clone());
 
                     let tmp_type_def = type_def.with_name(tmp_name.clone());
                     stmts.push(Statement::CreateType(tmp_type_def.into()));
 
-                    for (table_name, column) in old.find_columns_with_type(type_def.name()) {
+                    for (table_name, column) in old_database.find_columns_with_type(type_def.name()) {
                         let new_type = column.data_type().with_user_type(tmp_name.clone(), None);
                         let using = new_type.cast(column.name());
 
@@ -74,13 +124,13 @@ pub fn generate_migration(old: &Database, new: &Database) -> Vec<Statement> {
     }
 
     for table in old_tables.values() {
-        if !new_tables.contains_key(table.name()) {
+        if !new_tables.contains_key(table.name().name()) {
             stmts.push(Statement::drop_table(table.name().clone()));
         }
     }
 
     for extension in old.extensions().values() {
-        if !new.extensions().contains_key(extension.name()) {
+        if !new.extensions().contains_key(extension.name().name()) {
             stmts.push(Statement::drop_extension(extension.name().clone()));
         }
     }
@@ -93,7 +143,7 @@ pub fn generate_migration(old: &Database, new: &Database) -> Vec<Statement> {
 
     for index in old.indices().values() {
         if let Some(name) = index.name() {
-            if let Some(new_index) = new_indices.get(name) {
+            if let Some(new_index) = new_indices.get(name.name()) {
                 if new_index != index {
                     stmts.push(Statement::drop_index(name.clone()));
                     create_indices.push(Statement::create_index(new_index.clone()));
@@ -107,7 +157,7 @@ pub fn generate_migration(old: &Database, new: &Database) -> Vec<Statement> {
     }
 
     for extension in new.extensions().values() {
-        if let Some(old_extension) = old.extensions().get(extension.name()) {
+        if let Some(old_extension) = old.extensions().get(extension.name().name()) {
             if let (Some(version), Some(old_version)) = (extension.version(), old_extension.version()) {
                 if version != old_version {
                     stmts.push(Statement::AlterExtension(
@@ -140,8 +190,8 @@ pub fn generate_migration(old: &Database, new: &Database) -> Vec<Statement> {
     }
 
     for table in new.tables().values() {
-        if let Some(old_table) = old_tables.get(table.name()) {
-            migrate_table(old_table, table, &mut stmts);
+        if let Some(old_table) = old_tables.get(table.name().name()) {
+            migrate_table(old_table, table, stmts);
         } else {
             stmts.push(Statement::create_table(table.clone()));
         }
@@ -149,7 +199,7 @@ pub fn generate_migration(old: &Database, new: &Database) -> Vec<Statement> {
 
     for index in new.indices().values() {
         if let Some(name) = index.name() {
-            if !old_indices.contains_key(name) {
+            if !old_indices.contains_key(name.name()) {
                 // TODO: find matching unnamed index?
                 stmts.push(Statement::create_index(index.clone()));
             }
@@ -158,7 +208,7 @@ pub fn generate_migration(old: &Database, new: &Database) -> Vec<Statement> {
 
     for index in old.indices().values() {
         if let Some(name) = index.name() {
-            if !new_indices.contains_key(name) {
+            if !new_indices.contains_key(name.name()) {
                 // TODO: find matching unnamed index?
                 stmts.push(Statement::drop_index(name.clone()));
             }
@@ -168,12 +218,10 @@ pub fn generate_migration(old: &Database, new: &Database) -> Vec<Statement> {
     stmts.extend(create_indices);
 
     for type_def in old.types().values() {
-        if !new_types.contains_key(type_def.name()) {
+        if !new_types.contains_key(type_def.name().name()) {
             stmts.push(Statement::drop_type(type_def.name().clone()));
         }
     }
-
-    stmts
 }
 
 fn migrate_table(old_table: &Table, new_table: &Table, stmts: &mut Vec<Statement>) {

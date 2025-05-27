@@ -21,6 +21,7 @@ pub enum Statement {
     CreateExtension(Rc<CreateExtension>),
     CreateFunction(Rc<CreateFunction>),
     CreateTrigger(Rc<CreateTrigger>),
+    CreateSchema { if_not_exists: bool, name: Name },
     AlterTable(Rc<AlterTable>),
     AlterType(Rc<AlterType>),
     AlterExtension(Rc<AlterExtension>),
@@ -30,9 +31,15 @@ pub enum Statement {
     DropExtension { if_exists: bool, names: Vec<QName>, behavior: Option<DropBehavior> },
     DropFunction { if_exists: bool, signatures: Vec<DropFunctionSignature>, behavior: Option<DropBehavior> },
     DropTrigger { if_exists: bool, name: Name, table_name: QName, behavior: Option<DropBehavior> },
+    DropSchema { if_exists: bool, name: Name, behavior: Option<DropBehavior> },
 }
 
 impl Statement {
+    #[inline]
+    pub fn create_schema(name: Name) -> Self {
+        Self::CreateSchema { if_not_exists: false, name }
+    }
+
     #[inline]
     pub fn create_index(index: impl Into<Rc<Index>>) -> Self {
         Self::CreateIndex(Rc::new(CreateIndex::new(index, false, false)))
@@ -79,6 +86,11 @@ impl Statement {
     }
 
     #[inline]
+    pub fn drop_schema(name: Name) -> Self {
+        Self::DropSchema { if_exists: false, name, behavior: None }
+    }
+
+    #[inline]
     pub fn is_same_variant(&self, other: &Statement) -> bool {
         std::mem::discriminant(self) == std::mem::discriminant(other)
     }
@@ -96,6 +108,13 @@ impl std::fmt::Display for Statement {
             Self::AlterTable(alter)      => alter.fmt(f),
             Self::AlterType(alter)       => alter.fmt(f),
             Self::AlterExtension(alter)  => alter.fmt(f),
+            Self::CreateSchema { if_not_exists, name } => {
+                write!(f, "{CREATE} {SCHEMA}")?;
+                if *if_not_exists {
+                    write!(f, " {IF} {NOT} {EXISTS}")?;
+                }
+                write!(f, " {name};")
+            }
             Self::DropTable { if_exists, names, behavior } => {
                 write!(f, "{DROP} {TABLE}")?;
                 if *if_exists {
@@ -209,6 +228,21 @@ impl std::fmt::Display for Statement {
                 }
 
                 write!(f, " {name} {ON} {table_name}")?;
+
+                if let Some(behavior) = behavior {
+                    write!(f, " {behavior}")?;
+                }
+
+                f.write_str(";")
+            }
+            Self::DropSchema { if_exists, name, behavior } => {
+                write!(f, "{DROP} {SCHEMA}")?;
+
+                if *if_exists {
+                    write!(f, " {IF} {EXISTS}")?;
+                }
+
+                write!(f, " {name}")?;
 
                 if let Some(behavior) = behavior {
                     write!(f, " {behavior}")?;

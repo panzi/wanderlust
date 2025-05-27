@@ -1,4 +1,5 @@
 pub mod database;
+pub mod schema;
 pub mod token;
 pub mod table;
 pub mod column;
