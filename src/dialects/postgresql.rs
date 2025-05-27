@@ -12,7 +12,20 @@ use crate::{
             table::{AlterColumn, AlterColumnData, AlterTable, AlterTableAction, AlterTableData},
             types::{AlterType, AlterTypeData, ValuePosition},
             DropBehavior, Owner
-        }, column::{Column, ColumnConstraint, ColumnConstraintData, ColumnMatch, ReferentialAction}, extension::{CreateExtension, Extension, Version}, floats::Float, function::{self, Argmode, Argument, CreateFunction, Function, ReturnType}, index::{CreateIndex, Direction, Index, IndexItem, IndexItemData, NullsPosition}, integers::{Integer, SignedInteger, UnsignedInteger}, name::{Name, QName}, schema::Schema, syntax::{Cursor, Parser, SourceLocation, Tokenizer}, table::{CreateTable, Table, TableConstraint, TableConstraintData}, token::{ParsedToken, ToTokens, Token, TokenKind}, trigger::{CreateTrigger, Event, LifeCycle, ReferencedTable, Trigger, When}, types::{BasicType, DataType, IntervalFields, TypeDef, Value}
+        },
+        column::{Column, ColumnConstraint, ColumnConstraintData, ColumnMatch, ReferentialAction},
+        extension::{CreateExtension, Extension, Version},
+        floats::Float,
+        function::{self, Argmode, Argument, CreateFunction, Function, ReturnType},
+        index::{CreateIndex, Direction, Index, IndexItem, IndexItemData, NullsPosition},
+        integers::{Integer, SignedInteger, UnsignedInteger},
+        name::{Name, QName},
+        database::Database,
+        syntax::{Cursor, Parser, SourceLocation, Tokenizer},
+        table::{CreateTable, Table, TableConstraint, TableConstraintData},
+        token::{ParsedToken, ToTokens, Token, TokenKind},
+        trigger::{CreateTrigger, Event, LifeCycle, ReferencedTable, Trigger, When},
+        types::{BasicType, DataType, IntervalFields, TypeDef, Value}
     },
     ordered_hash_map::OrderedHashMap,
     peek_token
@@ -311,7 +324,7 @@ impl<'a> PostgreSQLTokenizer<'a> {
                     ));
                 };
 
-                if value.len() != 1 {
+                if value.chars().count() != 1 {
                     return Err(Error::with_message(
                         ErrorKind::IllegalToken,
                         *next.cursor(),
@@ -842,7 +855,7 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
 pub struct PostgreSQLParser<'a> {
     tokenizer: PostgreSQLTokenizer<'a>,
     default_schema: Name,
-    schema: Rc<Schema>,
+    schema: Rc<Database>,
 }
 
 impl<'a> PostgreSQLParser<'a> {
@@ -852,7 +865,7 @@ impl<'a> PostgreSQLParser<'a> {
         Self {
             tokenizer: PostgreSQLTokenizer::new(source),
             default_schema: default_schema.clone(),
-            schema: Rc::new(Schema::new(default_schema)),
+            schema: Rc::new(Database::new(default_schema)),
         }
     }
 
@@ -2412,18 +2425,22 @@ impl<'a> PostgreSQLParser<'a> {
             self.expect_word(OWNER)?;
             self.expect_word(TO)?;
 
-            let new_owner = if self.parse_word(CURRENT_ROLE)? {
-                Owner::CurrentRole
-            } else if self.parse_word(CURRENT_USER)? {
-                Owner::CurrentUser
-            } else if self.parse_word(SESSION_USER)? {
-                Owner::SessionUser
-            } else {
-                let user = self.expect_name()?;
-                Owner::User(user)
-            };
+            let new_owner = self.parse_owner()?;
 
             Ok(AlterTableAction::OwnerTo { new_owner })
+        }
+    }
+
+    fn parse_owner(&mut self) -> Result<Owner> {
+        if self.parse_word(CURRENT_ROLE)? {
+            Ok(Owner::CurrentRole)
+        } else if self.parse_word(CURRENT_USER)? {
+            Ok(Owner::CurrentUser)
+        } else if self.parse_word(SESSION_USER)? {
+            Ok(Owner::SessionUser)
+        } else {
+            let user = self.expect_name()?;
+            Ok(Owner::User(user))
         }
     }
 
@@ -2937,7 +2954,7 @@ impl<'a> Parser for PostgreSQLParser<'a> {
         }
     }
 
-    fn parse(&mut self) -> Result<Rc<Schema>> {
+    fn parse(&mut self) -> Result<Rc<Database>> {
         Rc::make_mut(&mut self.schema).clear();
 
         while let Some(token) = self.tokenizer.peek()? {

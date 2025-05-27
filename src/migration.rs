@@ -1,10 +1,10 @@
 use std::{collections::HashMap, ops::Deref, rc::Rc};
 
-use crate::model::{alter::{extension::{AlterExtension, AlterExtensionData}, table::{AlterColumn, AlterTable}, types::AlterType}, column::{Column, ColumnConstraintData}, extension::CreateExtension, function::CreateFunction, name::{Name, QName}, schema::Schema, statement::Statement, table::Table, token::ParsedToken, trigger::CreateTrigger};
+use crate::model::{alter::{extension::{AlterExtension, AlterExtensionData}, table::{AlterColumn, AlterTable}, types::AlterType}, column::{Column, ColumnConstraintData}, extension::CreateExtension, function::CreateFunction, name::{Name, QName}, database::Database, statement::Statement, table::Table, token::ParsedToken, trigger::CreateTrigger};
 
 use crate::model::words::*;
 
-pub fn generate_migration(old: &Schema, new: &Schema) -> Vec<Statement> {
+pub fn generate_migration(old: &Database, new: &Database) -> Vec<Statement> {
     let mut stmts = Vec::new();
     let mut create_indices = Vec::new();
 

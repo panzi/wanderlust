@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use crate::error::{Error, ErrorKind, Result};
 
-use super::{schema::Schema, name::Name, token::{ParsedToken, Token, TokenKind}};
+use super::{database::Database, name::Name, token::{ParsedToken, Token, TokenKind}};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Cursor {
@@ -290,7 +290,7 @@ macro_rules! peek_token {
 pub trait Parser {
     fn get_source(&self, cursor: &Cursor) -> &str;
 
-    fn parse(&mut self) -> Result<Rc<Schema>>;
+    fn parse(&mut self) -> Result<Rc<Database>>;
 
     fn expect_some(&mut self) -> Result<Token>;
 

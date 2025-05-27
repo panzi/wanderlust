@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::ops::Deref;
 use std::rc::Rc;
 
@@ -22,7 +23,7 @@ use super::{index::Index, table::Table, types::TypeDef};
 use super::words::*;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Schema {
+pub struct Database {
     types: OrderedHashMap<QName, Rc<TypeDef>>,
     tables: OrderedHashMap<QName, Rc<Table>>,
     indices: OrderedHashMap<QName, Rc<Index>>,
@@ -32,23 +33,34 @@ pub struct Schema {
     search_path: Vec<Name>,
 }
 
-impl std::fmt::Display for Schema {
+impl std::fmt::Display for Database {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "{BEGIN};")?;
-        for (_, type_def) in &self.types {
+        for extension in self.extensions.values() {
+            writeln!(f, "{extension}")?;
+        }
+        for type_def in self.types.values() {
             writeln!(f, "{type_def}")?;
         }
-        for (_, table) in &self.tables {
+        for function in self.functions.values() {
+            writeln!(f, "{function}")?;
+        }
+        for table in self.tables.values() {
             writeln!(f, "{table}")?;
         }
-        for (_, index) in &self.indices {
+        for table in self.tables.values() {
+            for trigger in table.triggers().values() {
+                writeln!(f, "{trigger}")?;
+            }
+        }
+        for index in self.indices.values() {
             writeln!(f, "{index}")?;
         }
         writeln!(f, "{COMMIT};")
     }
 }
 
-impl Schema {
+impl Database {
     #[inline]
     pub fn new(default_schema: Name) -> Self {
         Self {
