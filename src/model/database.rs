@@ -274,6 +274,12 @@ impl Database {
     }
 
     #[inline]
+    pub fn set_default_schema(&mut self, mut default_schema: Name) -> Name {
+        std::mem::swap(&mut self.default_schema, &mut default_schema);
+        default_schema
+    }
+
+    #[inline]
     pub fn search_path(&self) -> &[Name] {
         &self.search_path
     }

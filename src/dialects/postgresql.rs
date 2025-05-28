@@ -854,7 +854,6 @@ impl<'a> Tokenizer for PostgreSQLTokenizer<'a> {
 #[derive(Debug, Clone, PartialEq)]
 pub struct PostgreSQLParser<'a> {
     tokenizer: PostgreSQLTokenizer<'a>,
-    default_schema: Name,
     database: Rc<Database>,
 }
 
@@ -864,14 +863,8 @@ impl<'a> PostgreSQLParser<'a> {
         let default_schema = Name::new("public");
         Self {
             tokenizer: PostgreSQLTokenizer::new(source),
-            default_schema: default_schema.clone(),
             database: Rc::new(Database::new(default_schema)),
         }
-    }
-
-    #[inline]
-    pub fn default_schema(&self) -> &Name {
-        &self.default_schema
     }
 
     fn parse_quot_name(&self, cursor: &Cursor) -> Result<Name> {
@@ -1716,7 +1709,7 @@ impl<'a> PostgreSQLParser<'a> {
             std::mem::swap(&mut temp, &mut name);
             temp
         } else {
-            self.database.search_path().first().unwrap_or(&self.default_schema).clone()
+            self.database.search_path().first().unwrap_or(self.database.default_schema()).clone()
         };
 
         Ok(QName::new(Some(schema), name))
@@ -2063,7 +2056,7 @@ impl<'a> PostgreSQLParser<'a> {
     }
 
     fn parse_schema_tail(&mut self, start_offset: usize, if_not_exists: bool, name: Name) -> Result<()> {
-        Rc::make_mut(&mut self.database).create_schema(if_not_exists, name).map_err(|mut err| {
+        Rc::make_mut(&mut self.database).create_schema(if_not_exists, name.clone()).map_err(|mut err| {
             *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
             err
         })?;
@@ -2071,9 +2064,187 @@ impl<'a> PostgreSQLParser<'a> {
         if !if_not_exists && !self.peek_kind(TokenKind::SemiColon)? && !self.peek_token()?.is_none() {
             // TODO: optional schema elements
             // See: https://www.postgresql.org/docs/17/sql-createschema.html
+            let old_default_schema = Rc::make_mut(&mut self.database).set_default_schema(name.clone());
+            let old_search_path = self.database.search_path().iter().cloned().collect::<Vec<_>>();
+            Rc::make_mut(&mut self.database).set_default_search_path();
+
+            let res = self.parse_schema_elements();
+
+            let database = Rc::make_mut(&mut self.database);
+            database.set_default_schema(old_default_schema);
+            *database.search_path_mut() = old_search_path;
+
+            res?;
         }
 
         Ok(())
+    }
+
+    fn parse_schema_elements(&mut self) -> Result<()> {
+        while let Some(token) = self.tokenizer.peek()? {
+            if token.kind() == TokenKind::SemiColon {
+                break;
+            }
+
+            let start_offset = token.cursor().start_offset();
+            if self.parse_word(CREATE)? {
+                self.parse_create_intern(start_offset)?;
+            } else if self.parse_word(GRANT)? {
+                // TODO: GRANT...
+                self.parse_token_list(false, true)?;
+
+                let end_offset = self.tokenizer.offset();
+                let source = self.tokenizer.get_offset(start_offset, end_offset);
+
+                eprintln!("TODO: parse GRANT statements: {source}");
+            } else {
+                return Err(self.expected_one_of(&[
+                    CREATE, GRANT
+                ]));
+            }
+        }
+        Ok(())
+    }
+
+    fn parse_create_intern(&mut self, start_offset: usize) -> Result<()> {
+        // "CREATE" is already parsed
+        if self.parse_word(TABLE)? {
+            let table = self.parse_table_intern()?;
+            Rc::make_mut(&mut self.database).create_table(table).map_err(|mut err| {
+                *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
+                err
+            })
+        } else if self.parse_word(INDEX)? {
+            let index = self.parse_index_intern(false)?;
+            Rc::make_mut(&mut self.database).create_index(index).map_err(|mut err| {
+                *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
+                err
+            })
+        } else if self.parse_word(UNIQUE)? && self.parse_word(INDEX)? {
+            let index = self.parse_index_intern(true)?;
+            Rc::make_mut(&mut self.database).create_index(index).map_err(|mut err| {
+                *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
+                err
+            })
+        } else if self.parse_word(TYPE)? {
+            let type_def = self.parse_type_def_intern()?;
+            Rc::make_mut(&mut self.database).create_type(type_def).map_err(|mut err| {
+                *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
+                err
+            })
+        } else if self.parse_word(SEQUENCE)? {
+            // TODO: CREATE SEQUENCE?
+            self.parse_token_list(false, true)?;
+
+            let end_offset = self.tokenizer.offset();
+            let source = self.tokenizer.get_offset(start_offset, end_offset);
+
+            eprintln!("TODO: parse CREATE SEQUENCE statements: {source}");
+            Ok(())
+        } else if self.parse_word(EXTENSION)? {
+            // CREATE EXTENSION
+            let if_not_exists = self.parse_if_not_exists()?;
+
+            let name = self.expect_name()?;
+
+            self.parse_word(WITH)?;
+
+            let schema = if self.parse_word(SCHEMA)? {
+                self.expect_name()?
+            } else {
+                self.database.search_path().first().unwrap_or(self.database.default_schema()).clone()
+            };
+
+            let version = if self.parse_word(VERSION)? {
+                Some(self.parse_version()?)
+            } else {
+                None
+            };
+
+            let cascade = self.parse_word(CASCADE)?;
+
+            let extension = CreateExtension::new(
+                if_not_exists,
+                Extension::new(
+                    QName::new(Some(schema), name),
+                    version,
+                ),
+                cascade
+            );
+
+            Rc::make_mut(&mut self.database).create_extension(extension).map_err(|mut err| {
+                *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
+                err
+            })
+        } else if self.parse_word(FUNCTION)? {
+            // CREATE FUNCTION/PROCEDURE
+            let function = self.parse_function_intern(false, true)?;
+            Rc::make_mut(&mut self.database).create_function(function).map_err(|mut err| {
+                *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
+                err
+            })
+        } else if self.parse_word(PROCEDURE)? {
+            // CREATE FUNCTION/PROCEDURE
+            let function = self.parse_function_intern(true, true)?;
+            Rc::make_mut(&mut self.database).create_function(function).map_err(|mut err| {
+                *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
+                err
+            })
+        } else if self.parse_word(OR)? {
+            // CREATE OR REPLACE FUNCTION/PROCEDURE/TRIGGER
+            self.expect_word(REPLACE)?;
+
+            if self.parse_word(FUNCTION)? {
+                let function = self.parse_function_intern(false, true)?;
+                Rc::make_mut(&mut self.database).create_function(function).map_err(|mut err| {
+                    *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
+                    err
+                })
+            } else if self.parse_word(PROCEDURE)? {
+                let function = self.parse_function_intern(true, true)?;
+                Rc::make_mut(&mut self.database).create_function(function).map_err(|mut err| {
+                    *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
+                    err
+                })
+            } else if self.parse_word(CONSTRAINT)? {
+                // CREATE CONSTRAINT TRIGGER
+                self.expect_word(TRIGGER)?;
+                let trigger = self.parse_trigger_intern(true, true)?;
+                Rc::make_mut(&mut self.database).create_trigger(trigger).map_err(|mut err| {
+                    *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
+                    err
+                })
+            } else if self.parse_word(TRIGGER)? {
+                let trigger = self.parse_trigger_intern(true, false)?;
+                Rc::make_mut(&mut self.database).create_trigger(trigger).map_err(|mut err| {
+                    *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
+                    err
+                })
+            } else {
+                Err(self.expected_one_of(&[
+                    FUNCTION, PROCEDURE, "[CONSTRAINT] TRIGGER"
+                ]))
+            }
+        } else if self.parse_word(TRIGGER)? {
+            // CREATE TRIGGER
+            let trigger = self.parse_trigger_intern(false, false)?;
+            Rc::make_mut(&mut self.database).create_trigger(trigger).map_err(|mut err| {
+                *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
+                err
+            })
+        } else if self.parse_word(CONSTRAINT)? {
+            // CREATE CONSTRAINT TRIGGER
+            self.expect_word(TRIGGER)?;
+            let trigger = self.parse_trigger_intern(false, true)?;
+            Rc::make_mut(&mut self.database).create_trigger(trigger).map_err(|mut err| {
+                *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
+                err
+            })
+        } else {
+            Err(self.expected_one_of(&[
+                TABLE, "[UNIQUE] INDEX", TYPE, EXTENSION, SEQUENCE, FUNCTION, PROCEDURE, "[CONSTRAINT] TRIGGER", SCHEMA
+            ]))
+        }
     }
 
     fn parse_table_intern(&mut self) -> Result<CreateTable> {
@@ -3002,144 +3173,10 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                 }
 
             } else if self.parse_word(CREATE)? {
-                if self.parse_word(TABLE)? {
-                    let table = self.parse_table_intern()?;
-                    Rc::make_mut(&mut self.database).create_table(table).map_err(|mut err| {
-                        *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
-                        err
-                    })?;
-                } else if self.parse_word(INDEX)? {
-                    let index = self.parse_index_intern(false)?;
-                    Rc::make_mut(&mut self.database).create_index(index).map_err(|mut err| {
-                        *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
-                        err
-                    })?;
-                } else if self.parse_word(UNIQUE)? && self.parse_word(INDEX)? {
-                    let index = self.parse_index_intern(true)?;
-                    Rc::make_mut(&mut self.database).create_index(index).map_err(|mut err| {
-                        *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
-                        err
-                    })?;
-                } else if self.parse_word(TYPE)? {
-                    let type_def = self.parse_type_def_intern()?;
-                    Rc::make_mut(&mut self.database).create_type(type_def).map_err(|mut err| {
-                        *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
-                        err
-                    })?;
-                } else if self.parse_word(SEQUENCE)? {
-                    // TODO: CREATE SEQUENCE?
-                    self.parse_token_list(false, true)?;
-
-                    let end_offset = self.tokenizer.offset();
-                    let source = self.tokenizer.get_offset(start_offset, end_offset);
-
-                    eprintln!("TODO: parse CREATE SEQUENCE statements: {source}");
-                } else if self.parse_word(EXTENSION)? {
-                    // CREATE EXTENSION
-                    let if_not_exists = self.parse_if_not_exists()?;
-
-                    let name = self.expect_name()?;
-
-                    self.parse_word(WITH)?;
-
-                    let schema = if self.parse_word(SCHEMA)? {
-                        self.expect_name()?
-                    } else {
-                        self.database.search_path().first().unwrap_or(&self.default_schema).clone()
-                    };
-
-                    let version = if self.parse_word(VERSION)? {
-                        Some(self.parse_version()?)
-                    } else {
-                        None
-                    };
-
-                    let cascade = self.parse_word(CASCADE)?;
-
-                    let extension = CreateExtension::new(
-                        if_not_exists,
-                        Extension::new(
-                            QName::new(Some(schema), name),
-                            version,
-                        ),
-                        cascade
-                    );
-
-                    Rc::make_mut(&mut self.database).create_extension(extension).map_err(|mut err| {
-                        *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
-                        err
-                    })?;
-                } else if self.parse_word(FUNCTION)? {
-                    // CREATE FUNCTION/PROCEDURE
-                    let function = self.parse_function_intern(false, true)?;
-                    Rc::make_mut(&mut self.database).create_function(function).map_err(|mut err| {
-                        *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
-                        err
-                    })?;
-                } else if self.parse_word(PROCEDURE)? {
-                    // CREATE FUNCTION/PROCEDURE
-                    let function = self.parse_function_intern(true, true)?;
-                    Rc::make_mut(&mut self.database).create_function(function).map_err(|mut err| {
-                        *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
-                        err
-                    })?;
-                } else if self.parse_word(OR)? {
-                    // CREATE OR REPLACE FUNCTION/PROCEDURE/TRIGGER
-                    self.expect_word(REPLACE)?;
-
-                    if self.parse_word(FUNCTION)? {
-                        let function = self.parse_function_intern(false, true)?;
-                        Rc::make_mut(&mut self.database).create_function(function).map_err(|mut err| {
-                            *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
-                            err
-                        })?;
-                    } else if self.parse_word(PROCEDURE)? {
-                        let function = self.parse_function_intern(true, true)?;
-                        Rc::make_mut(&mut self.database).create_function(function).map_err(|mut err| {
-                            *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
-                            err
-                        })?;
-                    } else if self.parse_word(CONSTRAINT)? {
-                        // CREATE CONSTRAINT TRIGGER
-                        self.expect_word(TRIGGER)?;
-                        let trigger = self.parse_trigger_intern(true, true)?;
-                        Rc::make_mut(&mut self.database).create_trigger(trigger).map_err(|mut err| {
-                            *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
-                            err
-                        })?
-                    } else if self.parse_word(TRIGGER)? {
-                        let trigger = self.parse_trigger_intern(true, false)?;
-                        Rc::make_mut(&mut self.database).create_trigger(trigger).map_err(|mut err| {
-                            *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
-                            err
-                        })?
-                    } else {
-                        return Err(self.expected_one_of(&[
-                            FUNCTION, PROCEDURE, "[CONSTRAINT] TRIGGER"
-                        ]));
-                    }
-                } else if self.parse_word(TRIGGER)? {
-                    // CREATE TRIGGER
-                    let trigger = self.parse_trigger_intern(false, false)?;
-                    Rc::make_mut(&mut self.database).create_trigger(trigger).map_err(|mut err| {
-                        *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
-                        err
-                    })?
-                } else if self.parse_word(CONSTRAINT)? {
-                    // CREATE CONSTRAINT TRIGGER
-                    self.expect_word(TRIGGER)?;
-                    let trigger = self.parse_trigger_intern(false, true)?;
-                    Rc::make_mut(&mut self.database).create_trigger(trigger).map_err(|mut err| {
-                        *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
-                        err
-                    })?
-                } else if self.parse_word(SCHEMA)? {
-                    // CREATE SCHEMA
+                if self.parse_word(SCHEMA)? {
                     self.parse_schema_intern()?;
                 } else {
-                    return Err(self.expected_one_of(&[
-                        TABLE, "[UNIQUE] INDEX", TYPE, EXTENSION, SEQUENCE, FUNCTION, PROCEDURE, "[CONSTRAINT] TRIGGER", SCHEMA
-                    ]));
+                    self.parse_create_intern(start_offset)?;
                 }
             } else if self.parse_word(SELECT)? {
                 // SELECT
