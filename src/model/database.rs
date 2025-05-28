@@ -994,12 +994,12 @@ impl Database {
                     self.get_schema_mut(&new_name)?.extensions_mut().insert(new_name.into_name(), extension);
                     Ok(())
                 } else {
-                    return Err(Error::new(
+                    Err(Error::new(
                         ErrorKind::ExtensionNotExists,
                         None,
                         Some(format!("extension {} not found", alter_extension.name())),
                         None
-                    ));
+                    ))
                 }
             }
         }

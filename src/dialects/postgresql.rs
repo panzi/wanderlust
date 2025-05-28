@@ -2041,7 +2041,7 @@ impl<'a> PostgreSQLParser<'a> {
                         return Err(Error::with_message(
                             ErrorKind::SyntaxError,
                             Cursor::new(start_offset, end_offset),
-                            format!("Schema must have a defined name")
+                            "Schema must have a defined name".to_owned()
                         ));
                     }
                 }
@@ -2061,11 +2061,11 @@ impl<'a> PostgreSQLParser<'a> {
             err
         })?;
 
-        if !if_not_exists && !self.peek_kind(TokenKind::SemiColon)? && !self.peek_token()?.is_none() {
+        if !if_not_exists && !self.peek_kind(TokenKind::SemiColon)? && self.peek_token()?.is_some() {
             // TODO: optional schema elements
             // See: https://www.postgresql.org/docs/17/sql-createschema.html
             let old_default_schema = Rc::make_mut(&mut self.database).set_default_schema(name.clone());
-            let old_search_path = self.database.search_path().iter().cloned().collect::<Vec<_>>();
+            let old_search_path = self.database.search_path().to_vec();
             Rc::make_mut(&mut self.database).set_default_search_path();
 
             let res = self.parse_schema_elements();

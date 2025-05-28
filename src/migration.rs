@@ -1,6 +1,22 @@
 use std::{collections::HashMap, ops::Deref, rc::Rc};
 
-use crate::model::{alter::{extension::{AlterExtension, AlterExtensionData}, table::{AlterColumn, AlterTable}, types::AlterType}, column::{Column, ColumnConstraintData}, database::Database, extension::CreateExtension, function::CreateFunction, name::{Name, QName}, schema::Schema, statement::Statement, table::Table, token::ParsedToken, trigger::CreateTrigger};
+use crate::model::{
+    alter::{
+        extension::{AlterExtension, AlterExtensionData},
+        table::{AlterColumn, AlterTable},
+        types::AlterType,
+    },
+    column::{Column, ColumnConstraintData},
+    database::Database,
+    extension::CreateExtension,
+    function::CreateFunction,
+    name::{Name, QName},
+    schema::Schema,
+    statement::Statement,
+    table::Table,
+    token::ParsedToken,
+    trigger::CreateTrigger,
+};
 
 use crate::model::words::*;
 
