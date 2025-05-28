@@ -2059,8 +2059,6 @@ impl<'a> PostgreSQLParser<'a> {
         let name = self.expect_name()?;
         self.parse_schema_tail(start_offset, if_not_exists, name)?;
 
-        self.expect_semicolon_or_eof()?;
-
         Ok(())
     }
 
@@ -2113,7 +2111,6 @@ impl<'a> PostgreSQLParser<'a> {
             }
         }
         self.expect_token(TokenKind::RParen)?;
-        self.expect_semicolon_or_eof()?;
 
         let table = Table::new(
             table_name,
@@ -2217,8 +2214,6 @@ impl<'a> PostgreSQLParser<'a> {
             predicate = Some(self.parse_token_list(false, true)?);
         }
 
-        self.expect_semicolon_or_eof()?;
-
         let index = Index::new(
             unique,
             index_name,
@@ -2250,7 +2245,6 @@ impl<'a> PostgreSQLParser<'a> {
         }
 
         self.expect_token(TokenKind::RParen)?;
-        self.expect_semicolon_or_eof()?;
 
         Ok(TypeDef::create_enum(type_name, values))
     }
@@ -2314,8 +2308,6 @@ impl<'a> PostgreSQLParser<'a> {
 
             data = AlterTableData::Actions { if_exists, only, actions: actions.into() };
         }
-
-        self.expect_semicolon_or_eof()?;
 
         Ok(Rc::new(AlterTable::new(table_name, data)))
     }
@@ -2536,13 +2528,10 @@ impl<'a> PostgreSQLParser<'a> {
                 Owner::User(username)
             };
 
-            self.expect_semicolon_or_eof()?;
-
             Ok(AlterType::owner_to(type_name, new_owner))
         } else if self.parse_word(RENAME)? {
             if self.parse_word(TO)? {
                 let new_name = self.expect_name()?;
-                self.expect_semicolon_or_eof()?;
 
                 Ok(AlterType::rename(type_name, new_name))
             } else {
@@ -2551,8 +2540,6 @@ impl<'a> PostgreSQLParser<'a> {
                 let existing_value = self.expect_string()?;
                 self.expect_word(TO)?;
                 let new_value = self.expect_string()?;
-
-                self.expect_semicolon_or_eof()?;
 
                 Ok(AlterType::rename_value(type_name, existing_value, new_value))
             }
@@ -2572,14 +2559,10 @@ impl<'a> PostgreSQLParser<'a> {
                 position = Some(ValuePosition::After(other_value));
             }
 
-            self.expect_semicolon_or_eof()?;
-
             Ok(Rc::new(AlterType::new(type_name, AlterTypeData::AddValue { if_not_exists, value, position })))
         } else if self.parse_word(SET)? {
             self.expect_word(SCHEMA)?;
             let new_schma = self.expect_name()?;
-
-            self.expect_semicolon_or_eof()?;
 
             Ok(AlterType::set_schema(type_name, new_schma))
         } else {
@@ -2669,8 +2652,6 @@ impl<'a> PostgreSQLParser<'a> {
         }
 
         let body = self.parse_token_list(false, true)?;
-
-        self.expect_semicolon_or_eof()?;
 
         Ok(CreateFunction::new(or_replace, Function::new(name, arguments, returns, body)))
     }
@@ -2850,8 +2831,6 @@ impl<'a> PostgreSQLParser<'a> {
 
         self.expect_token(TokenKind::RParen)?;
 
-        self.expect_semicolon_or_eof()?;
-
         Ok(CreateTrigger::new(
             or_replace,
             Trigger::new(
@@ -3022,7 +3001,6 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                     self.parse_token_list(false, true)?;
                 }
 
-                self.expect_semicolon_or_eof()?;
             } else if self.parse_word(CREATE)? {
                 if self.parse_word(TABLE)? {
                     let table = self.parse_table_intern()?;
@@ -3051,7 +3029,6 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                 } else if self.parse_word(SEQUENCE)? {
                     // TODO: CREATE SEQUENCE?
                     self.parse_token_list(false, true)?;
-                    self.expect_semicolon_or_eof()?;
 
                     let end_offset = self.tokenizer.offset();
                     let source = self.tokenizer.get_offset(start_offset, end_offset);
@@ -3078,8 +3055,6 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                     };
 
                     let cascade = self.parse_word(CASCADE)?;
-
-                    self.expect_semicolon_or_eof()?;
 
                     let extension = CreateExtension::new(
                         if_not_exists,
@@ -3199,7 +3174,6 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                     }
                 }
                 self.parse_token_list(false, true)?;
-                self.expect_semicolon_or_eof()?;
             } else if self.parse_word(ALTER)? {
                 // TODO: ALTER
                 // This is important if the output of pg_dump should be supported,
@@ -3220,7 +3194,6 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                 } else {
                     // TODO: ALTER INDEX|FUNCTION|TRIGGER|...?
                     self.parse_token_list(false, true)?;
-                    self.expect_semicolon_or_eof()?;
 
                     let end_offset = self.tokenizer.offset();
                     let source = self.tokenizer.get_offset(start_offset, end_offset);
@@ -3230,7 +3203,6 @@ impl<'a> Parser for PostgreSQLParser<'a> {
             } else if self.parse_word(COMMENT)? {
                 // ignore COMMENT?
                 self.parse_token_list(false, true)?;
-                self.expect_semicolon_or_eof()?;
 
                 let end_offset = self.tokenizer.offset();
                 let source = self.tokenizer.get_offset(start_offset, end_offset);
@@ -3239,7 +3211,6 @@ impl<'a> Parser for PostgreSQLParser<'a> {
             } else if self.parse_word(DROP)? {
                 // TODO: DROP...
                 self.parse_token_list(false, true)?;
-                self.expect_semicolon_or_eof()?;
 
                 let end_offset = self.tokenizer.offset();
                 let source = self.tokenizer.get_offset(start_offset, end_offset);
@@ -3248,7 +3219,6 @@ impl<'a> Parser for PostgreSQLParser<'a> {
             } else if self.parse_word(GRANT)? {
                 // TODO: GRANT...
                 self.parse_token_list(false, true)?;
-                self.expect_semicolon_or_eof()?;
 
                 let end_offset = self.tokenizer.offset();
                 let source = self.tokenizer.get_offset(start_offset, end_offset);
@@ -3256,24 +3226,20 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                 eprintln!("TODO: parse GRANT statements: {source}");
             } else if self.parse_word(BEGIN)? {
                 let _ = self.parse_word(TRANSACTION)? || self.parse_word(WORK)?;
-                self.expect_semicolon_or_eof()?;
             } else if self.parse_word(START)? {
                 self.expect_word(TRANSACTION)?;
-                self.expect_semicolon_or_eof()?;
             } else if self.parse_word(COMMIT)? {
                 let _ = self.parse_word(TRANSACTION)? || self.parse_word(WORK)?;
                 if self.parse_word(AND)? {
                     self.parse_word(NO)?;
                     self.expect_word(CHAIN)?;
                 }
-                self.expect_semicolon_or_eof()?;
             } else if self.parse_word(ROLLBACK)? {
                 let _ = self.parse_word(TRANSACTION)? || self.parse_word(WORK)?;
                 if self.parse_word(AND)? {
                     self.parse_word(NO)?;
                     self.expect_word(CHAIN)?;
                 }
-                self.expect_semicolon_or_eof()?;
 
                 return Err(Error::with_message(
                     ErrorKind::UnexpectedToken,
@@ -3285,6 +3251,7 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                     CREATE, SET, SELECT, ALTER, DROP, COMMENT, BEGIN, START
                 ]));
             }
+            self.expect_semicolon_or_eof()?;
         }
 
         Ok(self.database.clone())
