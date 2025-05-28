@@ -5,6 +5,7 @@ pub enum ErrorKind {
     IllegalToken,
     UnexpectedToken,
     UnexpectedEOF,
+    SyntaxError,
 
     TableExists,
     ColumnExists,
@@ -36,6 +37,7 @@ impl std::fmt::Display for ErrorKind {
             Self::IllegalToken        => f.write_str("Illegal Token"),
             Self::UnexpectedToken     => f.write_str("Unexpected Token"),
             Self::UnexpectedEOF       => f.write_str("Unexpected EOF"),
+            Self::SyntaxError         => f.write_str("Syntax Error"),
 
             Self::TableExists         => f.write_str("Table Exists"),
             Self::ColumnExists        => f.write_str("Column Exists"),

@@ -998,4 +998,21 @@ impl Database {
             }
         }
     }
+
+    pub fn create_schema(&mut self, if_not_exists: bool, name: Name) -> Result<()> {
+        if self.schemas.contains_key(&name) {
+            if !if_not_exists {
+                return Err(Error::new(
+                    ErrorKind::SchemaExists,
+                    None,
+                    Some(format!("schema {name} already exists")),
+                    None
+                ));
+            }
+        } else {
+            self.schemas.insert(name.clone(), Schema::new(name.clone()));
+        }
+
+        Ok(())
+    }
 }

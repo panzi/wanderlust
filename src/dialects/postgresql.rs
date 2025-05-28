@@ -14,13 +14,13 @@ use crate::{
             DropBehavior, Owner
         },
         column::{Column, ColumnConstraint, ColumnConstraintData, ColumnMatch, ReferentialAction},
+        database::Database,
         extension::{CreateExtension, Extension, Version},
         floats::Float,
         function::{self, Argmode, Argument, CreateFunction, Function, ReturnType},
         index::{CreateIndex, Direction, Index, IndexItem, IndexItemData, NullsPosition},
         integers::{Integer, SignedInteger, UnsignedInteger},
         name::{Name, QName},
-        database::Database,
         syntax::{Cursor, Parser, SourceLocation, Tokenizer},
         table::{CreateTable, Table, TableConstraint, TableConstraintData},
         token::{ParsedToken, ToTokens, Token, TokenKind},
@@ -1722,19 +1722,6 @@ impl<'a> PostgreSQLParser<'a> {
         Ok(QName::new(Some(schema), name))
     }
 
-    fn parse_qual_name_with_default_schema(&mut self, default_schema: Option<&Name>) -> Result<QName> {
-        let mut name = self.expect_name()?;
-        let schema = if self.parse_token(TokenKind::Period)? {
-            let mut temp = self.expect_name()?;
-            std::mem::swap(&mut temp, &mut name);
-            temp
-        } else {
-            default_schema.unwrap_or(self.database.search_path().first().unwrap_or(&self.default_schema)).clone()
-        };
-
-        Ok(QName::new(Some(schema), name))
-    }
-
     fn parse_operator(&mut self, op: &str) -> Result<bool> {
         let Some(token) = self.peek_token()? else {
             return Ok(false);
@@ -2040,6 +2027,55 @@ impl<'a> PostgreSQLParser<'a> {
         Ok(Rc::new(Column::new(
             column_name, data_type, collation, column_constraints,
         )))
+    }
+
+    fn parse_schema_intern(&mut self) -> Result<()> {
+        let if_not_exists = self.parse_if_not_exists()?;
+
+        if self.parse_word(AUTHORIZATION)? {
+            let start_offset = self.tokenizer.offset();
+            let owner = self.parse_owner()?;
+            let end_offset = self.tokenizer.offset();
+
+            if self.peek_kind(TokenKind::SemiColon)? || self.peek_token()?.is_none() || self.peek_words(&[
+                CREATE, GRANT
+            ])?.is_some() {
+                match owner {
+                    Owner::User(name) => {
+                        self.parse_schema_tail(start_offset, if_not_exists, name)?;
+                    }
+                    _ => {
+                        return Err(Error::with_message(
+                            ErrorKind::SyntaxError,
+                            Cursor::new(start_offset, end_offset),
+                            format!("Schema must have a defined name")
+                        ));
+                    }
+                }
+            }
+        }
+
+        let start_offset = self.tokenizer.offset();
+        let name = self.expect_name()?;
+        self.parse_schema_tail(start_offset, if_not_exists, name)?;
+
+        self.expect_semicolon_or_eof()?;
+
+        Ok(())
+    }
+
+    fn parse_schema_tail(&mut self, start_offset: usize, if_not_exists: bool, name: Name) -> Result<()> {
+        Rc::make_mut(&mut self.database).create_schema(if_not_exists, name).map_err(|mut err| {
+            *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
+            err
+        })?;
+
+        if !if_not_exists && !self.peek_kind(TokenKind::SemiColon)? && !self.peek_token()?.is_none() {
+            // TODO: optional schema elements
+            // See: https://www.postgresql.org/docs/17/sql-createschema.html
+        }
+
+        Ok(())
     }
 
     fn parse_table_intern(&mut self) -> Result<CreateTable> {
@@ -3122,9 +3158,12 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                         *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
                         err
                     })?
+                } else if self.parse_word(SCHEMA)? {
+                    // CREATE SCHEMA
+                    self.parse_schema_intern()?;
                 } else {
                     return Err(self.expected_one_of(&[
-                        TABLE, "[UNIQUE] INDEX", TYPE, EXTENSION, SEQUENCE, FUNCTION, PROCEDURE, "[CONSTRAINT] TRIGGER"
+                        TABLE, "[UNIQUE] INDEX", TYPE, EXTENSION, SEQUENCE, FUNCTION, PROCEDURE, "[CONSTRAINT] TRIGGER", SCHEMA
                     ]));
                 }
             } else if self.parse_word(SELECT)? {
@@ -3206,6 +3245,15 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                 let source = self.tokenizer.get_offset(start_offset, end_offset);
 
                 eprintln!("TODO: parse DROP statements: {source}");
+            } else if self.parse_word(GRANT)? {
+                // TODO: GRANT...
+                self.parse_token_list(false, true)?;
+                self.expect_semicolon_or_eof()?;
+
+                let end_offset = self.tokenizer.offset();
+                let source = self.tokenizer.get_offset(start_offset, end_offset);
+
+                eprintln!("TODO: parse GRANT statements: {source}");
             } else if self.parse_word(BEGIN)? {
                 let _ = self.parse_word(TRANSACTION)? || self.parse_word(WORK)?;
                 self.expect_semicolon_or_eof()?;
