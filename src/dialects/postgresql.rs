@@ -17,7 +17,7 @@ use crate::{
         database::Database,
         extension::{CreateExtension, Extension, Version},
         floats::Float,
-        function::{self, Argmode, Argument, CreateFunction, Function, ReturnType},
+        function::{self, Argmode, Argument, CreateFunction, Function, FunctionRef, ReturnType},
         index::{CreateIndex, Direction, Index, IndexItem, IndexItemData, NullsPosition},
         integers::{Integer, SignedInteger, UnsignedInteger},
         name::{Name, QName},
@@ -1680,14 +1680,15 @@ impl<'a> PostgreSQLParser<'a> {
     }
 
     #[inline]
-    fn parse_ref_function(&mut self) -> Result<QName> {
+    fn parse_ref_function_for_trigger(&mut self) -> Result<QName> {
         let first = self.expect_name()?;
 
         if self.parse_token(TokenKind::Period)? {
             let second = self.expect_name()?;
             Ok(QName::new(Some(first), second))
         } else {
-            Ok(self.database.resolve_function_name(&first))
+            let reference = FunctionRef::new(first.clone(), vec![]);
+            Ok(self.database.resolve_function_reference(&reference))
         }
     }
 
@@ -3034,7 +3035,7 @@ impl<'a> PostgreSQLParser<'a> {
             ]));
         }
 
-        let function_name = self.parse_ref_function()?;
+        let function_name = self.parse_ref_function_for_trigger()?;
 
         self.expect_token(TokenKind::LParen)?;
         let mut arguments = Vec::new();

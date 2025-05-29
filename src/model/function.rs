@@ -5,12 +5,13 @@ use super::{name::{Name, QName}, token::ParsedToken, types::DataType};
 use crate::{format::{join_into, write_token_list, write_token_list_with_options}, model::words::*};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct FunctionSignature {
+pub struct QFunctionRef {
     name: QName,
+    /// only input arguments
     arguments: Rc<[DataType]>,
 }
 
-impl FunctionSignature {
+impl QFunctionRef {
     #[inline]
     pub fn new(name: QName, arguments: impl Into<Rc<[DataType]>>) -> Self {
         Self { name, arguments: arguments.into() }
@@ -25,9 +26,33 @@ impl FunctionSignature {
     pub fn arguments(&self) -> &Rc<[DataType]> {
         &self.arguments
     }
+
+    #[inline]
+    pub fn to_unqualifed(&self) -> FunctionRef {
+        FunctionRef::new(self.name.name().clone(), self.arguments.clone())
+    }
+
+    #[inline]
+    pub fn into_unqualifed(self) -> FunctionRef {
+        FunctionRef::new(self.name.into_name(), self.arguments)
+    }
 }
 
-impl std::fmt::Display for FunctionSignature {
+impl From<QFunctionRef> for FunctionRef {
+    #[inline]
+    fn from(value: QFunctionRef) -> Self {
+        value.into_unqualifed()
+    }
+}
+
+impl From<&QFunctionRef> for FunctionRef {
+    #[inline]
+    fn from(value: &QFunctionRef) -> Self {
+        value.to_unqualifed()
+    }
+}
+
+impl std::fmt::Display for QFunctionRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}(", self.name)?;
 
@@ -38,14 +63,58 @@ impl std::fmt::Display for FunctionSignature {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct DropFunctionSignature {
-    name: QName,
-    arguments: Vec<DropArgument>,
+pub struct FunctionRef {
+    name: Name,
+    /// only input arguments
+    arguments: Rc<[DataType]>,
 }
 
-impl DropFunctionSignature {
+impl FunctionRef {
     #[inline]
-    pub fn new(name: QName, arguments: impl Into<Vec<DropArgument>>) -> Self {
+    pub fn new(name: Name, arguments: impl Into<Rc<[DataType]>>) -> Self {
+        Self { name, arguments: arguments.into() }
+    }
+
+    #[inline]
+    pub fn name(&self) -> &Name {
+        &self.name
+    }
+
+    #[inline]
+    pub fn arguments(&self) -> &Rc<[DataType]> {
+        &self.arguments
+    }
+
+    #[inline]
+    pub fn to_qualified(&self, schema: Name) -> QFunctionRef {
+        QFunctionRef::new(QName::new(Some(schema), self.name.clone()), self.arguments.clone())
+    }
+
+    #[inline]
+    pub fn into_qualified(self, schema: Name) -> QFunctionRef {
+        QFunctionRef::new(QName::new(Some(schema), self.name), self.arguments)
+    }
+}
+
+impl std::fmt::Display for FunctionRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}(", self.name)?;
+
+        join_into(", ", &self.arguments, f)?;
+
+        f.write_str(")")
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FunctionSignature {
+    name: QName,
+    arguments: Vec<SignatureArgument>,
+}
+
+impl FunctionSignature {
+    #[inline]
+    pub fn new(name: QName, arguments: impl Into<Vec<SignatureArgument>>) -> Self {
         Self { name, arguments: arguments.into() }
     }
 
@@ -55,12 +124,46 @@ impl DropFunctionSignature {
     }
 
     #[inline]
-    pub fn arguments(&self) -> &[DropArgument] {
+    pub fn arguments(&self) -> &[SignatureArgument] {
         &self.arguments
+    }
+
+    fn ref_args(&self) -> Vec<DataType> {
+        let mut args = Vec::new();
+        for arg in self.arguments.deref() {
+            match arg.mode() {
+                Argmode::In | Argmode::InOut => {
+                    args.push(arg.data_type.clone());
+                }
+                Argmode::Variadic => {
+                    // XXX: not sure if this is correct
+                    args.push(arg.data_type.to_array(None));
+                }
+                Argmode::Out => {}
+            }
+        }
+        args
+    }
+
+    #[inline]
+    pub fn to_qref(&self) -> QFunctionRef {
+        QFunctionRef::new(self.name.clone(), self.ref_args())
+    }
+
+    #[inline]
+    pub fn to_ref(&self) -> FunctionRef {
+        FunctionRef::new(self.name.name().clone(), self.ref_args())
     }
 }
 
-impl std::fmt::Display for DropFunctionSignature {
+impl From<&FunctionSignature> for QFunctionRef {
+    #[inline]
+    fn from(value: &FunctionSignature) -> Self {
+        value.to_qref()
+    }
+}
+
+impl std::fmt::Display for FunctionSignature {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{} (", self.name)?;
 
@@ -76,14 +179,15 @@ impl std::fmt::Display for DropFunctionSignature {
     }
 }
 
+/// Doesn't contain DEFAULT value
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct DropArgument {
+pub struct SignatureArgument {
     mode: Argmode,
     name: Option<Name>,
     data_type: DataType,
 }
 
-impl DropArgument {
+impl SignatureArgument {
     #[inline]
     pub fn new(mode: Argmode, name: Option<Name>, data_type: DataType) -> Self {
         Self { mode, name, data_type }
@@ -105,7 +209,7 @@ impl DropArgument {
     }
 }
 
-impl std::fmt::Display for DropArgument {
+impl std::fmt::Display for SignatureArgument {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.mode.fmt(f)?;
 
@@ -117,7 +221,7 @@ impl std::fmt::Display for DropArgument {
     }
 }
 
-impl From<&Argument> for DropArgument {
+impl From<&Argument> for SignatureArgument {
     #[inline]
     fn from(value: &Argument) -> Self {
         Self::new(value.mode(), value.name().cloned(), value.data_type.clone())
@@ -184,7 +288,7 @@ impl Function {
         &self.body
     }
 
-    pub fn signature(&self) -> FunctionSignature {
+    fn ref_args(&self) -> Vec<DataType> {
         let mut args = Vec::new();
         for arg in self.arguments.deref() {
             match arg.mode() {
@@ -198,13 +302,21 @@ impl Function {
                 Argmode::Out => {}
             }
         }
-
-        FunctionSignature::new(self.name.clone(), args)
+        args
     }
 
-    /// Signature as wanted by DROP FUNCTION
-    pub fn drop_signature(&self) -> DropFunctionSignature {
-        DropFunctionSignature::new(
+    #[inline]
+    pub fn to_qref(&self) -> QFunctionRef {
+        QFunctionRef::new(self.name.clone(), self.ref_args())
+    }
+
+    #[inline]
+    pub fn to_ref(&self) -> FunctionRef {
+        FunctionRef::new(self.name.name().clone(), self.ref_args())
+    }
+
+    pub fn to_signature(&self) -> FunctionSignature {
+        FunctionSignature::new(
             self.name.clone(),
             self.arguments.iter().map(Into::into).collect::<Vec<_>>()
         )
@@ -247,10 +359,10 @@ impl std::fmt::Display for Function {
     }
 }
 
-impl From<&Function> for FunctionSignature {
+impl From<&Function> for QFunctionRef {
     #[inline]
     fn from(value: &Function) -> Self {
-        value.signature()
+        value.to_qref()
     }
 }
 

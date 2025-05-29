@@ -3,7 +3,7 @@ use std::rc::Rc;
 use crate::ordered_hash_map::OrderedHashMap;
 
 use super::extension::Extension;
-use super::function::{Function, FunctionSignature};
+use super::function::{Function, FunctionRef};
 use super::name::Name;
 use super::{index::Index, table::Table, types::TypeDef};
 
@@ -14,7 +14,7 @@ pub struct Schema {
     tables: OrderedHashMap<Name, Rc<Table>>,
     indices: OrderedHashMap<Name, Rc<Index>>,
     extensions: OrderedHashMap<Name, Rc<Extension>>,
-    functions: OrderedHashMap<FunctionSignature, Rc<Function>>,
+    functions: OrderedHashMap<FunctionRef, Rc<Function>>,
 }
 
 impl Schema {
@@ -62,7 +62,7 @@ impl Schema {
     }
 
     #[inline]
-    pub fn functions(&self) -> &OrderedHashMap<FunctionSignature, Rc<Function>> {
+    pub fn functions(&self) -> &OrderedHashMap<FunctionRef, Rc<Function>> {
         &self.functions
     }
 
@@ -87,7 +87,7 @@ impl Schema {
     }
 
     #[inline]
-    pub fn functions_mut(&mut self) -> &mut OrderedHashMap<FunctionSignature, Rc<Function>> {
+    pub fn functions_mut(&mut self) -> &mut OrderedHashMap<FunctionRef, Rc<Function>> {
         &mut self.functions
     }
 }

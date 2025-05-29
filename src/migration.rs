@@ -150,8 +150,8 @@ pub fn migrate_schema(old_database: &Database, old: &Schema, new: &Schema, stmts
     }
 
     for function in old.functions().values() {
-        if !new.functions().contains_key(&function.signature()) {
-            stmts.push(Statement::drop_function(function.drop_signature()));
+        if !new.functions().contains_key(&function.to_ref()) {
+            stmts.push(Statement::drop_function(function.to_signature()));
         }
     }
 
@@ -190,7 +190,7 @@ pub fn migrate_schema(old_database: &Database, old: &Schema, new: &Schema, stmts
     }
 
     for function in new.functions().values() {
-        if let Some(old_function) = old.functions().get(&function.signature()) {
+        if let Some(old_function) = old.functions().get(&function.to_ref()) {
             if function != old_function {
                 stmts.push(Statement::CreateFunction(
                     Rc::new(CreateFunction::new(true, function.clone()))

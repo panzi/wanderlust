@@ -4,7 +4,7 @@ use super::alter::extension::AlterExtension;
 use super::alter::table::AlterTable;
 use super::alter::types::AlterType;
 use super::extension::{CreateExtension, Extension, Version};
-use super::function::{CreateFunction, DropFunctionSignature};
+use super::function::{CreateFunction, FunctionSignature};
 use super::index::{CreateIndex, Index};
 use super::name::Name;
 use super::table::{CreateTable, Table};
@@ -29,7 +29,7 @@ pub enum Statement {
     DropIndex { concurrently: bool, if_exists: bool, names: Vec<QName>, behavior: Option<DropBehavior> },
     DropType { if_exists: bool, names: Vec<QName>, behavior: Option<DropBehavior> },
     DropExtension { if_exists: bool, names: Vec<QName>, behavior: Option<DropBehavior> },
-    DropFunction { if_exists: bool, signatures: Vec<DropFunctionSignature>, behavior: Option<DropBehavior> },
+    DropFunction { if_exists: bool, signatures: Vec<FunctionSignature>, behavior: Option<DropBehavior> },
     DropTrigger { if_exists: bool, name: Name, table_name: QName, behavior: Option<DropBehavior> },
     DropSchema { if_exists: bool, name: Name, behavior: Option<DropBehavior> },
 }
@@ -76,8 +76,8 @@ impl Statement {
     }
 
     #[inline]
-    pub fn drop_function(drop_signature: DropFunctionSignature) -> Self {
-        Self::DropFunction { if_exists: false, signatures: vec![drop_signature], behavior: None }
+    pub fn drop_function(signature: FunctionSignature) -> Self {
+        Self::DropFunction { if_exists: false, signatures: vec![signature], behavior: None }
     }
 
     #[inline]

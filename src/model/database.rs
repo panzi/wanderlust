@@ -11,7 +11,7 @@ use crate::model::types::TypeData;
 use super::alter::extension::{AlterExtension, AlterExtensionData};
 use super::column::Column;
 use super::extension::{CreateExtension, Extension};
-use super::function::{CreateFunction, Function, FunctionSignature};
+use super::function::{CreateFunction, Function, FunctionRef, QFunctionRef};
 use super::index::{CreateIndex, Index};
 use super::name::{Name, QName};
 use super::schema::Schema;
@@ -92,123 +92,175 @@ impl Database {
 
     // TODO: fix search_path based name resolution
     pub fn has_table(&self, name: &QName) -> bool {
-        if let Some(schema) = self.schemas.get(name.schema().unwrap_or(&self.default_schema)) {
-            schema.tables().contains_key(name.name())
-        } else {
-            false
-        }
+        self.get_table(name).is_some()
     }
 
     pub fn get_table(&self, name: &QName) -> Option<&Rc<Table>> {
-        if let Some(schema) = self.schemas.get(name.schema().unwrap_or(&self.default_schema)) {
-            schema.tables().get(name.name())
-        } else {
-            None
+        if let Some(schema_name) = name.schema() {
+            return self.schemas.get(schema_name)?.tables().get(name.name());
         }
+        for schema_name in &self.search_path {
+            if let Some(schema) = self.schemas.get(schema_name) {
+                if let Some(table) = schema.tables().get(name.name()) {
+                    return Some(table);
+                }
+            }
+        }
+        None
     }
 
     pub fn get_table_mut(&mut self, name: &QName) -> Option<&mut Rc<Table>> {
-        if let Some(schema) = self.schemas.get_mut(name.schema().unwrap_or(&self.default_schema)) {
-            schema.tables_mut().get_mut(name.name())
-        } else {
-            None
+        if let Some(schema_name) = name.schema() {
+            return self.schemas.get_mut(schema_name)?.tables_mut().get_mut(name.name());
         }
+        for schema_name in &self.search_path {
+            if let Some(schema) = self.schemas.get(schema_name) {
+                if schema.tables().contains_key(name.name()) {
+                    // HACK: ugly workaround on borrow checker limitation
+                    // See: https://www.reddit.com/r/learnrust/comments/rmgif7/comment/hpo6ehl/
+                    return self.schemas.get_mut(schema_name).unwrap().tables_mut().get_mut(name.name());
+                }
+            }
+        }
+        None
     }
 
     pub fn has_index(&self, name: &QName) -> bool {
-        if let Some(schema) = self.schemas.get(name.schema().unwrap_or(&self.default_schema)) {
-            schema.indices().contains_key(name.name())
-        } else {
-            false
-        }
+        self.get_index(name).is_some()
     }
 
     pub fn get_index(&self, name: &QName) -> Option<&Rc<Index>> {
-        if let Some(schema) = self.schemas.get(name.schema().unwrap_or(&self.default_schema)) {
-            schema.indices().get(name.name())
-        } else {
-            None
+        if let Some(schema_name) = name.schema() {
+            return self.schemas.get(schema_name)?.indices().get(name.name());
         }
+        for schema_name in &self.search_path {
+            if let Some(schema) = self.schemas.get(schema_name) {
+                if let Some(index) = schema.indices().get(name.name()) {
+                    return Some(index);
+                }
+            }
+        }
+        None
     }
 
     pub fn get_index_mut(&mut self, name: &QName) -> Option<&mut Rc<Index>> {
-        if let Some(schema) = self.schemas.get_mut(name.schema().unwrap_or(&self.default_schema)) {
-            schema.indices_mut().get_mut(name.name())
-        } else {
-            None
+        if let Some(schema_name) = name.schema() {
+            return self.schemas.get_mut(schema_name)?.indices_mut().get_mut(name.name());
         }
+        for schema_name in &self.search_path {
+            if let Some(schema) = self.schemas.get(schema_name) {
+                if schema.indices().contains_key(name.name()) {
+                    // HACK: ugly workaround on borrow checker limitation
+                    // See: https://www.reddit.com/r/learnrust/comments/rmgif7/comment/hpo6ehl/
+                    return self.schemas.get_mut(schema_name).unwrap().indices_mut().get_mut(name.name());
+                }
+            }
+        }
+        None
     }
 
     pub fn has_type(&self, name: &QName) -> bool {
-        if let Some(schema) = self.schemas.get(name.schema().unwrap_or(&self.default_schema)) {
-            schema.types().contains_key(name.name())
-        } else {
-            false
-        }
+        self.get_type(name).is_some()
     }
 
     pub fn get_type(&self, name: &QName) -> Option<&Rc<TypeDef>> {
-        if let Some(schema) = self.schemas.get(name.schema().unwrap_or(&self.default_schema)) {
-            schema.types().get(name.name())
-        } else {
-            None
+        if let Some(schema_name) = name.schema() {
+            return self.schemas.get(schema_name)?.types().get(name.name());
         }
+        for schema_name in &self.search_path {
+            if let Some(schema) = self.schemas.get(schema_name) {
+                if let Some(type_def) = schema.types().get(name.name()) {
+                    return Some(type_def);
+                }
+            }
+        }
+        None
     }
 
     pub fn get_type_mut(&mut self, name: &QName) -> Option<&mut Rc<TypeDef>> {
-        if let Some(schema) = self.schemas.get_mut(name.schema().unwrap_or(&self.default_schema)) {
-            schema.types_mut().get_mut(name.name())
-        } else {
-            None
+        if let Some(schema_name) = name.schema() {
+            return self.schemas.get_mut(schema_name)?.types_mut().get_mut(name.name());
         }
+        for schema_name in &self.search_path {
+            if let Some(schema) = self.schemas.get(schema_name) {
+                if schema.types().contains_key(name.name()) {
+                    // HACK: ugly workaround on borrow checker limitation
+                    // See: https://www.reddit.com/r/learnrust/comments/rmgif7/comment/hpo6ehl/
+                    return self.schemas.get_mut(schema_name).unwrap().types_mut().get_mut(name.name());
+                }
+            }
+        }
+        None
     }
 
     pub fn has_extension(&self, name: &QName) -> bool {
-        if let Some(schema) = self.schemas.get(name.schema().unwrap_or(&self.default_schema)) {
-            schema.extensions().contains_key(name.name())
-        } else {
-            false
-        }
+        self.get_extension(name).is_some()
     }
 
     pub fn get_extension(&self, name: &QName) -> Option<&Rc<Extension>> {
-        if let Some(schema) = self.schemas.get(name.schema().unwrap_or(&self.default_schema)) {
-            schema.extensions().get(name.name())
-        } else {
-            None
+        if let Some(schema_name) = name.schema() {
+            return self.schemas.get(schema_name)?.extensions().get(name.name());
         }
+        for schema_name in &self.search_path {
+            if let Some(schema) = self.schemas.get(schema_name) {
+                if let Some(extension) = schema.extensions().get(name.name()) {
+                    return Some(extension);
+                }
+            }
+        }
+        None
     }
 
     pub fn get_extension_mut(&mut self, name: &QName) -> Option<&mut Rc<Extension>> {
-        if let Some(schema) = self.schemas.get_mut(name.schema().unwrap_or(&self.default_schema)) {
-            schema.extensions_mut().get_mut(name.name())
-        } else {
-            None
+        if let Some(schema_name) = name.schema() {
+            return self.schemas.get_mut(schema_name)?.extensions_mut().get_mut(name.name());
         }
+        for schema_name in &self.search_path {
+            if let Some(schema) = self.schemas.get(schema_name) {
+                if schema.extensions().contains_key(name.name()) {
+                    // HACK: ugly workaround on borrow checker limitation
+                    // See: https://www.reddit.com/r/learnrust/comments/rmgif7/comment/hpo6ehl/
+                    return self.schemas.get_mut(schema_name).unwrap().extensions_mut().get_mut(name.name());
+                }
+            }
+        }
+        None
     }
 
-    pub fn has_function(&self, signature: &FunctionSignature) -> bool {
-        if let Some(schema) = self.schemas.get(signature.name().schema().unwrap_or(&self.default_schema)) {
-            schema.functions().contains_key(signature)
-        } else {
-            false
-        }
+    pub fn has_function(&self, reference: &QFunctionRef) -> bool {
+        self.get_function(reference).is_some()
     }
 
-    pub fn get_function(&self, signature: &FunctionSignature) -> Option<&Rc<Function>> {
-        if let Some(schema) = self.schemas.get(signature.name().schema().unwrap_or(&self.default_schema)) {
-            schema.functions().get(signature)
-        } else {
-            None
+    pub fn get_function(&self, reference: &QFunctionRef) -> Option<&Rc<Function>> {
+        let unqual = reference.to_unqualifed();
+        if let Some(schema_name) = reference.name().schema() {
+            return self.schemas.get(schema_name)?.functions().get(&unqual);
         }
+        for schema_name in &self.search_path {
+            if let Some(schema) = self.schemas.get(schema_name) {
+                if let Some(function) = schema.functions().get(&unqual) {
+                    return Some(function);
+                }
+            }
+        }
+        None
     }
 
-    pub fn get_function_mut(&mut self, signature: &FunctionSignature) -> Option<&mut Rc<Function>> {
-        if let Some(schema) = self.schemas.get_mut(signature.name().schema().unwrap_or(&self.default_schema)) {
-            schema.functions_mut().get_mut(signature)
-        } else {
-            None
+    pub fn get_function_mut(&mut self, reference: &QFunctionRef) -> Option<&mut Rc<Function>> {
+        let unqual = reference.to_unqualifed();
+        if let Some(schema_name) = reference.name().schema() {
+            return self.schemas.get_mut(schema_name)?.functions_mut().get_mut(&unqual);
         }
+        for schema_name in &self.search_path {
+            if let Some(schema) = self.schemas.get(schema_name) {
+                if schema.functions().contains_key(&unqual) {
+                    // HACK: ugly workaround on borrow checker limitation
+                    // See: https://www.reddit.com/r/learnrust/comments/rmgif7/comment/hpo6ehl/
+                    return self.schemas.get_mut(schema_name).unwrap().functions_mut().get_mut(&unqual);
+                }
+            }
+        }
+        None
     }
 
     /// Resolve table name using the current search_path
@@ -260,19 +312,19 @@ impl Database {
     }
 
     /// Resolve function name using the current search_path
-    pub fn resolve_function_name(&self, name: &Name) -> QName {
+    pub fn resolve_function_reference(&self, reference: &FunctionRef) -> QName {
         for schema_name in &self.search_path {
             if let Some(schema) = self.schemas.get(schema_name) {
-                if schema.functions().keys_unordered().any(|sig| sig.name().name() == name) {
+                if schema.functions().contains_key(&reference) {
                     return QName::new(
                         Some(schema_name.clone()),
-                        name.clone()
+                        reference.name().clone()
                     );
                 }
             }
         }
 
-        QName::new(Some(self.default_schema.clone()), name.clone())
+        QName::new(Some(self.default_schema.clone()), reference.name().clone())
     }
 
     #[inline]
@@ -391,28 +443,28 @@ impl Database {
     }
 
     pub fn create_function(&mut self, create_function: CreateFunction) -> Result<()> {
-        let signature = create_function.function().signature();
-        let schema = self.get_schema_mut(signature.name())?;
+        let reference = create_function.function().to_ref();
+        let schema = self.get_schema_mut(create_function.function().name())?;
 
         if create_function.or_replace() {
             schema.functions_mut().insert(
-                signature,
+                reference,
                 create_function.into_function()
             );
             return Ok(());
         }
 
-        if schema.functions().contains_key(&signature) {
+        if schema.functions().contains_key(&reference) {
             return Err(Error::new(
                 ErrorKind::FunctionExists,
                 None,
-                Some(format!("function {} already exists", signature)),
+                Some(format!("function {} already exists", reference)),
                 None
             ));
         }
 
         schema.functions_mut().insert(
-            signature,
+            reference,
             create_function.into_function()
         );
         Ok(())
