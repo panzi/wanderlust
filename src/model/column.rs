@@ -16,6 +16,7 @@ pub struct Column {
     compression: Option<Name>,
     collation: Option<Name>,
     constraints: Vec<Rc<ColumnConstraint>>,
+    comment: Option<Rc<str>>,
 }
 
 impl std::fmt::Display for Column {
@@ -53,7 +54,15 @@ impl Column {
         collation: Option<Name>,
         constraints: Vec<Rc<ColumnConstraint>>
     ) -> Self {
-        Self { name, data_type: data_type.into(), storage, compression, collation, constraints }
+        Self {
+            name,
+            data_type: data_type.into(),
+            storage,
+            compression,
+            collation,
+            constraints,
+            comment: None
+        }
     }
 
     #[inline]
@@ -104,6 +113,16 @@ impl Column {
     #[inline]
     pub fn set_compression(&mut self, compression: Option<Name>) {
         self.compression = compression;
+    }
+
+    #[inline]
+    pub fn comment(&self) -> Option<&Rc<str>> {
+        self.comment.as_ref()
+    }
+
+    #[inline]
+    pub fn set_comment(&mut self, comment: Option<Rc<str>>) {
+        self.comment = comment.into();
     }
 
     pub fn drop_default(&mut self) {
@@ -165,7 +184,7 @@ impl Column {
     }
 
     pub fn without_table_constraints(self: &Rc<Self>) -> Rc<Self> {
-        if self.constraints.iter().any(|constraint| constraint.is_table_constraint()) {
+        if self.constraints.iter().all(|constraint| !constraint.is_table_constraint()) {
             return self.clone();
         }
 
@@ -178,7 +197,8 @@ impl Column {
             constraints: self.constraints.iter()
                 .filter(|&constraint| !constraint.is_table_constraint())
                 .cloned()
-                .collect()
+                .collect(),
+            comment: self.comment.clone(),
         })
     }
 }

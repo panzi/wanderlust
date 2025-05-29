@@ -66,6 +66,7 @@ pub struct Table {
     constraints: OrderedHashMap<Name, Rc<TableConstraint>>,
     triggers: OrderedHashMap<Name, Rc<Trigger>>,
     inherits: Vec<QName>,
+    comment: Option<Rc<str>>,
 }
 
 impl std::fmt::Display for Table {
@@ -90,7 +91,7 @@ impl Table {
         triggers: OrderedHashMap<Name, Rc<Trigger>>,
         inherits: Vec<QName>
     ) -> Self {
-        Self { name, logged, columns, constraints, triggers, inherits }
+        Self { name, logged, columns, constraints, triggers, inherits, comment: None }
     }
 
     fn write(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -201,6 +202,16 @@ impl Table {
     #[inline]
     pub fn inherits_mut(&mut self) -> &mut Vec<QName> {
         &mut self.inherits
+    }
+
+    #[inline]
+    pub fn comment(&self) -> Option<&Rc<str>> {
+        self.comment.as_ref()
+    }
+
+    #[inline]
+    pub fn set_comment(&mut self, comment: Option<Rc<str>>) {
+        self.comment = comment.into();
     }
 
     pub fn merged_constraints(&self) -> Vec<Rc<TableConstraint>> {

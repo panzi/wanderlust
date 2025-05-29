@@ -90,6 +90,11 @@ impl Database {
         &self.schemas
     }
 
+    #[inline]
+    pub fn schemas_mut(&mut self) -> &mut HashMap<Name, Schema> {
+        &mut self.schemas
+    }
+
     // TODO: fix search_path based name resolution
     pub fn has_table(&self, name: &QName) -> bool {
         self.get_table(name).is_some()

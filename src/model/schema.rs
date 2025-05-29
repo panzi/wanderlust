@@ -15,6 +15,7 @@ pub struct Schema {
     indices: OrderedHashMap<Name, Rc<Index>>,
     extensions: OrderedHashMap<Name, Rc<Extension>>,
     functions: OrderedHashMap<FunctionRef, Rc<Function>>,
+    comment: Option<Rc<str>>,
 }
 
 impl Schema {
@@ -27,6 +28,7 @@ impl Schema {
             indices: OrderedHashMap::new(),
             extensions: OrderedHashMap::new(),
             functions: OrderedHashMap::new(),
+            comment: None,
         }
     }
 
@@ -34,6 +36,9 @@ impl Schema {
         self.types.clear();
         self.tables.clear();
         self.indices.clear();
+        self.extensions.clear();
+        self.functions.clear();
+        self.comment = None;
     }
 
     #[inline]
@@ -89,5 +94,15 @@ impl Schema {
     #[inline]
     pub fn functions_mut(&mut self) -> &mut OrderedHashMap<FunctionRef, Rc<Function>> {
         &mut self.functions
+    }
+
+    #[inline]
+    pub fn comment(&self) -> Option<&Rc<str>> {
+        self.comment.as_ref()
+    }
+
+    #[inline]
+    pub fn set_comment(&mut self, comment: Option<Rc<str>>) {
+        self.comment = comment.into();
     }
 }

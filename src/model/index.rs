@@ -137,6 +137,7 @@ pub struct Index {
     items: Rc<[IndexItem]>,
     nulls_distinct: Option<bool>,
     predicate: Option<Rc<[ParsedToken]>>,
+    comment: Option<Rc<str>>,
 }
 
 impl std::fmt::Display for Index {
@@ -172,6 +173,7 @@ impl Index {
             items: items.into(),
             nulls_distinct,
             predicate: predicate.map(Into::into),
+            comment: None,
         }
     }
 
@@ -252,6 +254,16 @@ impl Index {
     #[inline]
     pub fn predicate(&self) -> Option<&[ParsedToken]> {
         self.predicate.as_deref()
+    }
+
+    #[inline]
+    pub fn comment(&self) -> Option<&Rc<str>> {
+        self.comment.as_ref()
+    }
+
+    #[inline]
+    pub fn set_comment(&mut self, comment: Option<Rc<str>>) {
+        self.comment = comment.into();
     }
 
     fn write(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

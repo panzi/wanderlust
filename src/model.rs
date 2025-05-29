@@ -15,3 +15,4 @@ pub mod statement;
 pub mod extension;
 pub mod function;
 pub mod trigger;
+pub mod object_ref;

@@ -260,12 +260,13 @@ pub struct Function {
     arguments: Rc<[Argument]>,
     returns: Option<ReturnType>,
     body: Rc<[ParsedToken]>,
+    comment: Option<Rc<str>>,
 }
 
 impl Function {
     #[inline]
     pub fn new(name: QName, arguments: impl Into<Rc<[Argument]>>, returns: Option<ReturnType>, body: impl Into<Rc<[ParsedToken]>>) -> Self {
-        Self { name, arguments: arguments.into(), returns, body: body.into() }
+        Self { name, arguments: arguments.into(), returns, body: body.into(), comment: None }
     }
 
     #[inline]
@@ -286,6 +287,16 @@ impl Function {
     #[inline]
     pub fn body(&self) -> &Rc<[ParsedToken]> {
         &self.body
+    }
+
+    #[inline]
+    pub fn comment(&self) -> Option<&Rc<str>> {
+        self.comment.as_ref()
+    }
+
+    #[inline]
+    pub fn set_comment(&mut self, comment: Option<Rc<str>>) {
+        self.comment = comment.into();
     }
 
     fn ref_args(&self) -> Vec<DataType> {

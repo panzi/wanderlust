@@ -80,12 +80,13 @@ impl std::fmt::Display for Version {
 pub struct Extension {
     name: QName,
     version: Option<Version>,
+    comment: Option<Rc<str>>,
 }
 
 impl Extension {
     #[inline]
     pub fn new(name: QName, version: Option<Version>) -> Self {
-        Self { name, version }
+        Self { name, version, comment: None }
     }
 
     #[inline]
@@ -106,6 +107,16 @@ impl Extension {
     #[inline]
     pub fn set_version(&mut self, version: Option<Version>) {
         self.version = version;
+    }
+
+    #[inline]
+    pub fn comment(&self) -> Option<&Rc<str>> {
+        self.comment.as_ref()
+    }
+
+    #[inline]
+    pub fn set_comment(&mut self, comment: Option<Rc<str>>) {
+        self.comment = comment.into();
     }
 
     pub fn write(&self, cascade: bool, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

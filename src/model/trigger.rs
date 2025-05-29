@@ -19,6 +19,7 @@ pub struct Trigger {
     predicate: Option<Rc<[ParsedToken]>>,
     function_name: QName,
     arguments: Rc<[Rc<str>]>,
+    comment: Option<Rc<str>>,
 }
 
 impl Trigger {
@@ -52,7 +53,8 @@ impl Trigger {
             initially_deferred,
             predicate,
             function_name,
-            arguments
+            arguments,
+            comment: None,
         }
     }
 
@@ -119,6 +121,16 @@ impl Trigger {
     #[inline]
     pub fn arguments(&self) -> &Rc<[Rc<str>]> {
         &self.arguments
+    }
+
+    #[inline]
+    pub fn comment(&self) -> Option<&Rc<str>> {
+        self.comment.as_ref()
+    }
+
+    #[inline]
+    pub fn set_comment(&mut self, comment: Option<Rc<str>>) {
+        self.comment = comment.into();
     }
 
     fn write(&self, or_replace: bool, mut f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

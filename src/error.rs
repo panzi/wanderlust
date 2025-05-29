@@ -25,6 +25,8 @@ pub enum ErrorKind {
     TypeNotExists,
     ValueNotExists,
     ExtensionNotExists,
+    FunctionNotExists,
+    TriggerNotExists,
     SchemaNotExists,
 
     NotSupported,
@@ -57,6 +59,8 @@ impl std::fmt::Display for ErrorKind {
             Self::ExtensionNotExists  => f.write_str("Extension Not Exists"),
             Self::ColumnNotExists     => f.write_str("Column Not Exists"),
             Self::ConstraintNotExists => f.write_str("Constraint Not Exists"),
+            Self::FunctionNotExists   => f.write_str("Function Not Exists"),
+            Self::TriggerNotExists    => f.write_str("Trigger Not Exists"),
             Self::SchemaNotExists     => f.write_str("Schema Not Exists"),
 
             Self::NotSupported        => f.write_str("Not Supported"),

@@ -17,7 +17,7 @@ use crate::{
         database::Database,
         extension::{CreateExtension, Extension, Version},
         floats::Float,
-        function::{self, Argmode, Argument, CreateFunction, Function, FunctionRef, ReturnType},
+        function::{self, Argmode, Argument, CreateFunction, Function, FunctionRef, FunctionSignature, QFunctionRef, ReturnType, SignatureArgument},
         index::{CreateIndex, Direction, Index, IndexItem, IndexItemData, NullsPosition},
         integers::{Integer, SignedInteger, UnsignedInteger},
         name::{Name, QName},
@@ -1652,7 +1652,12 @@ impl<'a> PostgreSQLParser<'a> {
     #[inline]
     fn parse_qual_name(&mut self) -> Result<QName> {
         let name = self.expect_name()?;
-        self.parse_qual_name_tail(name)
+        if self.parse_token(TokenKind::Period)? {
+            let actual_name = self.expect_name()?;
+            Ok(QName::new(Some(name), actual_name))
+        } else {
+            Ok(QName::new(None, name))
+        }
     }
 
     #[inline]
@@ -1702,18 +1707,6 @@ impl<'a> PostgreSQLParser<'a> {
         } else {
             Ok(self.database.resolve_index_name(&first))
         }
-    }
-
-    fn parse_qual_name_tail(&mut self, mut name: Name) -> Result<QName> {
-        let schema = if self.parse_token(TokenKind::Period)? {
-            let mut temp = self.expect_name()?;
-            std::mem::swap(&mut temp, &mut name);
-            temp
-        } else {
-            self.database.search_path().first().unwrap_or(self.database.default_schema()).clone()
-        };
-
-        Ok(QName::new(Some(schema), name))
     }
 
     fn parse_operator(&mut self, op: &str) -> Result<bool> {
@@ -2818,18 +2811,22 @@ impl<'a> PostgreSQLParser<'a> {
         }
     }
 
-    fn parse_function_argument(&mut self) -> Result<Argument> {
-        let mode = if self.parse_word(IN)? {
-            Argmode::In
+    fn parse_argmode(&mut self) -> Result<Argmode> {
+        if self.parse_word(IN)? {
+            Ok(Argmode::In)
         } else if self.parse_word(OUT)? {
-            Argmode::Out
+            Ok(Argmode::Out)
         } else if self.parse_word(INOUT)? {
-            Argmode::InOut
+            Ok(Argmode::InOut)
         } else if self.parse_word(VARIADIC)? {
-            Argmode::Variadic
+            Ok(Argmode::Variadic)
         } else {
-            Argmode::In
-        };
+            Ok(Argmode::In)
+        }
+    }
+
+    fn parse_function_argument(&mut self) -> Result<Argument> {
+        let mode = self.parse_argmode()?;
 
         let offset = self.tokenizer.offset();
         let mut name = Some(self.expect_name()?);
@@ -2848,6 +2845,14 @@ impl<'a> PostgreSQLParser<'a> {
         };
 
         Ok(Argument::new(mode, name, data_type, default))
+    }
+
+    fn parse_signature_argument(&mut self) -> Result<SignatureArgument> {
+        let mode = self.parse_argmode()?;
+        let name = Some(self.expect_name()?);
+        let data_type = self.parse_data_type()?;
+
+        Ok(SignatureArgument::new(mode, name, data_type))
     }
 
     fn parse_function_intern(&mut self, is_procedure: bool, or_replace: bool) -> Result<CreateFunction> {
@@ -3088,6 +3093,170 @@ impl<'a> PostgreSQLParser<'a> {
             )
         ))
     }
+
+    fn parse_comment_tail(&mut self) -> Result<Option<Rc<str>>> {
+        self.expect_word(IS)?;
+
+        if self.parse_word(NULL)? {
+            Ok(None)
+        } else {
+            Ok(Some(self.expect_string()?))
+        }
+    }
+
+    fn parse_comment_intern(&mut self, start_offset: usize) -> Result<()> {
+        if self.parse_word(COLUMN)? {
+            let first = self.expect_name()?;
+            self.expect_token(TokenKind::Period)?;
+            let second = self.expect_name()?;
+
+            let (table_name, column_name) = if self.parse_token(TokenKind::Period)? {
+                let third = self.expect_name()?;
+                (QName::new(Some(first), second), third)
+            } else {
+                (QName::new(None, first), second)
+            };
+
+            let comment = self.parse_comment_tail()?;
+
+            let Some(table) = Rc::make_mut(&mut self.database).get_table_mut(&table_name) else {
+                return Err(Error::with_message(
+                    ErrorKind::TableNotExists,
+                    Cursor::new(start_offset, self.tokenizer.offset()),
+                    format!("table {table_name} not found")
+                ));
+            };
+            let Some(column) = Rc::make_mut(table).columns_mut().get_mut(&column_name) else {
+                return Err(Error::with_message(
+                    ErrorKind::ColumnNotExists,
+                    Cursor::new(start_offset, self.tokenizer.offset()),
+                    format!("column {column_name} not found in table {table_name}")
+                ));
+            };
+            Rc::make_mut(column).set_comment(comment);
+        } else if self.parse_word(EXTENSION)? {
+            let name = self.parse_qual_name()?;
+            let comment = self.parse_comment_tail()?;
+
+            let Some(extension) = Rc::make_mut(&mut self.database).get_extension_mut(&name) else {
+                return Err(Error::with_message(
+                    ErrorKind::ExtensionNotExists,
+                    Cursor::new(start_offset, self.tokenizer.offset()),
+                    format!("extension {name} not found")
+                ));
+            };
+
+            Rc::make_mut(extension).set_comment(comment);
+        } else if self.parse_word(INDEX)? {
+            let name = self.parse_qual_name()?;
+            let comment = self.parse_comment_tail()?;
+
+            let Some(index) = Rc::make_mut(&mut self.database).get_index_mut(&name) else {
+                return Err(Error::with_message(
+                    ErrorKind::IndexNotExists,
+                    Cursor::new(start_offset, self.tokenizer.offset()),
+                    format!("index {name} not found")
+                ));
+            };
+
+            Rc::make_mut(index).set_comment(comment);
+        } else if self.parse_word(SCHEMA)? {
+            let name = self.expect_name()?;
+            let comment = self.parse_comment_tail()?;
+
+            let Some(schema) = Rc::make_mut(&mut self.database).schemas_mut().get_mut(&name) else {
+                return Err(Error::with_message(
+                    ErrorKind::SchemaNotExists,
+                    Cursor::new(start_offset, self.tokenizer.offset()),
+                    format!("schema {name} not found")
+                ));
+            };
+
+            schema.set_comment(comment);
+        } else if self.parse_word(TABLE)? {
+            let name = self.parse_qual_name()?;
+            let comment = self.parse_comment_tail()?;
+
+            let Some(table) = Rc::make_mut(&mut self.database).get_table_mut(&name) else {
+                return Err(Error::with_message(
+                    ErrorKind::TableNotExists,
+                    Cursor::new(start_offset, self.tokenizer.offset()),
+                    format!("table {name} not found")
+                ));
+            };
+
+            Rc::make_mut(table).set_comment(comment);
+        } else if self.parse_word(TYPE)? {
+            let name = self.parse_qual_name()?;
+            let comment = self.parse_comment_tail()?;
+
+            let Some(type_def) = Rc::make_mut(&mut self.database).get_type_mut(&name) else {
+                return Err(Error::with_message(
+                    ErrorKind::TypeNotExists,
+                    Cursor::new(start_offset, self.tokenizer.offset()),
+                    format!("type {name} not found")
+                ));
+            };
+
+            Rc::make_mut(type_def).set_comment(comment);
+        } else if self.parse_word(TRIGGER)? {
+            let trigger_name = self.expect_name()?;
+            self.expect_word(ON)?;
+            let table_name = self.parse_qual_name()?;
+            let comment = self.parse_comment_tail()?;
+
+            let Some(table) = Rc::make_mut(&mut self.database).get_table_mut(&table_name) else {
+                return Err(Error::with_message(
+                    ErrorKind::TableNotExists,
+                    Cursor::new(start_offset, self.tokenizer.offset()),
+                    format!("table {table_name} not found")
+                ));
+            };
+            let Some(trigger) = Rc::make_mut(table).triggers_mut().get_mut(&trigger_name) else {
+                return Err(Error::with_message(
+                    ErrorKind::TriggerNotExists,
+                    Cursor::new(start_offset, self.tokenizer.offset()),
+                    format!("trigger {trigger_name} not found in table {table_name}")
+                ));
+            };
+            Rc::make_mut(trigger).set_comment(comment);
+        } else if self.parse_word(FUNCTION)? || self.parse_word(PROCEDURE)? || self.parse_word(ROUTINE)? {
+            let name = self.parse_qual_name()?;
+            let mut arguments = Vec::new();
+
+            if self.parse_token(TokenKind::LParen)? {
+                while !self.peek_kind(TokenKind::RParen)? {
+                    arguments.push(self.parse_signature_argument()?);
+
+                    if !self.parse_token(TokenKind::Comma)? {
+                        break;
+                    }
+                }
+                self.expect_token(TokenKind::RParen)?;
+            }
+
+            let sig = FunctionSignature::new(name, arguments);
+            let comment = self.parse_comment_tail()?;
+
+            let Some(function) = Rc::make_mut(&mut self.database).get_function_mut(&sig.to_qref()) else {
+                return Err(Error::with_message(
+                    ErrorKind::FunctionNotExists,
+                    Cursor::new(start_offset, self.tokenizer.offset()),
+                    format!("function {sig} not found")
+                ));
+            };
+
+            Rc::make_mut(function).set_comment(comment);
+        } else {
+            self.parse_token_list(false, true)?;
+
+            let end_offset = self.tokenizer.offset();
+            let source = self.tokenizer.get_offset(start_offset, end_offset);
+
+            eprintln!("TODO: parse more COMMENT statements: {source}");
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3305,13 +3474,8 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                     eprintln!("TODO: parse ALTER statements: {source}");
                 }
             } else if self.parse_word(COMMENT)? {
-                // ignore COMMENT?
-                self.parse_token_list(false, true)?;
-
-                let end_offset = self.tokenizer.offset();
-                let source = self.tokenizer.get_offset(start_offset, end_offset);
-
-                eprintln!("TODO: parse COMMENT statements: {source}");
+                // COMMENT
+                self.parse_comment_intern(start_offset)?;
             } else if self.parse_word(DROP)? {
                 // TODO: DROP...
                 self.parse_token_list(false, true)?;

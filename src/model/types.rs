@@ -14,6 +14,7 @@ use super::words::*;
 pub struct TypeDef {
     name: QName,
     data: TypeData,
+    comment: Option<Rc<str>>,
 }
 
 impl std::fmt::Display for TypeDef {
@@ -26,17 +27,17 @@ impl std::fmt::Display for TypeDef {
 impl TypeDef {
     #[inline]
     pub fn new(name: QName, data: TypeData) -> Self {
-        Self { name, data }
+        Self { name, data, comment: None }
     }
 
     #[inline]
     pub fn with_name(&self, name: QName) -> Self {
-        Self { name, data: self.data.clone() }
+        Self { name, data: self.data.clone(), comment: self.comment.clone() }
     }
 
     #[inline]
     pub fn create_enum(name: QName, values: impl Into<Rc<Vec<Rc<str>>>>) -> Self {
-        Self { name, data: TypeData::create_enum(values) }
+        Self { name, data: TypeData::create_enum(values), comment: None }
     }
 
     #[inline]
@@ -62,6 +63,16 @@ impl TypeDef {
     #[inline]
     pub fn data_mut(&mut self) -> &mut TypeData {
         &mut self.data
+    }
+
+    #[inline]
+    pub fn comment(&self) -> Option<&Rc<str>> {
+        self.comment.as_ref()
+    }
+
+    #[inline]
+    pub fn set_comment(&mut self, comment: Option<Rc<str>>) {
+        self.comment = comment.into();
     }
 
     pub fn missing_enum_values(&self, new_type_def: &TypeDef) -> Option<Vec<(Rc<str>, Option<ValuePosition>)>> {

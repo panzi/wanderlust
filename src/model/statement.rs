@@ -7,6 +7,7 @@ use super::extension::{CreateExtension, Extension, Version};
 use super::function::{CreateFunction, FunctionSignature};
 use super::index::{CreateIndex, Index};
 use super::name::Name;
+use super::object_ref::ObjectRef;
 use super::table::{CreateTable, Table};
 use super::trigger::CreateTrigger;
 use super::{alter::DropBehavior, name::QName, types::TypeDef};
@@ -32,6 +33,7 @@ pub enum Statement {
     DropFunction { if_exists: bool, signatures: Vec<FunctionSignature>, behavior: Option<DropBehavior> },
     DropTrigger { if_exists: bool, name: Name, table_name: QName, behavior: Option<DropBehavior> },
     DropSchema { if_exists: bool, name: Name, behavior: Option<DropBehavior> },
+    Comment { object_ref: ObjectRef, comment: Option<Rc<str>> },
 }
 
 impl Statement {
@@ -256,6 +258,13 @@ impl std::fmt::Display for Statement {
                 }
 
                 f.write_str(";")
+            }
+            Self::Comment { object_ref, comment } => {
+                if let Some(comment) = comment {
+                    write!(f, "{COMMENT} {ON} {object_ref} {IS} {comment};")
+                } else {
+                    write!(f, "{COMMENT} {ON} {object_ref} {IS} {NULL};")
+                }
             }
         }
     }
