@@ -3,7 +3,7 @@ use std::ops::Deref;
 use std::rc::Rc;
 
 use crate::error::{Error, ErrorKind, Result};
-use crate::format::{format_iso_string, IsoString};
+use crate::format::IsoString;
 use crate::model::alter::table::{AlterColumnData, AlterTable, AlterTableAction, AlterTableData};
 use crate::model::alter::types::{AlterType, AlterTypeData, ValuePosition};
 use crate::model::types::TypeData;

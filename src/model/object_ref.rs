@@ -10,9 +10,57 @@ pub enum ObjectRef {
     Schema { name: Name },
     Table { name: QName },
     Type { name: QName },
+    Constraint { table_name: QName, constraint_name: Name },
     Trigger { table_name: QName, trigger_name: Name },
     Function { signature: FunctionSignature },
     // TODO: more
+}
+
+impl ObjectRef {
+    #[inline]
+    pub fn column(table_name: QName, column_name: Name) -> Self {
+        Self::Column { table_name, column_name }
+    }
+
+    #[inline]
+    pub fn extension(name: QName) -> Self {
+        Self::Extension { name }
+    }
+
+    #[inline]
+    pub fn index(name: QName) -> Self {
+        Self::Index { name }
+    }
+
+    #[inline]
+    pub fn schema(name: Name) -> Self {
+        Self::Schema { name }
+    }
+
+    #[inline]
+    pub fn table(name: QName) -> Self {
+        Self::Table { name }
+    }
+
+    #[inline]
+    pub fn type_def(name: QName) -> Self {
+        Self::Type { name }
+    }
+
+    #[inline]
+    pub fn constraint(table_name: QName, constraint_name: Name) -> Self {
+        Self::Constraint { table_name, constraint_name }
+    }
+
+    #[inline]
+    pub fn trigger(table_name: QName, trigger_name: Name) -> Self {
+        Self::Trigger { table_name, trigger_name }
+    }
+
+    #[inline]
+    pub fn function(signature: FunctionSignature) -> Self {
+        Self::Function { signature }
+    }
 }
 
 impl std::fmt::Display for ObjectRef {
@@ -35,6 +83,9 @@ impl std::fmt::Display for ObjectRef {
             }
             Self::Type { name } => {
                 write!(f, "{TYPE} {name}")
+            }
+            Self::Constraint { table_name, constraint_name } => {
+                write!(f, "{CONSTRAINT} {constraint_name} {ON} {table_name}")
             }
             Self::Trigger { table_name, trigger_name } => {
                 write!(f, "{TRIGGER} {trigger_name} {ON} {table_name}")

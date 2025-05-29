@@ -302,6 +302,15 @@ impl Index {
 
         f.write_str(";")
     }
+
+    pub fn eq_no_comment(&self, other: &Index) -> bool {
+        self.unique == other.unique &&
+        self.table_name == other.table_name &&
+        self.method == other.method &&
+        self.items == other.items &&
+        self.nulls_distinct == other.nulls_distinct &&
+        self.predicate == other.predicate
+    }
 }
 
 impl PartialEq for Index {

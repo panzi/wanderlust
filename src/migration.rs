@@ -8,17 +8,145 @@ use crate::model::{
     },
     column::{Column, ColumnConstraintData},
     database::Database,
-    extension::CreateExtension,
-    function::CreateFunction,
+    extension::Extension,
+    function::{CreateFunction, Function},
+    index::Index,
     name::{Name, QName},
+    object_ref::ObjectRef,
     schema::Schema,
     statement::Statement,
     table::Table,
     token::ParsedToken,
-    trigger::CreateTrigger,
+    trigger::{CreateTrigger, Trigger},
+    types::TypeDef,
 };
 
 use crate::model::words::*;
+
+pub fn create_extension(extension: &Rc<Extension>, stmts: &mut Vec<Statement>) {
+    stmts.push(Statement::create_extension(
+        extension.name().clone(),
+        extension.version().cloned()
+    ));
+
+    if let Some(comment) = extension.comment() {
+        stmts.push(Statement::comment_on(
+            ObjectRef::extension(extension.name().clone()),
+            Some(comment.clone())
+        ));
+    }
+}
+
+pub fn create_type(type_def: &Rc<TypeDef>, stmts: &mut Vec<Statement>) {
+    stmts.push(Statement::CreateType(type_def.clone()));
+
+    if let Some(comment) = type_def.comment() {
+        stmts.push(Statement::comment_on(
+            ObjectRef::type_def(type_def.name().clone()),
+            Some(comment.clone())
+        ));
+    }
+}
+
+pub fn create_function(or_replace: bool, function: &Rc<Function>, stmts: &mut Vec<Statement>) {
+    stmts.push(Statement::CreateFunction(
+        Rc::new(CreateFunction::new(or_replace, function.clone()))
+    ));
+
+    if let Some(comment) = function.comment() {
+        stmts.push(Statement::comment_on(
+            ObjectRef::function(function.to_signature()),
+            Some(comment.clone())
+        ));
+    }
+}
+
+pub fn create_table(table: &Rc<Table>, stmts: &mut Vec<Statement>) {
+    stmts.push(Statement::create_table(table.clone()));
+
+    if let Some(comment) = table.comment() {
+        stmts.push(Statement::comment_on(
+            ObjectRef::table(table.name().clone()),
+            Some(comment.clone())
+        ));
+    }
+
+    for constraint in table.constraints().values() {
+        if let Some(comment) = constraint.comment() {
+            if let Some(name) = constraint.name() {
+                stmts.push(Statement::comment_on(
+                    ObjectRef::constraint(table.name().clone(), name.clone()),
+                    Some(comment.clone())
+                ));
+            } else {
+                // XXX: can't put comment on unnamed constraint!
+            }
+        }
+    }
+
+    for trigger in table.triggers().values() {
+        create_trigger(trigger, stmts);
+    }
+}
+
+pub fn create_trigger(trigger: &Rc<Trigger>, stmts: &mut Vec<Statement>) {
+    stmts.push(Statement::CreateTrigger(
+        Rc::new(CreateTrigger::new(false, trigger.clone()))
+    ));
+
+    if let Some(comment) = trigger.comment() {
+        stmts.push(Statement::comment_on(
+            ObjectRef::trigger(trigger.table_name().clone(), trigger.name().clone()),
+            Some(comment.clone())
+        ));
+    }
+}
+
+pub fn create_index(index: &Rc<Index>, stmts: &mut Vec<Statement>) {
+    stmts.push(Statement::create_index(index.clone()));
+
+    if let Some(comment) = index.comment() {
+        if let Some(name) = index.name() {
+            stmts.push(Statement::comment_on(
+                ObjectRef::index(name.clone()),
+                Some(comment.clone())
+            ));
+        } else {
+            // XXX: can't put comment on unnamed index!
+        }
+    }
+}
+
+pub fn create_schema(schema: &Schema, stmts: &mut Vec<Statement>) {
+    stmts.push(Statement::create_schema(schema.name().clone()));
+
+    if let Some(comment) = schema.comment() {
+        stmts.push(Statement::comment_on(
+            ObjectRef::schema(schema.name().clone()),
+            Some(comment.clone())
+        ));
+    }
+
+    for extension in schema.extensions().values() {
+        create_extension(extension, stmts);
+    }
+
+    for type_def in schema.types().values() {
+        create_type(type_def, stmts);
+    }
+
+    for function in schema.functions().values() {
+        create_function(false, function, stmts);
+    }
+
+    for table in schema.tables().values() {
+        create_table(table, stmts);
+    }
+
+    for index in schema.indices().values() {
+        create_index(index, stmts);
+    }
+}
 
 pub fn generate_migration(old: &Database, new: &Database) -> Vec<Statement> {
     let mut stmts = Vec::new();
@@ -33,40 +161,7 @@ pub fn generate_migration(old: &Database, new: &Database) -> Vec<Statement> {
 
     for schema in new.schemas().values() {
         if !old.schemas().contains_key(schema.name()) {
-            stmts.push(Statement::create_schema(schema.name().clone()));
-
-            for extension in schema.extensions().values() {
-                stmts.push(Statement::create_extension(
-                    extension.name().clone(),
-                    extension.version().cloned()
-                ));
-            }
-
-            for type_def in schema.types().values() {
-                stmts.push(Statement::CreateType(type_def.clone()));
-            }
-
-            for function in schema.functions().values() {
-                stmts.push(Statement::CreateFunction(
-                    Rc::new(CreateFunction::new(false, function.clone()))
-                ));
-            }
-
-            for table in schema.tables().values() {
-                stmts.push(Statement::create_table(table.clone()));
-            }
-
-            for table in schema.tables().values() {
-                for trigger in table.triggers().values() {
-                    stmts.push(Statement::CreateTrigger(
-                        Rc::new(CreateTrigger::new(false, trigger.clone()))
-                    ));
-                }
-            }
-
-            for index in schema.indices().values() {
-                stmts.push(Statement::create_index(index.clone()));
-            }
+            create_schema(schema, &mut stmts);
         }
     }
 
@@ -89,7 +184,7 @@ pub fn migrate_schema(old_database: &Database, old: &Schema, new: &Schema, stmts
 
     for type_def in new.types().values() {
         if let Some(old_type_def) = old_types.get(type_def.name().name()) {
-            if type_def != old_type_def {
+            if type_def.data() != old_type_def.data() {
                 if let Some(missing_values) = old_type_def.missing_enum_values(type_def) {
                     // strictly only new values
                     for (new_value, position) in missing_values {
@@ -107,7 +202,7 @@ pub fn migrate_schema(old_database: &Database, old: &Schema, new: &Schema, stmts
                     let tmp_name = QName::new(schema.cloned(), tmp_name.clone());
 
                     let tmp_type_def = type_def.with_name(tmp_name.clone());
-                    stmts.push(Statement::CreateType(tmp_type_def.into()));
+                    stmts.push(Statement::CreateType(Rc::new(tmp_type_def)));
 
                     for (table_name, column) in old_database.find_columns_with_type(type_def.name()) {
                         let new_type = column.data_type().with_user_type(tmp_name.clone(), None);
@@ -132,8 +227,15 @@ pub fn migrate_schema(old_database: &Database, old: &Schema, new: &Schema, stmts
                     ));
                 }
             }
+
+            if type_def.comment() != old_type_def.comment() {
+                stmts.push(Statement::comment_on(
+                    ObjectRef::type_def(type_def.name().clone()),
+                    type_def.comment().cloned()
+                ));
+            }
         } else {
-            stmts.push(Statement::CreateType(type_def.clone()));
+            create_type(type_def, stmts);
         }
     }
 
@@ -158,9 +260,16 @@ pub fn migrate_schema(old_database: &Database, old: &Schema, new: &Schema, stmts
     for index in old.indices().values() {
         if let Some(name) = index.name() {
             if let Some(new_index) = new_indices.get(name.name()) {
-                if new_index != index {
+                if !new_index.eq_no_comment(index) {
                     stmts.push(Statement::drop_index(name.clone()));
                     create_indices.push(Statement::create_index(new_index.clone()));
+                }
+
+                if index.comment() != new_index.comment() {
+                    create_indices.push(Statement::comment_on(
+                        ObjectRef::index(name.clone()),
+                        new_index.comment().cloned()
+                    ));
                 }
             } else {
                 // XXX: DBMSs generate indices for things like foreign keys and such.
@@ -182,24 +291,36 @@ pub fn migrate_schema(old_database: &Database, old: &Schema, new: &Schema, stmts
                     ));
                 }
             }
+
+            if extension.comment() != old_extension.comment() {
+                // NOTE: Comments on extensions can be permission problems.
+                // TODO: Maybe make it optional?
+                stmts.push(Statement::comment_on(
+                    ObjectRef::extension(extension.name().clone()),
+                    extension.comment().cloned()
+                ));
+            }
         } else {
-            stmts.push(Statement::CreateExtension(
-                Rc::new(CreateExtension::new(false, extension.clone(), false))
-            ));
+            create_extension(extension, stmts);
         }
     }
 
     for function in new.functions().values() {
         if let Some(old_function) = old.functions().get(&function.to_ref()) {
-            if function != old_function {
+            if !function.eq_no_comment(old_function) {
                 stmts.push(Statement::CreateFunction(
                     Rc::new(CreateFunction::new(true, function.clone()))
                 ));
             }
+
+            if function.comment() != old_function.comment() {
+                stmts.push(Statement::comment_on(
+                    ObjectRef::function(function.to_signature()),
+                    function.comment().cloned()
+                ));
+            }
         } else {
-            stmts.push(Statement::CreateFunction(
-                Rc::new(CreateFunction::new(false, function.clone()))
-            ));
+            create_function(false, function, stmts);
         }
     }
 
@@ -207,16 +328,18 @@ pub fn migrate_schema(old_database: &Database, old: &Schema, new: &Schema, stmts
         if let Some(old_table) = old_tables.get(table.name().name()) {
             migrate_table(old_table, table, stmts);
         } else {
-            stmts.push(Statement::create_table(table.clone()));
+            create_table(table, stmts);
         }
     }
 
     for index in new.indices().values() {
         if let Some(name) = index.name() {
             if !old_indices.contains_key(name.name()) {
-                // TODO: find matching unnamed index?
-                stmts.push(Statement::create_index(index.clone()));
+                create_index(index, stmts);
             }
+        } else {
+            // TODO: find matching unnamed index?
+            create_index(index, stmts);
         }
     }
 
@@ -246,6 +369,13 @@ fn migrate_table(old_table: &Table, new_table: &Table, stmts: &mut Vec<Statement
         stmts.push(Statement::set_logged(
             new_table.name().clone(),
             new_table.logged()
+        ));
+    }
+
+    if old_table.comment() != new_table.comment() {
+        stmts.push(Statement::comment_on(
+            ObjectRef::table(new_table.name().clone()),
+            new_table.comment().cloned()
         ));
     }
 
@@ -358,15 +488,20 @@ fn migrate_table(old_table: &Table, new_table: &Table, stmts: &mut Vec<Statement
     // create triggers
     for trigger in new_table.triggers().values() {
         if let Some(old_trigger) = old_table.triggers().get(trigger.name()) {
-            if trigger != old_trigger {
+            if !trigger.eq_no_comment(old_trigger) {
                 stmts.push(Statement::CreateTrigger(
                     Rc::new(CreateTrigger::new(true, trigger.clone()))
                 ));
             }
+
+            if trigger.comment() != old_trigger.comment() {
+                stmts.push(Statement::comment_on(
+                    ObjectRef::trigger(trigger.table_name().clone(), trigger.name().clone()),
+                    trigger.comment().cloned()
+                ));
+            }
         } else {
-            stmts.push(Statement::CreateTrigger(
-                Rc::new(CreateTrigger::new(false, trigger.clone()))
-            ));
+            create_trigger(trigger, stmts);
         }
     }
 }
@@ -404,6 +539,13 @@ fn migrate_column(table_name: &QName, old_column: &Column, new_column: &Column, 
                 new_column.name().clone(),
                 new_column.compression().cloned()
             ))
+        ));
+    }
+
+    if old_column.comment() != new_column.comment() {
+        stmts.push(Statement::comment_on(
+            ObjectRef::column(table_name.clone(), new_column.name().clone()),
+            new_column.comment().cloned()
         ));
     }
 

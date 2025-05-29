@@ -196,6 +196,20 @@ impl Trigger {
 
         Ok(())
     }
+
+    pub fn eq_no_comment(&self, other: &Trigger) -> bool {
+        self.constraint == other.constraint &&
+        self.when == other.when &&
+        self.events == other.events &&
+        self.ref_table == other.ref_table &&
+        self.referencing == other.referencing &&
+        self.for_each_row == other.for_each_row &&
+        self.deferrable == other.deferrable &&
+        self.initially_deferred == other.initially_deferred &&
+        self.predicate == other.predicate &&
+        self.function_name == other.function_name &&
+        self.arguments == other.arguments
+    }
 }
 
 impl std::fmt::Display for Trigger {

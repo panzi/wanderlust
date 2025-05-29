@@ -360,6 +360,12 @@ impl Function {
 
         f.write_str(";\n")
     }
+
+    pub fn eq_no_comment(&self, other: &Function) -> bool {
+        self.arguments == other.arguments &&
+        self.returns == other.returns &&
+        self.body == other.body
+    }
 }
 
 impl std::fmt::Display for Function {

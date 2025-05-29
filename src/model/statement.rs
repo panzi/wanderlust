@@ -1,5 +1,7 @@
 use std::rc::Rc;
 
+use crate::format::IsoString;
+
 use super::alter::extension::AlterExtension;
 use super::alter::table::AlterTable;
 use super::alter::types::AlterType;
@@ -59,37 +61,37 @@ impl Statement {
 
     #[inline]
     pub fn drop_table(name: QName) -> Self {
-        Self::DropTable { if_exists: false, names: vec![name], behavior: None }
+        Self::DropTable { if_exists: true, names: vec![name], behavior: None }
     }
 
     #[inline]
     pub fn drop_index(name: QName) -> Self {
-        Self::DropIndex { concurrently: false, if_exists: false, names: vec![name], behavior: None }
+        Self::DropIndex { concurrently: false, if_exists: true, names: vec![name], behavior: None }
     }
 
     #[inline]
     pub fn drop_type(name: QName) -> Self {
-        Self::DropType { if_exists: false, names: vec![name], behavior: None }
+        Self::DropType { if_exists: true, names: vec![name], behavior: None }
     }
 
     #[inline]
     pub fn drop_extension(name: QName) -> Self {
-        Self::DropExtension { if_exists: false, names: vec![name], behavior: None }
+        Self::DropExtension { if_exists: true, names: vec![name], behavior: None }
     }
 
     #[inline]
     pub fn drop_function(signature: FunctionSignature) -> Self {
-        Self::DropFunction { if_exists: false, signatures: vec![signature], behavior: None }
+        Self::DropFunction { if_exists: true, signatures: vec![signature], behavior: None }
     }
 
     #[inline]
     pub fn drop_trigger(name: Name, table_name: QName) -> Self {
-        Self::DropTrigger { if_exists: false, name, table_name, behavior: None }
+        Self::DropTrigger { if_exists: true, name, table_name, behavior: None }
     }
 
     #[inline]
     pub fn drop_schema(name: Name) -> Self {
-        Self::DropSchema { if_exists: false, name, behavior: None }
+        Self::DropSchema { if_exists: true, name, behavior: None }
     }
 
     #[inline]
@@ -97,6 +99,11 @@ impl Statement {
         Self::AlterTable(
             AlterTable::set_logged(table_name, logged)
         )
+    }
+
+    #[inline]
+    pub fn comment_on(object_ref: ObjectRef, comment: Option<Rc<str>>) -> Self {
+        Self::Comment { object_ref, comment }
     }
 
     #[inline]
@@ -261,7 +268,7 @@ impl std::fmt::Display for Statement {
             }
             Self::Comment { object_ref, comment } => {
                 if let Some(comment) = comment {
-                    write!(f, "{COMMENT} {ON} {object_ref} {IS} {comment};")
+                    write!(f, "{COMMENT} {ON} {object_ref} {IS} {};", IsoString(comment))
                 } else {
                     write!(f, "{COMMENT} {ON} {object_ref} {IS} {NULL};")
                 }
