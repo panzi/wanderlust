@@ -12,6 +12,8 @@ use super::words::*;
 pub struct Column {
     name: Name,
     data_type: Rc<DataType>,
+    storage: Storage,
+    compression: Option<Name>,
     collation: Option<Name>,
     constraints: Vec<Rc<ColumnConstraint>>,
 }
@@ -20,6 +22,14 @@ impl std::fmt::Display for Column {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{} {}", self.name, self.data_type)?;
+
+        if self.storage != Storage::Default {
+            write!(f, " {STORAGE} {}", self.storage)?
+        }
+
+        if let Some(compression) = &self.compression {
+            write!(f, " {COMPRESSION} {compression}")?;
+        }
 
         if let Some(collation) = &self.collation {
             write!(f, " {COLLATE} {collation}")?;
@@ -35,8 +45,15 @@ impl std::fmt::Display for Column {
 
 impl Column {
     #[inline]
-    pub fn new(name: Name, data_type: impl Into<Rc<DataType>>, collation: Option<Name>, constraints: Vec<Rc<ColumnConstraint>>) -> Self {
-        Self { name, data_type: data_type.into(), collation, constraints }
+    pub fn new(
+        name: Name,
+        data_type: impl Into<Rc<DataType>>,
+        storage: Storage,
+        compression: Option<Name>,
+        collation: Option<Name>,
+        constraints: Vec<Rc<ColumnConstraint>>
+    ) -> Self {
+        Self { name, data_type: data_type.into(), storage, compression, collation, constraints }
     }
 
     #[inline]
@@ -67,6 +84,26 @@ impl Column {
     #[inline]
     pub fn set_collation(&mut self, collation: Option<Name>) {
         self.collation = collation;
+    }
+
+    #[inline]
+    pub fn storage(&self) -> Storage {
+        self.storage
+    }
+
+    #[inline]
+    pub fn set_storage(&mut self, storage: Storage) {
+        self.storage = storage;
+    }
+
+    #[inline]
+    pub fn compression(&self) -> Option<&Name> {
+        self.compression.as_ref()
+    }
+
+    #[inline]
+    pub fn set_compression(&mut self, compression: Option<Name>) {
+        self.compression = compression;
     }
 
     pub fn drop_default(&mut self) {
@@ -135,6 +172,8 @@ impl Column {
         Rc::new(Self {
             name: self.name.clone(),
             data_type: self.data_type.clone(),
+            storage: self.storage,
+            compression: self.compression.clone(),
             collation: self.collation.clone(),
             constraints: self.constraints.iter()
                 .filter(|&constraint| !constraint.is_table_constraint())
@@ -142,7 +181,28 @@ impl Column {
                 .collect()
         })
     }
+}
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Storage {
+    Plain,
+    External,
+    Extended,
+    Main,
+    Default,
+}
+
+impl std::fmt::Display for Storage {
+    #[inline]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Plain    => f.write_str(PLAIN),
+            Self::External => f.write_str(EXTERNAL),
+            Self::Extended => f.write_str(EXTENDED),
+            Self::Main     => f.write_str(MAIN),
+            Self::Default  => f.write_str(DEFAULT),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

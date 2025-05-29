@@ -85,8 +85,6 @@ pub fn migrate_schema(old_database: &Database, old: &Schema, new: &Schema, stmts
     let old_indices = old.indices();
     let new_indices = new.indices();
 
-    // TODO: correlate unnamed indices somehow!
-
     let mut tmp_id = 0u64;
 
     for type_def in new.types().values() {
@@ -355,6 +353,24 @@ fn migrate_column(table_name: &QName, old_column: &Column, new_column: &Column, 
                 new_column.data_type().clone(),
                 new_column.collation().cloned(),
                 Some(new_column.data_type().cast(new_column.name()).into())
+            ))
+        ));
+    }
+
+    if old_column.storage() != new_column.storage() {
+        stmts.push(Statement::AlterTable(
+            AlterTable::alter_column(table_name.clone(), AlterColumn::set_storage(
+                new_column.name().clone(),
+                new_column.storage()
+            ))
+        ));
+    }
+
+    if old_column.compression() != new_column.compression() {
+        stmts.push(Statement::AlterTable(
+            AlterTable::alter_column(table_name.clone(), AlterColumn::set_compression(
+                new_column.name().clone(),
+                new_column.compression().cloned()
             ))
         ));
     }

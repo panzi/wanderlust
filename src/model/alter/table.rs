@@ -1,7 +1,7 @@
 
 use std::rc::Rc;
 
-use crate::{format::write_token_list, model::{column::Column, name::{Name, QName}, table::TableConstraint, token::ParsedToken, types::DataType, words::*}};
+use crate::{format::write_token_list, model::{column::{Column, Storage}, name::{Name, QName}, table::TableConstraint, token::ParsedToken, types::DataType, words::*}};
 
 use super::{DropBehavior, Owner};
 
@@ -331,6 +331,16 @@ impl AlterColumn {
     }
 
     #[inline]
+    pub fn set_storage(column_name: Name, storage: Storage) -> Self {
+        Self { column_name, data: AlterColumnData::SetStorage { storage } }
+    }
+
+    #[inline]
+    pub fn set_compression(column_name: Name, compression: Option<Name>) -> Self {
+        Self { column_name, data: AlterColumnData::SetCompression { compression } }
+    }
+
+    #[inline]
     pub fn column_name(&self) -> &Name {
         &self.column_name
     }
@@ -355,6 +365,8 @@ pub enum AlterColumnData {
     DropDefault,
     SetNotNull,
     DropNotNull,
+    SetStorage { storage: Storage },
+    SetCompression { compression: Option<Name> },
     // TODO: more
 }
 
@@ -377,20 +389,30 @@ impl std::fmt::Display for AlterColumnData {
                 }
 
                 Ok(())
-            },
+            }
             Self::SetDefault { expr } => {
                 write!(f, "{SET} {DEFAULT} ")?;
                 write_token_list(expr, f)
-            },
+            }
             Self::DropDefault => {
                 write!(f, "{DROP} {DEFAULT}")
-            },
+            }
             Self::SetNotNull => {
                 write!(f, "{SET} {NOT} {NULL}")
-            },
+            }
             Self::DropNotNull => {
                 write!(f, "{DROP} {NOT} {NULL}")
-            },
+            }
+            Self::SetStorage { storage } => {
+                write!(f, "{STORAGE} {storage}")
+            }
+            Self::SetCompression { compression } => {
+                if let Some(compression) = compression {
+                    write!(f, "{COMPRESSION} {compression}")
+                } else {
+                    write!(f, "{COMPRESSION} {DEFAULT}")
+                }
+            }
         }
     }
 }

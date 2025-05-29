@@ -13,7 +13,7 @@ use crate::{
             types::{AlterType, AlterTypeData, ValuePosition},
             DropBehavior, Owner
         },
-        column::{Column, ColumnConstraint, ColumnConstraintData, ColumnMatch, ReferentialAction},
+        column::{Column, ColumnConstraint, ColumnConstraintData, ColumnMatch, ReferentialAction, Storage},
         database::Database,
         extension::{CreateExtension, Extension, Version},
         floats::Float,
@@ -1888,9 +1888,42 @@ impl<'a> PostgreSQLParser<'a> {
         ))
     }
 
+    fn parse_storage(&mut self) -> Result<Storage> {
+        if self.parse_word(PLAIN)? {
+            Ok(Storage::Plain)
+        } else if self.parse_word(EXTERNAL)? {
+            Ok(Storage::External)
+        } else if self.parse_word(EXTENDED)? {
+            Ok(Storage::Extended)
+        } else if self.parse_word(MAIN)? {
+            Ok(Storage::Main)
+        } else if self.parse_word(DEFAULT)? {
+            Ok(Storage::Default)
+        } else {
+            Err(self.expected_one_of(&[
+                PLAIN, EXTERNAL, EXTENDED, MAIN, DEFAULT
+            ]))
+        }
+    }
+
     fn parse_column(&mut self) -> Result<Rc<Column>> {
         let column_name = self.expect_name()?;
         let data_type = self.parse_data_type()?;
+        let storage = if self.parse_word(STORAGE)? {
+            self.parse_storage()?
+        } else {
+            Storage::Default
+        };
+        let compression = if self.parse_word(COMPRESSION)? {
+            if self.parse_word(DEFAULT)? {
+                None
+            } else {
+                Some(self.expect_name()?)
+            }
+        } else {
+            None
+        };
+
         let mut collation = None;
 
         if self.peek_word(COLLATE)? {
@@ -2018,7 +2051,12 @@ impl<'a> PostgreSQLParser<'a> {
         }
 
         Ok(Rc::new(Column::new(
-            column_name, data_type, collation, column_constraints,
+            column_name,
+            data_type,
+            storage,
+            compression,
+            collation,
+            column_constraints,
         )))
     }
 

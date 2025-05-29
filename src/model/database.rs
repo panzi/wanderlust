@@ -33,15 +33,22 @@ impl std::fmt::Display for Database {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "{BEGIN};")?;
         for schema in self.schemas.values() {
+            if schema.name() != &self.default_schema {
+                writeln!(f, "{CREATE} {SCHEMA} {IF} {NOT} {EXISTS} {};", schema.name())?;
+            }
             for extension in schema.extensions().values() {
                 writeln!(f, "{extension}")?;
             }
+        }
+        for schema in self.schemas.values() {
             for type_def in schema.types().values() {
                 writeln!(f, "{type_def}")?;
             }
             for function in schema.functions().values() {
                 writeln!(f, "{function}")?;
             }
+        }
+        for schema in self.schemas.values() {
             for table in schema.tables().values() {
                 writeln!(f, "{table}")?;
             }
@@ -886,6 +893,12 @@ impl Database {
                                         AlterColumnData::Type { data_type, collation, using: _ } => {
                                             column.set_data_type(data_type.clone());
                                             column.set_collation(collation.clone());
+                                        }
+                                        AlterColumnData::SetStorage { storage } => {
+                                            column.set_storage(*storage);
+                                        }
+                                        AlterColumnData::SetCompression { compression } => {
+                                            column.set_compression(compression.clone());
                                         }
                                     }
                                 }
