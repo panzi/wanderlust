@@ -2328,12 +2328,32 @@ impl<'a> PostgreSQLParser<'a> {
         }
         self.expect_token(TokenKind::RParen)?;
 
+        let mut inherits = Vec::new();
+
+        if self.parse_word(INHERITS)? {
+            self.expect_token(TokenKind::LParen)?;
+
+            loop {
+                let super_table = self.parse_ref_table()?;
+                if !inherits.contains(&super_table) {
+                    inherits.push(super_table);
+                }
+
+                if !self.parse_token(TokenKind::Comma)? {
+                    break;
+                }
+            }
+
+            self.expect_token(TokenKind::RParen)?;
+        }
+
         let table = Table::new(
             table_name,
             logged,
             columns,
             table_constraints,
-            OrderedHashMap::new()
+            OrderedHashMap::new(),
+            inherits,
         );
 
         Ok(CreateTable::new(table, if_not_exists))

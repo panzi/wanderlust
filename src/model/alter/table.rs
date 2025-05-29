@@ -90,6 +90,16 @@ impl AlterTable {
     }
 
     #[inline]
+    pub fn inherit(table_name: QName, super_table: QName) -> Rc<Self> {
+        Rc::new(Self { table_name, data: AlterTableData::inherit(super_table) })
+    }
+
+    #[inline]
+    pub fn no_inherit(table_name: QName, super_table: QName) -> Rc<Self> {
+        Rc::new(Self { table_name, data: AlterTableData::no_inherit(super_table) })
+    }
+
+    #[inline]
     pub fn name(&self) -> &QName {
         &self.table_name
     }
@@ -166,6 +176,16 @@ impl AlterTableData {
     }
 
     #[inline]
+    pub fn inherit(super_table: QName) -> Self {
+        Self::Actions { if_exists: false, only: false, actions: [AlterTableAction::Inherit { table_name: super_table }].into() }
+    }
+
+    #[inline]
+    pub fn no_inherit(super_table: QName) -> Self {
+        Self::Actions { if_exists: false, only: false, actions: [AlterTableAction::NoInherit { table_name: super_table }].into() }
+    }
+
+    #[inline]
     pub fn only(&self) -> bool {
         matches!(self,
             Self::Actions { only: true, .. } |
@@ -230,6 +250,8 @@ pub enum AlterTableAction {
     AlterConstraint { constraint_name: Name, deferrable: Option<bool>, initially_deferred: Option<bool> },
     DropConstraint { if_exists: bool, constraint_name: Name, behavior: Option<DropBehavior> },
     SetLogged { logged: bool },
+    Inherit { table_name: QName },
+    NoInherit { table_name: QName },
     // TODO: more
 }
 
@@ -306,6 +328,12 @@ impl std::fmt::Display for AlterTableAction {
                 } else {
                     write!(f, "{SET} {UNLOGGED}")
                 }
+            }
+            Self::Inherit { table_name } => {
+                write!(f, "{INHERIT} {table_name}")
+            }
+            Self::NoInherit { table_name } => {
+                write!(f, "{NO} {INHERIT} {table_name}")
             }
         }
     }

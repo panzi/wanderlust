@@ -65,6 +65,7 @@ pub struct Table {
     columns: OrderedHashMap<Name, Rc<Column>>,
     constraints: OrderedHashMap<Name, Rc<TableConstraint>>,
     triggers: OrderedHashMap<Name, Rc<Trigger>>,
+    inherits: Vec<QName>,
 }
 
 impl std::fmt::Display for Table {
@@ -86,9 +87,10 @@ impl Table {
         logged: bool,
         columns: OrderedHashMap<Name, Rc<Column>>,
         constraints: OrderedHashMap<Name, Rc<TableConstraint>>,
-        triggers: OrderedHashMap<Name, Rc<Trigger>>
+        triggers: OrderedHashMap<Name, Rc<Trigger>>,
+        inherits: Vec<QName>
     ) -> Self {
-        Self { name, logged, columns, constraints, triggers }
+        Self { name, logged, columns, constraints, triggers, inherits }
     }
 
     fn write(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -117,7 +119,23 @@ impl Table {
             }
         }
 
-        write!(f, "\n);")
+        f.write_str("\n)")?;
+
+        if !self.inherits.is_empty() {
+            write!(f, " {INHERITS} (")?;
+            let mut iter = self.inherits.iter();
+            if let Some(name) = iter.next() {
+                std::fmt::Display::fmt(name, f)?;
+
+                for name in iter {
+                    write!(f, ", {name}")?;
+                }
+            }
+
+            write!(f, ")")?;
+        }
+
+        f.write_str(";\n")
     }
 
     #[inline]
@@ -156,6 +174,11 @@ impl Table {
     }
 
     #[inline]
+    pub fn inherits(&self) -> &[QName] {
+        &self.inherits
+    }
+
+    #[inline]
     pub fn triggers(&self) -> &OrderedHashMap<Name, Rc<Trigger>> {
         &self.triggers
     }
@@ -173,6 +196,11 @@ impl Table {
     #[inline]
     pub fn triggers_mut(&mut self) -> &mut OrderedHashMap<Name, Rc<Trigger>> {
         &mut self.triggers
+    }
+
+    #[inline]
+    pub fn inherits_mut(&mut self) -> &mut Vec<QName> {
+        &mut self.inherits
     }
 
     pub fn merged_constraints(&self) -> Vec<Rc<TableConstraint>> {

@@ -71,6 +71,7 @@ pub const IN: &str = "IN";
 pub const INDEX: &str = "INDEX";
 pub const INET: &str = "INET";
 pub const INHERIT: &str = "INHERIT";
+pub const INHERITS: &str = "INHERITS";
 pub const INITIALLY: &str = "INITIALLY";
 pub const INOUT: &str = "INOUT";
 pub const INSERT: &str = "INSERT";

@@ -249,6 +249,31 @@ fn migrate_table(old_table: &Table, new_table: &Table, stmts: &mut Vec<Statement
         ));
     }
 
+    let old_super_tables = old_table.inherits();
+    let new_super_tables = new_table.inherits();
+
+    for super_table in old_super_tables {
+        if !new_super_tables.contains(super_table) {
+            stmts.push(Statement::AlterTable(
+                AlterTable::no_inherit(
+                    new_table.name().clone(),
+                    super_table.clone()
+                )
+            ));
+        }
+    }
+
+    for super_table in new_super_tables {
+        if !old_super_tables.contains(super_table) {
+            stmts.push(Statement::AlterTable(
+                AlterTable::inherit(
+                    new_table.name().clone(),
+                    super_table.clone()
+                )
+            ));
+        }
+    }
+
     // drop triggers
     for trigger in old_table.triggers().values() {
         if !new_table.triggers().contains_key(trigger.name()) {

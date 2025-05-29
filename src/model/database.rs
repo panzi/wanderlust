@@ -962,6 +962,16 @@ impl Database {
                                 AlterTableAction::SetLogged { logged } => {
                                     Rc::make_mut(table).set_logged(*logged);
                                 }
+                                AlterTableAction::Inherit { table_name } => {
+                                    let table = Rc::make_mut(table);
+                                    if !table.inherits().contains(table_name) {
+                                        table.inherits_mut().push(table_name.clone());
+                                    }
+                                }
+                                AlterTableAction::NoInherit { table_name } => {
+                                    let table = Rc::make_mut(table);
+                                    table.inherits_mut().retain(|other_name| other_name != table_name);
+                                }
                             }
                         }
                         Ok(())
