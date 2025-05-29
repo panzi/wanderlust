@@ -2147,7 +2147,14 @@ impl<'a> PostgreSQLParser<'a> {
     fn parse_create_intern(&mut self, start_offset: usize) -> Result<()> {
         // "CREATE" is already parsed
         if self.parse_word(TABLE)? {
-            let table = self.parse_table_intern()?;
+            let table = self.parse_table_intern(true)?;
+            Rc::make_mut(&mut self.database).create_table(table).map_err(|mut err| {
+                *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
+                err
+            })
+        } else if self.parse_word(UNLOGGED)? {
+            self.expect_word(TABLE)?;
+            let table = self.parse_table_intern(false)?;
             Rc::make_mut(&mut self.database).create_table(table).map_err(|mut err| {
                 *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
                 err
@@ -2285,7 +2292,7 @@ impl<'a> PostgreSQLParser<'a> {
         }
     }
 
-    fn parse_table_intern(&mut self) -> Result<CreateTable> {
+    fn parse_table_intern(&mut self, logged: bool) -> Result<CreateTable> {
         // "CREATE TABLE" is already parsed
 
         let if_not_exists = self.parse_if_not_exists()?;
@@ -2323,6 +2330,7 @@ impl<'a> PostgreSQLParser<'a> {
 
         let table = Table::new(
             table_name,
+            logged,
             columns,
             table_constraints,
             OrderedHashMap::new()

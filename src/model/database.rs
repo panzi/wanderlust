@@ -959,6 +959,9 @@ impl Database {
                                         ));
                                     }
                                 }
+                                AlterTableAction::SetLogged { logged } => {
+                                    Rc::make_mut(table).set_logged(*logged);
+                                }
                             }
                         }
                         Ok(())

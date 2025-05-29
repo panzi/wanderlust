@@ -242,6 +242,13 @@ fn migrate_table(old_table: &Table, new_table: &Table, stmts: &mut Vec<Statement
     let old_columns = old_table.columns();
     let new_columns = new_table.columns();
 
+    if old_table.logged() != new_table.logged() {
+        stmts.push(Statement::set_logged(
+            new_table.name().clone(),
+            new_table.logged()
+        ));
+    }
+
     // drop triggers
     for trigger in old_table.triggers().values() {
         if !new_table.triggers().contains_key(trigger.name()) {

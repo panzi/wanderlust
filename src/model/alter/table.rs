@@ -85,6 +85,11 @@ impl AlterTable {
     }
 
     #[inline]
+    pub fn set_logged(table_name: QName, logged: bool) -> Rc<Self> {
+        Rc::new(Self { table_name, data: AlterTableData::set_logged(logged) })
+    }
+
+    #[inline]
     pub fn name(&self) -> &QName {
         &self.table_name
     }
@@ -156,6 +161,11 @@ impl AlterTableData {
     }
 
     #[inline]
+    pub fn set_logged(logged: bool) -> Self {
+        Self::Actions { if_exists: false, only: false, actions: [AlterTableAction::SetLogged { logged }].into() }
+    }
+
+    #[inline]
     pub fn only(&self) -> bool {
         matches!(self,
             Self::Actions { only: true, .. } |
@@ -219,6 +229,7 @@ pub enum AlterTableAction {
     AddConstraint { constraint: Rc<TableConstraint> },
     AlterConstraint { constraint_name: Name, deferrable: Option<bool>, initially_deferred: Option<bool> },
     DropConstraint { if_exists: bool, constraint_name: Name, behavior: Option<DropBehavior> },
+    SetLogged { logged: bool },
     // TODO: more
 }
 
@@ -288,6 +299,13 @@ impl std::fmt::Display for AlterTableAction {
                 }
 
                 Ok(())
+            }
+            Self::SetLogged { logged } => {
+                if *logged {
+                    write!(f, "{SET} {LOGGED}")
+                } else {
+                    write!(f, "{SET} {UNLOGGED}")
+                }
             }
         }
     }

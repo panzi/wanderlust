@@ -91,6 +91,13 @@ impl Statement {
     }
 
     #[inline]
+    pub fn set_logged(table_name: QName, logged: bool) -> Self {
+        Self::AlterTable(
+            AlterTable::set_logged(table_name, logged)
+        )
+    }
+
+    #[inline]
     pub fn is_same_variant(&self, other: &Statement) -> bool {
         std::mem::discriminant(self) == std::mem::discriminant(other)
     }

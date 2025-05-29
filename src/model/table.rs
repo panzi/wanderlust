@@ -44,11 +44,16 @@ impl From<CreateTable> for Rc<Table> {
 impl std::fmt::Display for CreateTable {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.if_not_exists {
-            write!(f, "{CREATE} {TABLE} {IF} {NOT} {EXISTS} ")?;
-        } else {
-            write!(f, "{CREATE} {TABLE} ")?;
+        write!(f, "{CREATE} {TABLE} ")?;
+
+        if !self.table.logged() {
+            write!(f, "{UNLOGGED} ")?;
         }
+
+        if self.if_not_exists {
+            write!(f, "{IF} {NOT} {EXISTS} ")?;
+        }
+
         self.table.write(f)
     }
 }
@@ -56,6 +61,7 @@ impl std::fmt::Display for CreateTable {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Table {
     name: QName,
+    logged: bool,
     columns: OrderedHashMap<Name, Rc<Column>>,
     constraints: OrderedHashMap<Name, Rc<TableConstraint>>,
     triggers: OrderedHashMap<Name, Rc<Trigger>>,
@@ -64,7 +70,11 @@ pub struct Table {
 impl std::fmt::Display for Table {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{CREATE} {TABLE} ")?;
+        if self.logged {
+            write!(f, "{CREATE} {TABLE} ")?;
+        } else {
+            write!(f, "{CREATE} {UNLOGGED} {TABLE} ")?;
+        }
         self.write(f)
     }
 }
@@ -73,11 +83,12 @@ impl Table {
     #[inline]
     pub fn new(
         name: QName,
+        logged: bool,
         columns: OrderedHashMap<Name, Rc<Column>>,
         constraints: OrderedHashMap<Name, Rc<TableConstraint>>,
         triggers: OrderedHashMap<Name, Rc<Trigger>>
     ) -> Self {
-        Self { name, columns, constraints, triggers }
+        Self { name, logged, columns, constraints, triggers }
     }
 
     fn write(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -122,6 +133,16 @@ impl Table {
     #[inline]
     pub fn name_mut(&mut self) -> &mut QName {
         &mut self.name
+    }
+
+    #[inline]
+    pub fn logged(&self) -> bool {
+        self.logged
+    }
+
+    #[inline]
+    pub fn set_logged(&mut self, logged: bool) {
+        self.logged = logged;
     }
 
     #[inline]
