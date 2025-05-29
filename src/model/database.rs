@@ -3,7 +3,7 @@ use std::ops::Deref;
 use std::rc::Rc;
 
 use crate::error::{Error, ErrorKind, Result};
-use crate::format::IsoString;
+use crate::format::{format_iso_string, IsoString};
 use crate::model::alter::table::{AlterColumnData, AlterTable, AlterTableAction, AlterTableData};
 use crate::model::alter::types::{AlterType, AlterTypeData, ValuePosition};
 use crate::model::types::TypeData;
@@ -32,6 +32,8 @@ pub struct Database {
 impl std::fmt::Display for Database {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "{BEGIN};")?;
+
+        // schemas and extensions
         for schema in self.schemas.values() {
             if schema.name() != &self.default_schema {
                 writeln!(f, "{CREATE} {SCHEMA} {IF} {NOT} {EXISTS} {};", schema.name())?;
@@ -40,14 +42,28 @@ impl std::fmt::Display for Database {
                 writeln!(f, "{extension}")?;
             }
         }
+
+        f.write_str("\n")?;
+
+        // types
         for schema in self.schemas.values() {
             for type_def in schema.types().values() {
                 writeln!(f, "{type_def}")?;
             }
+        }
+
+        f.write_str("\n")?;
+
+        // functions
+        for schema in self.schemas.values() {
             for function in schema.functions().values() {
                 writeln!(f, "{function}")?;
             }
         }
+
+        f.write_str("\n")?;
+
+        // tables, triggers, and indices
         for schema in self.schemas.values() {
             for table in schema.tables().values() {
                 writeln!(f, "{table}")?;
@@ -59,6 +75,69 @@ impl std::fmt::Display for Database {
             }
             for index in schema.indices().values() {
                 writeln!(f, "{index}")?;
+            }
+        }
+
+        f.write_str("\n")?;
+
+        // comments
+        for schema in self.schemas.values() {
+            if let Some(comment) = schema.comment() {
+                writeln!(f, "{COMMENT} {ON} {SCHEMA} {} {IS} {};",
+                    schema.name(), IsoString(comment))?;
+            }
+
+            for extension in schema.extensions().values() {
+                if let Some(comment) = extension.comment() {
+                    writeln!(f, "{COMMENT} {ON} {EXTENSION} {} {IS} {};",
+                        extension.name(), IsoString(comment))?;
+                }
+            }
+
+            for type_def in schema.types().values() {
+                if let Some(comment) = type_def.comment() {
+                    writeln!(f, "{COMMENT} {ON} {TYPE} {} {IS} {};",
+                        type_def.name(), IsoString(comment))?;
+                }
+            }
+
+            for function in schema.functions().values() {
+                if let Some(comment) = function.comment() {
+                    writeln!(f, "{COMMENT} {ON} {FUNCTION} {} {IS} {};",
+                        function.to_signature(), IsoString(comment))?;
+                }
+            }
+
+            for table in schema.tables().values() {
+                if let Some(comment) = table.comment() {
+                    writeln!(f, "{COMMENT} {ON} {TABLE} {} {IS} {};",
+                        table.name(), IsoString(comment))?;
+                }
+
+                for constaint in table.constraints().values() {
+                    if let Some(name) = constaint.name() {
+                        if let Some(comment) = constaint.comment() {
+                            writeln!(f, "{COMMENT} {ON} {CONSTRAINT} {} {ON} {} {IS} {};",
+                                name, table.name(), IsoString(comment))?;
+                        }
+                    }
+                }
+
+                for trigger in table.triggers().values() {
+                    if let Some(comment) = trigger.comment() {
+                        writeln!(f, "{COMMENT} {ON} {TRIGGER} {} {ON} {} {IS} {};",
+                            trigger.name(), table.name(), IsoString(comment))?;
+                    }
+                }
+            }
+
+            for index in schema.indices().values() {
+                if let Some(name) = index.name() {
+                    if let Some(comment) = index.comment() {
+                        writeln!(f, "{COMMENT} {ON} {INDEX} {} {IS} {};",
+                            name, IsoString(comment))?;
+                    }
+                }
             }
         }
         writeln!(f, "{COMMIT};")

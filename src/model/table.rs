@@ -386,6 +386,7 @@ pub struct TableConstraint {
     data: TableConstraintData,
     deferrable: Option<bool>,
     initially_deferred: Option<bool>,
+    comment: Option<Rc<str>>,
 }
 
 pub fn make_constraint_name(data: &TableConstraintData) -> Name {
@@ -471,7 +472,7 @@ impl TableConstraint {
         deferrable: Option<bool>,
         initially_deferred: Option<bool>,
     ) -> Self {
-        Self { name, data, deferrable, initially_deferred }
+        Self { name, data, deferrable, initially_deferred, comment: None }
     }
 
     #[inline]
@@ -524,6 +525,16 @@ impl TableConstraint {
     #[inline]
     pub fn default_initially_deferred(&self) -> bool {
         self.initially_deferred.unwrap_or(false)
+    }
+
+    #[inline]
+    pub fn comment(&self) -> Option<&Rc<str>> {
+        self.comment.as_ref()
+    }
+
+    #[inline]
+    pub fn set_comment(&mut self, comment: Option<Rc<str>>) {
+        self.comment = comment.into();
     }
 
     pub fn matches(&self, other: &TableConstraint) -> bool {

@@ -3105,6 +3105,9 @@ impl<'a> PostgreSQLParser<'a> {
     }
 
     fn parse_comment_intern(&mut self, start_offset: usize) -> Result<()> {
+        // "COMMENT" is already parsed
+        self.expect_word(ON)?;
+
         if self.parse_word(COLUMN)? {
             let first = self.expect_name()?;
             self.expect_token(TokenKind::Period)?;
@@ -3247,6 +3250,39 @@ impl<'a> PostgreSQLParser<'a> {
             };
 
             Rc::make_mut(function).set_comment(comment);
+        } else if self.parse_word(CONSTRAINT)? {
+            let name = self.expect_name()?;
+            self.expect_word(ON)?;
+
+            if self.parse_word(DOMAIN)? {
+                self.parse_token_list(false, true)?;
+
+                let end_offset = self.tokenizer.offset();
+                let source = self.tokenizer.get_offset(start_offset, end_offset);
+
+                eprintln!("TODO: parse more COMMENT statements: {source}");
+            } else {
+                let table_name = self.parse_qual_name()?;
+                let comment = self.parse_comment_tail()?;
+
+                let Some(table) = Rc::make_mut(&mut self.database).get_table_mut(&table_name) else {
+                    return Err(Error::with_message(
+                        ErrorKind::TableNotExists,
+                        Cursor::new(start_offset, self.tokenizer.offset()),
+                        format!("table {table_name} not found")
+                    ));
+                };
+
+                let table = Rc::make_mut(table);
+                let Some(constraint) = table.constraints_mut().get_mut(&name) else {
+                    return Err(Error::with_message(
+                        ErrorKind::ConstraintNotExists,
+                        Cursor::new(start_offset, self.tokenizer.offset()),
+                        format!("constraint {name} on table {table_name} not found")
+                    ));
+                };
+                Rc::make_mut(constraint).set_comment(comment);
+            }
         } else {
             self.parse_token_list(false, true)?;
 

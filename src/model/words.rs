@@ -44,6 +44,7 @@ pub const DEFERRED: &str = "DEFERRED";
 pub const DELETE: &str = "DELETE";
 pub const DESC: &str = "DESC";
 pub const DISTINCT: &str = "DISTINCT";
+pub const DOMAIN: &str = "DOMAIN";
 pub const DOUBLE: &str = "DOUBLE";
 pub const DROP: &str = "DROP";
 pub const EACH: &str = "EACH";

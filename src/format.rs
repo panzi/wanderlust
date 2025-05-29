@@ -207,6 +207,7 @@ pub fn format_string_for_functions(write: impl std::fmt::Write, value: &str) -> 
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(transparent)]
 pub struct IsoString<'a>(pub &'a str);
 
 impl<'a> std::fmt::Display for IsoString<'a> {
