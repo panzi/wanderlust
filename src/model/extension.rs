@@ -116,7 +116,7 @@ impl Extension {
 
     #[inline]
     pub fn set_comment(&mut self, comment: Option<Rc<str>>) {
-        self.comment = comment.into();
+        self.comment = comment;
     }
 
     pub fn write(&self, cascade: bool, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

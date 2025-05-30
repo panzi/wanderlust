@@ -3,9 +3,10 @@ use std::rc::Rc;
 use crate::format::format_iso_string;
 
 use crate::model::name::{Name, QName};
+use crate::model::types::DataType;
 use crate::model::words::*;
 
-use super::Owner;
+use super::{DropBehavior, Owner};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AlterType {
@@ -45,6 +46,26 @@ impl AlterType {
     }
 
     #[inline]
+    pub fn rename_attribute(type_name: QName, attribute_name: Name, new_attribute_name: Name) -> Rc<Self> {
+        Rc::new(Self { type_name, data: AlterTypeData::RenameAttribute { attribute_name, new_attribute_name, behavior: Some(DropBehavior::Cascade) } })
+    }
+
+    #[inline]
+    pub fn add_attribute(type_name: QName, attribute_name: Name, data_type: DataType, collation: Option<Name>) -> Rc<Self> {
+        Rc::new(Self { type_name, data: AlterTypeData::Actions { actions: vec![AlterTypeAction::add_attribute(attribute_name, data_type, collation)] } })
+    }
+
+    #[inline]
+    pub fn drop_attribute(type_name: QName, attribute_name: Name) -> Rc<Self> {
+        Rc::new(Self { type_name, data: AlterTypeData::Actions { actions: vec![AlterTypeAction::drop_attribute(attribute_name)] } })
+    }
+
+    #[inline]
+    pub fn alter_attribute(type_name: QName, attribute_name: Name, data_type: DataType, collation: Option<Name>) -> Rc<Self> {
+        Rc::new(Self { type_name, data: AlterTypeData::Actions { actions: vec![AlterTypeAction::alter_attribute(attribute_name, data_type, collation)] } })
+    }
+
+    #[inline]
     pub fn type_name(&self) -> &QName {
         &self.type_name
     }
@@ -69,6 +90,8 @@ pub enum AlterTypeData {
     RenameValue { existing_value: Rc<str>, new_value: Rc<str> },
     OwnerTo { new_owner: Owner },
     SetSchema { new_schema: Name },
+    RenameAttribute { attribute_name: Name, new_attribute_name: Name, behavior: Option<DropBehavior> },
+    Actions { actions: Vec<AlterTypeAction> },
 }
 
 impl std::fmt::Display for AlterTypeData {
@@ -103,6 +126,97 @@ impl std::fmt::Display for AlterTypeData {
             }
             Self::SetSchema { new_schema } => {
                 write!(f, "{SET} {SCHEMA} {new_schema}")
+            }
+            Self::RenameAttribute { attribute_name, new_attribute_name, behavior } => {
+                write!(f, "{RENAME} {ATTRIBUTE} {attribute_name} {TO} {new_attribute_name}")?;
+
+                if let Some(behavior) = behavior {
+                    write!(f, " {behavior}")?;
+                }
+
+                Ok(())
+            }
+            Self::Actions { actions } => {
+                let mut iter = actions.iter();
+                if let Some(first) = iter.next() {
+                    std::fmt::Display::fmt(first, f)?;
+
+                    for action in iter {
+                        write!(f, ", {action}")?;
+                    }
+                }
+
+                Ok(())
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum AlterTypeAction {
+    AddAttribute { name: Name, data_type: DataType, collation: Option<Name>, behavior: Option<DropBehavior> },
+    DropAttribute { if_exists: bool, name: Name, behavior: Option<DropBehavior> },
+    AlterAttribute { name: Name, data_type: DataType, collation: Option<Name>, behavior: Option<DropBehavior> },
+}
+
+impl AlterTypeAction {
+    #[inline]
+    pub fn add_attribute(name: Name, data_type: DataType, collation: Option<Name>) -> Self {
+        Self::AddAttribute { name, data_type, collation, behavior: Some(DropBehavior::Cascade) }
+    }
+
+    #[inline]
+    pub fn drop_attribute(name: Name) -> Self {
+        Self::DropAttribute { if_exists: true, name, behavior: Some(DropBehavior::Cascade) }
+    }
+
+    #[inline]
+    pub fn alter_attribute(name: Name, data_type: DataType, collation: Option<Name>) -> Self {
+        Self::AlterAttribute { name, data_type, collation, behavior: Some(DropBehavior::Cascade) }
+    }
+}
+
+impl std::fmt::Display for AlterTypeAction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::AddAttribute { name, data_type, collation, behavior } => {
+                write!(f, "{ADD} {ATTRIBUTE} {name} {data_type}")?;
+
+                if let Some(collation) = collation {
+                    write!(f, " {COLLATE} {collation}")?;
+                }
+
+                if let Some(behavior) = behavior {
+                    write!(f, " {behavior}")?;
+                }
+
+                Ok(())
+            }
+            Self::DropAttribute { if_exists, name, behavior } => {
+                if *if_exists {
+                    write!(f, "{DROP} {ATTRIBUTE} {IF} {EXISTS} {name}")?;
+                } else {
+                    write!(f, "{DROP} {ATTRIBUTE} {name}")?;
+                }
+
+                if let Some(behavior) = behavior {
+                    write!(f, " {behavior}")?;
+                }
+
+                Ok(())
+            }
+            Self::AlterAttribute { name, data_type, collation, behavior } => {
+                write!(f, "{ALTER} {ATTRIBUTE} {name} {TYPE} {data_type}")?;
+
+                if let Some(collation) = collation {
+                    write!(f, " {COLLATE} {collation}")?;
+                }
+
+                if let Some(behavior) = behavior {
+                    write!(f, " {behavior}")?;
+                }
+
+                Ok(())
             }
         }
     }

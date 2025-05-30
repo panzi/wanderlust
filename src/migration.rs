@@ -18,7 +18,7 @@ use crate::model::{
     table::Table,
     token::ParsedToken,
     trigger::{CreateTrigger, Trigger},
-    types::TypeDef,
+    types::{TypeData, TypeDef},
 };
 
 use crate::model::words::*;
@@ -193,38 +193,46 @@ pub fn migrate_schema(old_database: &Database, old: &Schema, new: &Schema, stmts
                         ));
                     }
                 } else {
-                    let schema = type_def.name().schema();
-                    let mut tmp_name = Name::new(format!("_wanderlust_tmp_type_{tmp_id}"));
-                    while old_types.contains_key(&tmp_name) {
-                        tmp_id += 1;
-                        tmp_name = Name::new(format!("_wanderlust_tmp_type_{tmp_id}"));
+                    match (type_def.data(), old_type_def.data()) {
+                        (TypeData::Composite { attributes }, TypeData::Composite { attributes: old_attributes }) => {
+                            // TODO: migrate composite types
+                            unimplemented!()
+                        }
+                        _ => {
+                            let schema = type_def.name().schema();
+                            let mut tmp_name = Name::new(format!("_wanderlust_tmp_type_{tmp_id}"));
+                            while old_types.contains_key(&tmp_name) {
+                                tmp_id += 1;
+                                tmp_name = Name::new(format!("_wanderlust_tmp_type_{tmp_id}"));
+                            }
+                            let tmp_name = QName::new(schema.cloned(), tmp_name.clone());
+
+                            let tmp_type_def = type_def.with_name(tmp_name.clone());
+                            stmts.push(Statement::CreateType(Rc::new(tmp_type_def)));
+
+                            for (table_name, column) in old_database.find_columns_with_type(type_def.name()) {
+                                let new_type = column.data_type().with_user_type(tmp_name.clone(), None);
+                                let using = new_type.cast(column.name());
+
+                                stmts.push(Statement::AlterTable(
+                                    AlterTable::alter_column(
+                                        table_name.clone(),
+                                        AlterColumn::change_type(
+                                            column.name().clone(),
+                                            new_type.into(),
+                                            column.collation().cloned(),
+                                            Some(using.into())
+                                        )
+                                    )
+                                ));
+                            }
+
+                            stmts.push(Statement::drop_type(type_def.name().clone()));
+                            stmts.push(Statement::AlterType(
+                                AlterType::rename(tmp_name, type_def.name().name().clone())
+                            ));
+                        }
                     }
-                    let tmp_name = QName::new(schema.cloned(), tmp_name.clone());
-
-                    let tmp_type_def = type_def.with_name(tmp_name.clone());
-                    stmts.push(Statement::CreateType(Rc::new(tmp_type_def)));
-
-                    for (table_name, column) in old_database.find_columns_with_type(type_def.name()) {
-                        let new_type = column.data_type().with_user_type(tmp_name.clone(), None);
-                        let using = new_type.cast(column.name());
-
-                        stmts.push(Statement::AlterTable(
-                            AlterTable::alter_column(
-                                table_name.clone(),
-                                AlterColumn::change_type(
-                                    column.name().clone(),
-                                    new_type.into(),
-                                    column.collation().cloned(),
-                                    Some(using.into())
-                                )
-                            )
-                        ));
-                    }
-
-                    stmts.push(Statement::drop_type(type_def.name().clone()));
-                    stmts.push(Statement::AlterType(
-                        AlterType::rename(tmp_name, type_def.name().name().clone())
-                    ));
                 }
             }
 

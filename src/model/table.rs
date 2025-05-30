@@ -211,7 +211,7 @@ impl Table {
 
     #[inline]
     pub fn set_comment(&mut self, comment: Option<Rc<str>>) {
-        self.comment = comment.into();
+        self.comment = comment;
     }
 
     pub fn merged_constraints(&self) -> Vec<Rc<TableConstraint>> {
@@ -534,7 +534,7 @@ impl TableConstraint {
 
     #[inline]
     pub fn set_comment(&mut self, comment: Option<Rc<str>>) {
-        self.comment = comment.into();
+        self.comment = comment;
     }
 
     pub fn matches(&self, other: &TableConstraint) -> bool {

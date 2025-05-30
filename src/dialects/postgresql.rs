@@ -17,7 +17,7 @@ use crate::{
         database::Database,
         extension::{CreateExtension, Extension, Version},
         floats::Float,
-        function::{self, Argmode, Argument, CreateFunction, Function, FunctionRef, FunctionSignature, QFunctionRef, ReturnType, SignatureArgument},
+        function::{self, Argmode, Argument, CreateFunction, Function, FunctionRef, FunctionSignature, ReturnType, SignatureArgument},
         index::{CreateIndex, Direction, Index, IndexItem, IndexItemData, NullsPosition},
         integers::{Integer, SignedInteger, UnsignedInteger},
         name::{Name, QName},
@@ -25,7 +25,7 @@ use crate::{
         table::{CreateTable, Table, TableConstraint, TableConstraintData},
         token::{ParsedToken, ToTokens, Token, TokenKind},
         trigger::{CreateTrigger, Event, LifeCycle, ReferencedTable, Trigger, When},
-        types::{BasicType, DataType, IntervalFields, TypeDef, Value}
+        types::{BasicType, CompositeAttribute, DataType, IntervalFields, TypeDef, Value}
     },
     ordered_hash_map::OrderedHashMap,
     peek_token
@@ -2458,26 +2458,57 @@ impl<'a> PostgreSQLParser<'a> {
         Ok(CreateIndex::new(index, concurrently, if_not_exists))
     }
 
+    fn parse_composite_attribute(&mut self) -> Result<CompositeAttribute> {
+        let name = self.expect_name()?;
+        let data_type = self.parse_data_type()?;
+
+        let collation = if self.parse_word(COLLATE)? {
+            Some(self.expect_name()?)
+        } else {
+            None
+        };
+
+        Ok(CompositeAttribute::new(name, data_type, collation))
+    }
+
     fn parse_type_def_intern(&mut self) -> Result<TypeDef> {
         // "CREATE TYPE" is already parsed
         // TODO: other types
         let type_name = self.parse_qual_name()?;
         self.expect_word(AS)?;
-        self.expect_word(ENUM)?;
-        self.expect_token(TokenKind::LParen)?;
 
-        let mut values = Vec::new();
-        while !self.peek_kind(TokenKind::RParen)? {
-            let value = self.expect_string()?;
-            values.push(value);
-            if !self.parse_token(TokenKind::Comma)? {
-                break;
+        if self.parse_word(ENUM)? {
+            self.expect_token(TokenKind::LParen)?;
+
+            let mut values = Vec::new();
+            while !self.peek_kind(TokenKind::RParen)? {
+                let value = self.expect_string()?;
+                values.push(value);
+                if !self.parse_token(TokenKind::Comma)? {
+                    break;
+                }
             }
+
+            self.expect_token(TokenKind::RParen)?;
+
+            Ok(TypeDef::create_enum(type_name, values))
+        } else {
+            self.expect_token(TokenKind::LParen)?;
+
+            let mut attributes = OrderedHashMap::new();
+            while !self.peek_kind(TokenKind::RParen)? {
+                let attribute = self.parse_composite_attribute()?;
+                attributes.insert(attribute.name().clone(), attribute);
+
+                if !self.parse_token(TokenKind::Comma)? {
+                    break;
+                }
+            }
+
+            self.expect_token(TokenKind::RParen)?;
+
+            Ok(TypeDef::create_composite(type_name, attributes))
         }
-
-        self.expect_token(TokenKind::RParen)?;
-
-        Ok(TypeDef::create_enum(type_name, values))
     }
 
     fn parse_alter_table_intern(&mut self) -> Result<Rc<AlterTable>> {

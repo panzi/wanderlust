@@ -6,6 +6,7 @@ pub const AND: &str = "AND";
 pub const ARRAY: &str = "ARRAY";
 pub const AS: &str = "AS";
 pub const ASC: &str = "ASC";
+pub const ATTRIBUTE: &str = "ATTRIBUTE";
 pub const AUTHORIZATION: &str = "AUTHORIZATION";
 pub const BEFORE: &str = "BEFORE";
 pub const BEGIN: &str = "BEGIN";

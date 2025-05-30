@@ -1,4 +1,4 @@
-use std::{collections::{HashMap, TryReserveError}, hash::{BuildHasher, Hash, RandomState}, iter::Map};
+use std::{collections::{HashMap, TryReserveError}, hash::{BuildHasher, Hash, RandomState}, iter::Map, usize};
 
 
 #[derive(Debug, Clone, PartialEq)]
@@ -182,6 +182,88 @@ where K: Eq + Hash, S: BuildHasher {
     #[inline]
     pub fn contains_key(&self, key: &K) -> bool {
         self.inner.contains_key(key)
+    }
+
+    pub fn first(&self) -> Option<(&K, &V)> {
+        let mut result_order = u64::MAX;
+        let mut result = None;
+        for (key, value) in &self.inner {
+            if value.order <= result_order {
+                result_order = value.order;
+                result = Some((key, value.inner()));
+            }
+        }
+
+        result
+    }
+
+    pub fn last(&self) -> Option<(&K, &V)> {
+        let mut result_order = 0;
+        let mut result = None;
+        for (key, value) in &self.inner {
+            if value.order >= result_order {
+                result_order = value.order;
+                result = Some((key, value.inner()));
+            }
+        }
+
+        result
+    }
+
+    pub fn first_mut(&mut self) -> Option<(&K, &mut V)> {
+        let mut result_order = u64::MAX;
+        let mut result = None;
+        for (key, value) in &mut self.inner {
+            if value.order <= result_order {
+                result_order = value.order;
+                result = Some((key, value.inner_mut()));
+            }
+        }
+
+        result
+    }
+
+    pub fn last_mut(&mut self) -> Option<(&K, &mut V)> {
+        let mut result_order = 0;
+        let mut result = None;
+        for (key, value) in &mut self.inner {
+            if value.order >= result_order {
+                result_order = value.order;
+                result = Some((key, value.inner_mut()));
+            }
+        }
+
+        result
+    }
+
+    #[inline]
+    pub fn first_key(&self) -> Option<&K> {
+        self.first().map(|(k, _)| k)
+    }
+
+    #[inline]
+    pub fn last_key(&self) -> Option<&K> {
+        self.last().map(|(k, _)| k)
+    }
+
+    #[inline]
+    pub fn first_value(&self) -> Option<&V> {
+        self.first().map(|(_, v)| v)
+    }
+
+    #[inline]
+    pub fn last_value(&self) -> Option<&V> {
+        self.last().map(|(_, v)| v)
+    }
+
+    #[inline]
+    pub fn first_value_mut(&mut self) -> Option<&mut V> {
+        self.first_mut().map(|(_, v)| v)
+    }
+
+    #[inline]
+    pub fn last_value_mut(&mut self) -> Option<&mut V> {
+        self.last_mut().map(|(_, v)| v)
     }
 
     #[inline]

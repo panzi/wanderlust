@@ -263,7 +263,7 @@ impl Index {
 
     #[inline]
     pub fn set_comment(&mut self, comment: Option<Rc<str>>) {
-        self.comment = comment.into();
+        self.comment = comment;
     }
 
     fn write(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

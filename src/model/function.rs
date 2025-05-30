@@ -296,7 +296,7 @@ impl Function {
 
     #[inline]
     pub fn set_comment(&mut self, comment: Option<Rc<str>>) {
-        self.comment = comment.into();
+        self.comment = comment;
     }
 
     fn ref_args(&self) -> Vec<DataType> {

@@ -122,7 +122,7 @@ impl Column {
 
     #[inline]
     pub fn set_comment(&mut self, comment: Option<Rc<str>>) {
-        self.comment = comment.into();
+        self.comment = comment;
     }
 
     pub fn drop_default(&mut self) {

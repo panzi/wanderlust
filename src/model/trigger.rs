@@ -130,7 +130,7 @@ impl Trigger {
 
     #[inline]
     pub fn set_comment(&mut self, comment: Option<Rc<str>>) {
-        self.comment = comment.into();
+        self.comment = comment;
     }
 
     fn write(&self, or_replace: bool, mut f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

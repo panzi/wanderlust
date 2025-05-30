@@ -6,6 +6,7 @@ pub enum ErrorKind {
     UnexpectedToken,
     UnexpectedEOF,
     SyntaxError,
+    IllegalType,
 
     TableExists,
     ColumnExists,
@@ -17,6 +18,7 @@ pub enum ErrorKind {
     FunctionExists,
     TriggerExists,
     SchemaExists,
+    AttributeExists,
 
     TableNotExists,
     ColumnNotExists,
@@ -28,6 +30,7 @@ pub enum ErrorKind {
     FunctionNotExists,
     TriggerNotExists,
     SchemaNotExists,
+    AttributeNotExists,
 
     NotSupported,
 }
@@ -40,6 +43,7 @@ impl std::fmt::Display for ErrorKind {
             Self::UnexpectedToken     => f.write_str("Unexpected Token"),
             Self::UnexpectedEOF       => f.write_str("Unexpected EOF"),
             Self::SyntaxError         => f.write_str("Syntax Error"),
+            Self::IllegalType         => f.write_str("Illegal Type"),
 
             Self::TableExists         => f.write_str("Table Exists"),
             Self::ColumnExists        => f.write_str("Column Exists"),
@@ -51,6 +55,7 @@ impl std::fmt::Display for ErrorKind {
             Self::FunctionExists      => f.write_str("Function Exists"),
             Self::TriggerExists       => f.write_str("Trigger Exists"),
             Self::SchemaExists        => f.write_str("Schema Exists"),
+            Self::AttributeExists     => f.write_str("Attribute Exists"),
 
             Self::TableNotExists      => f.write_str("Table Not Exists"),
             Self::IndexNotExists      => f.write_str("Index Not Exists"),
@@ -62,6 +67,7 @@ impl std::fmt::Display for ErrorKind {
             Self::FunctionNotExists   => f.write_str("Function Not Exists"),
             Self::TriggerNotExists    => f.write_str("Trigger Not Exists"),
             Self::SchemaNotExists     => f.write_str("Schema Not Exists"),
+            Self::AttributeNotExists  => f.write_str("Attribute Not Exists"),
 
             Self::NotSupported        => f.write_str("Not Supported"),
         }

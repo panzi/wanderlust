@@ -4,13 +4,14 @@ use std::rc::Rc;
 
 use crate::format::format_iso_string;
 use crate::make_tokens;
+use crate::ordered_hash_map::OrderedHashMap;
 
 use super::alter::types::ValuePosition;
 use super::name::{Name, QName};
 use super::token::{ParsedToken, ToTokens};
 use super::words::*;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TypeDef {
     name: QName,
     data: TypeData,
@@ -38,6 +39,11 @@ impl TypeDef {
     #[inline]
     pub fn create_enum(name: QName, values: impl Into<Rc<Vec<Rc<str>>>>) -> Self {
         Self { name, data: TypeData::create_enum(values), comment: None }
+    }
+
+    #[inline]
+    pub fn create_composite(name: QName, attributes: impl Into<OrderedHashMap<Name, CompositeAttribute>>) -> Self {
+        Self { name, data: TypeData::create_composite(attributes), comment: None }
     }
 
     #[inline]
@@ -72,7 +78,7 @@ impl TypeDef {
 
     #[inline]
     pub fn set_comment(&mut self, comment: Option<Rc<str>>) {
-        self.comment = comment.into();
+        self.comment = comment;
     }
 
     pub fn missing_enum_values(&self, new_type_def: &TypeDef) -> Option<Vec<(Rc<str>, Option<ValuePosition>)>> {
@@ -109,12 +115,14 @@ impl TypeDef {
 
                 Some(missing_values)
             }
+            _ => None
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum TypeData {
+    Composite { attributes: OrderedHashMap<Name, CompositeAttribute> },
     Enum { values: Rc<Vec<Rc<str>>> },
     // TODO: more types
 }
@@ -124,12 +132,36 @@ impl TypeData {
     pub fn create_enum(values: impl Into<Rc<Vec<Rc<str>>>>) -> Self {
         Self::Enum { values: values.into() }
     }
+
+    #[inline]
+    pub fn create_composite(attributes: impl Into<OrderedHashMap<Name, CompositeAttribute>>) -> Self {
+        Self::Composite { attributes: attributes.into() }
+    }
 }
 
 impl std::fmt::Display for TypeData {
     #[inline]
     fn fmt(&self, mut f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Composite { attributes } => {
+                write!(f, "{AS} (")?;
+
+                if attributes.len() > 1 {
+                    let mut iter = attributes.values();
+                    if let Some(first) = iter.next() {
+                        write!(f, "\n    {first}")?;
+
+                        for attribute in iter {
+                            write!(f, ",\n    {attribute}")?;
+                        }
+                    }
+                    f.write_str("\n")?;
+                } else if let Some(first) = attributes.values_unordered().next() {
+                    std::fmt::Display::fmt(first, f)?;
+                }
+
+                f.write_str(")")
+            }
             Self::Enum { values } => {
                 write!(f, "{AS} (")?;
 
@@ -145,6 +177,65 @@ impl std::fmt::Display for TypeData {
 
                 f.write_str(")")
             }
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CompositeAttribute {
+    name: Name,
+    data_type: DataType,
+    collation: Option<Name>,
+}
+
+impl CompositeAttribute {
+    #[inline]
+    pub fn new(
+        name: Name,
+        data_type: DataType,
+        collation: Option<Name>,
+    ) -> Self {
+        Self { name, data_type, collation }
+    }
+
+    #[inline]
+    pub fn name(&self) -> &Name {
+        &self.name
+    }
+
+    #[inline]
+    pub fn set_name(&mut self, name: Name) {
+        self.name = name;
+    }
+
+    #[inline]
+    pub fn data_type(&self) -> &DataType {
+        &self.data_type
+    }
+
+    #[inline]
+    pub fn set_data_type(&mut self, data_type: DataType) {
+        self.data_type = data_type;
+    }
+
+    #[inline]
+    pub fn collation(&self) -> Option<&Name> {
+        self.collation.as_ref()
+    }
+
+    #[inline]
+    pub fn set_collation(&mut self, collation: Option<Name>) {
+        self.collation = collation;
+    }
+}
+
+impl std::fmt::Display for CompositeAttribute {
+    #[inline]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(collation) = &self.collation {
+            write!(f, "{} {} {COLLATE} {collation}", self.name, self.data_type)
+        } else {
+            write!(f, "{} {}", self.name, self.data_type)
         }
     }
 }

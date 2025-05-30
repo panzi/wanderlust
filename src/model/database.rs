@@ -9,6 +9,7 @@ use crate::model::alter::types::{AlterType, AlterTypeData, ValuePosition};
 use crate::model::types::TypeData;
 
 use super::alter::extension::{AlterExtension, AlterExtensionData};
+use super::alter::types::AlterTypeAction;
 use super::column::Column;
 use super::extension::{CreateExtension, Extension};
 use super::function::{CreateFunction, Function, FunctionRef, QFunctionRef};
@@ -17,7 +18,7 @@ use super::name::{Name, QName};
 use super::schema::Schema;
 use super::table::{CreateTable, Table};
 use super::trigger::CreateTrigger;
-use super::types::BasicType;
+use super::types::{BasicType, CompositeAttribute};
 use super::types::TypeDef;
 
 use super::words::*;
@@ -399,7 +400,7 @@ impl Database {
     pub fn resolve_function_reference(&self, reference: &FunctionRef) -> QName {
         for schema_name in &self.search_path {
             if let Some(schema) = self.schemas.get(schema_name) {
-                if schema.functions().contains_key(&reference) {
+                if schema.functions().contains_key(reference) {
                     return QName::new(
                         Some(schema_name.clone()),
                         reference.name().clone()
@@ -728,6 +729,14 @@ impl Database {
                                         }
                                     }
                                 }
+                                _ => {
+                                    return Err(Error::new(
+                                        ErrorKind::IllegalType,
+                                        None,
+                                        Some(format!("type {} is not an enum type", alter_type.type_name())),
+                                        None
+                                    ));
+                                }
                             }
                         }
                         AlterTypeData::RenameValue { existing_value, new_value } => {
@@ -760,10 +769,109 @@ impl Database {
 
                                     Rc::make_mut(values)[index] = new_value.clone();
                                 }
+                                _ => {
+                                    return Err(Error::new(
+                                        ErrorKind::IllegalType,
+                                        None,
+                                        Some(format!("type {} is not an enum type", alter_type.type_name())),
+                                        None
+                                    ));
+                                }
                             }
                         }
                         AlterTypeData::Rename { .. } => {}
                         AlterTypeData::SetSchema { .. } => {}
+                        AlterTypeData::RenameAttribute { attribute_name, new_attribute_name, behavior } => {
+                            let type_def = Rc::make_mut(type_def);
+                            match type_def.data_mut() {
+                                TypeData::Composite { attributes } => {
+                                    if attributes.contains_key(new_attribute_name) {
+                                        return Err(Error::new(
+                                            ErrorKind::AttributeExists,
+                                            None,
+                                            Some(format!("type {} already has an attribute of name {new_attribute_name}", alter_type.type_name())),
+                                            None
+                                        ));
+                                    }
+
+                                    let Some(mut attribute) = attributes.remove(attribute_name) else {
+                                        return Err(Error::new(
+                                            ErrorKind::AttributeNotExists,
+                                            None,
+                                            Some(format!("type {} has no attribute of name {attribute_name}", alter_type.type_name())),
+                                            None
+                                        ));
+                                    };
+
+                                    attribute.set_name(new_attribute_name.clone());
+                                    attributes.insert(new_attribute_name.clone(), attribute);
+                                }
+                                _ => {
+                                    return Err(Error::new(
+                                        ErrorKind::IllegalType,
+                                        None,
+                                        Some(format!("type {} is not a composite type", alter_type.type_name())),
+                                        None
+                                    ));
+                                }
+                            }
+                        }
+                        AlterTypeData::Actions { actions } => {
+                            let type_def = Rc::make_mut(type_def);
+                            if let TypeData::Composite { attributes } = type_def.data_mut() {
+                                for action in actions {
+                                    match action {
+                                        AlterTypeAction::AddAttribute { name, data_type, collation, behavior } => {
+                                                if attributes.contains_key(name) {
+                                                    return Err(Error::new(
+                                                        ErrorKind::AttributeExists,
+                                                        None,
+                                                        Some(format!("type {} already has an attribute of name {name}", alter_type.type_name())),
+                                                        None
+                                                    ));
+                                                }
+                                                attributes.insert(name.clone(),
+                                                    CompositeAttribute::new(
+                                                        name.clone(),
+                                                        data_type.clone(),
+                                                        collation.clone()
+                                                    )
+                                                );
+                                        }
+                                        AlterTypeAction::DropAttribute { if_exists, name, behavior } => {
+                                            if attributes.remove(name).is_none() && !*if_exists {
+                                                return Err(Error::new(
+                                                    ErrorKind::AttributeNotExists,
+                                                    None,
+                                                    Some(format!("type {} has no attribute of name {name}", alter_type.type_name())),
+                                                    None
+                                                ));
+                                            }
+                                        }
+                                        AlterTypeAction::AlterAttribute { name, data_type, collation, behavior } => {
+                                            let Some(attribute) = attributes.get_mut(name) else {
+                                                return Err(Error::new(
+                                                    ErrorKind::AttributeNotExists,
+                                                    None,
+                                                    Some(format!("type {} has no attribute of name {name}", alter_type.type_name())),
+                                                    None
+                                                ));
+                                            };
+
+                                            attribute.set_data_type(data_type.clone());
+                                            attribute.set_collation(collation.clone());
+                                        }
+                                    }
+                                }
+                            } else {
+                                return Err(Error::new(
+                                    ErrorKind::IllegalType,
+                                    None,
+                                    Some(format!("type {} is not a composite type", alter_type.type_name())),
+                                    None
+                                ));
+                            }
+                        }
                     }
                     Ok(())
                 } else {
