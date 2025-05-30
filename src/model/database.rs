@@ -1088,7 +1088,7 @@ impl Database {
                                 }
                                 AlterTableAction::AddConstraint { constraint } => {
                                     let mut constraint = constraint.clone();
-                                    let constraint_name = Rc::make_mut(&mut constraint).ensure_name();
+                                    let constraint_name = Rc::make_mut(&mut constraint).ensure_name(alter_table.name().name());
 
                                     if table.constraints().contains_key(constraint_name) {
                                         return Err(Error::new(

@@ -2299,7 +2299,7 @@ impl<'a> PostgreSQLParser<'a> {
         while !self.peek_kind(TokenKind::RParen)? {
             if self.peek_words(&[CONSTRAINT, CHECK, UNIQUE, PRIMARY, FOREIGN])?.is_some() {
                 let mut constraint = self.parse_table_constaint()?;
-                let constraint_name = constraint.ensure_name();
+                let constraint_name = constraint.ensure_name(table_name.name());
                 table_constraints.insert(constraint_name.clone(), Rc::new(constraint));
             } else {
                 let start_offset = self.tokenizer.offset();

@@ -232,10 +232,10 @@ pub fn migrate_schema(old_database: &Database, old: &Schema, new: &Schema, stmts
                         }
                         _ => {
                             let schema = type_def.name().schema();
-                            let mut tmp_name = Name::new(format!("_wanderlust_tmp_type_{tmp_id}"));
+                            let mut tmp_name = Name::new(format!("wanderlust_tmp_type_{tmp_id}"));
                             while old_types.contains_key(&tmp_name) {
                                 tmp_id += 1;
-                                tmp_name = Name::new(format!("_wanderlust_tmp_type_{tmp_id}"));
+                                tmp_name = Name::new(format!("wanderlust_tmp_type_{tmp_id}"));
                             }
                             let tmp_name = QName::new(schema.cloned(), tmp_name.clone());
 

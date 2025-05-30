@@ -389,8 +389,8 @@ pub struct TableConstraint {
     comment: Option<Rc<str>>,
 }
 
-pub fn make_constraint_name(data: &TableConstraintData) -> Name {
-    let mut constraint_name = String::new();
+pub fn make_constraint_name(table_name: &Name, data: &TableConstraintData) -> Name {
+    let mut constraint_name = table_name.name().to_string();
     match data {
         TableConstraintData::Check { expr, .. } => {
             for token in expr.deref() {
@@ -420,7 +420,7 @@ pub fn make_constraint_name(data: &TableConstraintData) -> Name {
                 constraint_name.push_str(column.name());
                 constraint_name.push_str("_");
             }
-            constraint_name.push_str("unique");
+            constraint_name.push_str("key");
         }
     }
 
@@ -485,9 +485,9 @@ impl TableConstraint {
         self.name = name;
     }
 
-    pub fn ensure_name(&mut self) -> &Name {
+    pub fn ensure_name(&mut self, table_name: &Name) -> &Name {
         if self.name.is_none() {
-            self.name = Some(make_constraint_name(&self.data));
+            self.name = Some(make_constraint_name(table_name, &self.data));
         }
         self.name.as_ref().unwrap()
     }
