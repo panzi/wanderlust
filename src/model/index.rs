@@ -190,11 +190,7 @@ impl Index {
 
     pub fn make_name(&self) -> Name {
         let table_name = self.table_name.name().name();
-        let mut index_name = if self.unique {
-            format!("unique_idx_{table_name}")
-        } else {
-            format!("idx_{table_name}")
-        };
+        let mut index_name = table_name.to_string();
 
         for item in self.items.deref() {
             match item.data() {
@@ -212,6 +208,8 @@ impl Index {
                 }
             }
         }
+
+        index_name.push_str("_idx");
 
         Name::new(index_name)
     }
