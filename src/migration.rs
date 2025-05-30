@@ -194,9 +194,41 @@ pub fn migrate_schema(old_database: &Database, old: &Schema, new: &Schema, stmts
                     }
                 } else {
                     match (type_def.data(), old_type_def.data()) {
-                        (TypeData::Composite { attributes }, TypeData::Composite { attributes: old_attributes }) => {
-                            // TODO: migrate composite types
-                            unimplemented!()
+                        (TypeData::Composite { attributes: new_attributes }, TypeData::Composite { attributes: old_attributes }) => {
+                            for old_attribute in old_attributes.values() {
+                                if let Some(new_attribute) = new_attributes.get(old_attribute.name()) {
+                                    if new_attribute.data_type() != old_attribute.data_type() || new_attribute.collation() != old_attribute.collation() {
+                                        stmts.push(Statement::AlterType(
+                                            AlterType::alter_attribute(
+                                                type_def.name().clone(),
+                                                new_attribute.name().clone(),
+                                                new_attribute.data_type().clone(),
+                                                new_attribute.collation().cloned()
+                                            )
+                                        ));
+                                    }
+                                } else {
+                                    stmts.push(Statement::AlterType(
+                                        AlterType::drop_attribute(
+                                            type_def.name().clone(),
+                                            old_attribute.name().clone()
+                                        )
+                                    ));
+                                }
+                            }
+
+                            for new_attribute in new_attributes.values() {
+                                if !old_attributes.contains_key(new_attribute.name()) {
+                                    stmts.push(Statement::AlterType(
+                                        AlterType::add_attribute(
+                                            type_def.name().clone(),
+                                            new_attribute.name().clone(),
+                                            new_attribute.data_type().clone(),
+                                            new_attribute.collation().cloned()
+                                        )
+                                    ));
+                                }
+                            }
                         }
                         _ => {
                             let schema = type_def.name().schema();
