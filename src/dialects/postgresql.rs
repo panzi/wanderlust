@@ -10,7 +10,7 @@ use crate::{
     model::{
         alter::{
             table::{AlterColumn, AlterColumnData, AlterTable, AlterTableAction, AlterTableData},
-            types::{AlterType, AlterTypeData, ValuePosition},
+            types::{AlterType, AlterTypeAction, AlterTypeData, ValuePosition},
             DropBehavior, Owner
         },
         column::{Column, ColumnConstraint, ColumnConstraintData, ColumnMatch, ReferentialAction, Storage},
@@ -1131,7 +1131,7 @@ impl<'a> PostgreSQLParser<'a> {
         Ok(value)
     }
 
-    fn parse_drop_option(&mut self) -> Result<Option<DropBehavior>> {
+    fn parse_drop_behavior(&mut self) -> Result<Option<DropBehavior>> {
         if self.parse_word(RESTRICT)? {
             Ok(Some(DropBehavior::Restrict))
         } else if self.parse_word(CASCADE)? {
@@ -2614,14 +2614,14 @@ impl<'a> PostgreSQLParser<'a> {
             if self.parse_word(CONSTRAINT)? {
                 let if_exists = self.parse_if_exists()?;
                 let constraint_name = self.expect_name()?;
-                let behavior = self.parse_drop_option()?;
+                let behavior = self.parse_drop_behavior()?;
 
                 Ok(AlterTableAction::DropConstraint { if_exists, constraint_name, behavior })
             } else {
                 self.parse_word(COLUMN)?;
                 let if_exists = self.parse_if_exists()?;
                 let column_name = self.expect_name()?;
-                let behavior = self.parse_drop_option()?;
+                let behavior = self.parse_drop_behavior()?;
 
                 Ok(AlterTableAction::DropColumn { if_exists, column_name, behavior })
             }
@@ -2701,21 +2701,51 @@ impl<'a> PostgreSQLParser<'a> {
                     self.expect_word(NOT)?;
                     self.expect_word(NULL)?;
                     data = AlterColumnData::DropNotNull;
+                } else if self.parse_word(STORAGE)? {
+                    let storage = self.parse_storage()?;
+                    data = AlterColumnData::SetStorage { storage };
+                } else if self.parse_word(COMPRESSION)? {
+                    let compression = if self.parse_word(NULL)? {
+                        None // XXX: I don't think it can be NULL?
+                    } else {
+                        Some(self.expect_name()?)
+                    };
+                    data = AlterColumnData::SetCompression { compression };
                 } else {
                     return Err(self.expected_one_of(&[
-                        SET, TYPE, DROP
-                    ]))
+                        SET, TYPE, DROP, STORAGE, COMPRESSION
+                    ]));
                 }
 
                 Ok(AlterTableAction::AlterColumn { alter_column: AlterColumn::new(column_name, data) })
             }
-        } else {
-            self.expect_word(OWNER)?;
+        } else if self.parse_word(INHERIT)? {
+            let table_name = self.parse_ref_table()?;
+            Ok(AlterTableAction::Inherit { table_name })
+        } else if self.parse_word(NO)? {
+            self.expect_word(INHERIT)?;
+            let table_name = self.parse_ref_table()?;
+            Ok(AlterTableAction::NoInherit { table_name })
+        } else if self.parse_word(SET)? {
+            if self.parse_word(LOGGED)? {
+                Ok(AlterTableAction::SetLogged { logged: true })
+            } else if self.parse_word(UNLOGGED)? {
+                Ok(AlterTableAction::SetLogged { logged: false })
+            } else {
+                Err(self.expected_one_of(&[
+                    LOGGED, UNLOGGED
+                ]))
+            }
+        } else if self.parse_word(OWNER)? {
             self.expect_word(TO)?;
 
             let new_owner = self.parse_owner()?;
 
             Ok(AlterTableAction::OwnerTo { new_owner })
+        } else {
+            return Err(self.expected_one_of(&[
+                ADD, DROP, OWNER, SET, "[NO] INHERIT",
+            ]))
         }
     }
 
@@ -2796,32 +2826,72 @@ impl<'a> PostgreSQLParser<'a> {
                 let new_name = self.expect_name()?;
 
                 Ok(AlterType::rename(type_name, new_name))
-            } else {
-                self.expect_word(VALUE)?;
+            } else if self.parse_word(ATTRIBUTE)? {
+                let attribute_name = self.expect_name()?;
+                self.expect_word(TO)?;
+                let new_attribute_name = self.expect_name()?;
 
+                Ok(AlterType::rename_attribute(type_name, attribute_name, new_attribute_name))
+            } else if self.parse_word(VALUE)? {
                 let existing_value = self.expect_string()?;
                 self.expect_word(TO)?;
                 let new_value = self.expect_string()?;
 
                 Ok(AlterType::rename_value(type_name, existing_value, new_value))
+            } else {
+                Err(self.expected_one_of(&[
+                    TO, VALUE, ATTRIBUTE
+                ]))
             }
         } else if self.parse_word(ADD)? {
-            self.expect_word(VALUE)?;
+            if self.parse_word(ATTRIBUTE)? {
+                let mut actions = vec![self.parse_alter_type_add_attribute()?];
 
-            let if_not_exists = self.parse_if_not_exists()?;
+                if self.parse_token(TokenKind::Comma)? {
+                    self.parse_alter_type_actions(&mut actions)?;
+                }
 
-            let value = self.expect_string()?;
-            let mut position = None;
+                Ok(Rc::new(AlterType::new(type_name, AlterTypeData::Actions { actions })))
+            } else if self.parse_word(VALUE)? {
+                let if_not_exists = self.parse_if_not_exists()?;
 
-            if self.parse_word(BEFORE)? {
-                let other_value = self.expect_string()?;
-                position = Some(ValuePosition::Before(other_value));
-            } else if self.parse_word(AFTER)? {
-                let other_value = self.expect_string()?;
-                position = Some(ValuePosition::After(other_value));
+                let value = self.expect_string()?;
+                let mut position = None;
+
+                if self.parse_word(BEFORE)? {
+                    let other_value = self.expect_string()?;
+                    position = Some(ValuePosition::Before(other_value));
+                } else if self.parse_word(AFTER)? {
+                    let other_value = self.expect_string()?;
+                    position = Some(ValuePosition::After(other_value));
+                }
+
+                Ok(Rc::new(AlterType::new(type_name, AlterTypeData::AddValue { if_not_exists, value, position })))
+            } else {
+                Err(self.expected_one_of(&[
+                    VALUE, ATTRIBUTE
+                ]))
+            }
+        } else if self.parse_word(DROP)? {
+            self.expect_word(ATTRIBUTE)?;
+
+            let mut actions = vec![self.parse_alter_type_drop_attribute()?];
+
+            if self.parse_token(TokenKind::Comma)? {
+                self.parse_alter_type_actions(&mut actions)?;
             }
 
-            Ok(Rc::new(AlterType::new(type_name, AlterTypeData::AddValue { if_not_exists, value, position })))
+            Ok(Rc::new(AlterType::new(type_name, AlterTypeData::Actions { actions })))
+        } else if self.parse_word(ALTER)? {
+            self.expect_word(ATTRIBUTE)?;
+
+            let mut actions = vec![self.parse_alter_type_alter_attribute()?];
+
+            if self.parse_token(TokenKind::Comma)? {
+                self.parse_alter_type_actions(&mut actions)?;
+            }
+
+            Ok(Rc::new(AlterType::new(type_name, AlterTypeData::Actions { actions })))
         } else if self.parse_word(SET)? {
             self.expect_word(SCHEMA)?;
             let new_schma = self.expect_name()?;
@@ -2832,6 +2902,72 @@ impl<'a> PostgreSQLParser<'a> {
                 OWNER, RENAME, ADD
             ]))
         }
+    }
+
+    fn parse_alter_type_add_attribute(&mut self) -> Result<AlterTypeAction> {
+        // "ADD ATTRIBUTE" is already parsed
+        let name = self.expect_name()?;
+        let data_type = self.parse_data_type()?;
+        let collation = if self.parse_word(COLLATE)? {
+            Some(self.expect_name()?)
+        } else {
+            None
+        };
+        let behavior = self.parse_drop_behavior()?;
+
+        Ok(AlterTypeAction::AddAttribute { name, data_type, collation, behavior })
+    }
+
+    fn parse_alter_type_drop_attribute(&mut self) -> Result<AlterTypeAction> {
+        // "DROP ATTRIBUTE" is already parsed
+        let if_exists = self.parse_if_exists()?;
+        let name = self.expect_name()?;
+        let behavior = self.parse_drop_behavior()?;
+
+        Ok(AlterTypeAction::DropAttribute { if_exists, name, behavior })
+    }
+
+    fn parse_alter_type_alter_attribute(&mut self) -> Result<AlterTypeAction> {
+        // "ALTER ATTRIBUTE" is already parsed
+        let name = self.expect_name()?;
+        if self.parse_word(SET)? {
+            self.expect_word(DATA)?;
+        }
+        self.expect_word(TYPE)?;
+
+        let data_type = self.parse_data_type()?;
+        let collation = if self.parse_word(COLLATE)? {
+            Some(self.expect_name()?)
+        } else {
+            None
+        };
+        let behavior = self.parse_drop_behavior()?;
+
+        Ok(AlterTypeAction::AlterAttribute { name, data_type, collation, behavior })
+    }
+
+    fn parse_alter_type_actions(&mut self, actions: &mut Vec<AlterTypeAction>) -> Result<()> {
+        loop {
+            if self.parse_word(ADD)? {
+                self.expect_word(ATTRIBUTE)?;
+                actions.push(self.parse_alter_type_add_attribute()?);
+            } else if self.parse_word(ALTER)? {
+                self.expect_word(ATTRIBUTE)?;
+                actions.push(self.parse_alter_type_alter_attribute()?);
+            } else if self.parse_word(DROP)? {
+                self.expect_word(ATTRIBUTE)?;
+                actions.push(self.parse_alter_type_drop_attribute()?);
+            } else {
+                return Err(self.expected_one_of(&[
+                    ADD, ALTER, DROP
+                ]));
+            }
+
+            if !self.parse_token(TokenKind::Comma)? {
+                break;
+            }
+        }
+        Ok(())
     }
 
     fn parse_version(&mut self) -> Result<Version> {
