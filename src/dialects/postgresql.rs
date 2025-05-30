@@ -1709,6 +1709,11 @@ impl<'a> PostgreSQLParser<'a> {
         }
     }
 
+    #[inline]
+    fn parse_ref_collation(&mut self) -> Result<QName> {
+        self.parse_qual_name()
+    }
+
     fn parse_operator(&mut self, op: &str) -> Result<bool> {
         let Some(token) = self.peek_token()? else {
             return Ok(false);
@@ -1922,7 +1927,7 @@ impl<'a> PostgreSQLParser<'a> {
 
         if self.peek_word(COLLATE)? {
             self.expect_some()?;
-            collation = Some(self.expect_name()?);
+            collation = Some(self.parse_ref_collation()?);
         }
 
         let mut column_constraints = Vec::new();
@@ -2366,7 +2371,7 @@ impl<'a> PostgreSQLParser<'a> {
 
         let mut collation = None;
         if self.parse_word(COLLATE)? {
-            collation = Some(self.expect_name()?);
+            collation = Some(self.parse_ref_collation()?);
         }
 
         let mut direction = None;
@@ -2463,7 +2468,7 @@ impl<'a> PostgreSQLParser<'a> {
         let data_type = self.parse_data_type()?;
 
         let collation = if self.parse_word(COLLATE)? {
-            Some(self.expect_name()?)
+            Some(self.parse_ref_collation()?)
         } else {
             None
         };
@@ -2660,7 +2665,7 @@ impl<'a> PostgreSQLParser<'a> {
 
                         let data_type = Rc::new(self.parse_data_type()?);
                         let collation = if self.parse_word(COLLATE)? {
-                            Some(self.expect_name()?)
+                            Some(self.parse_ref_collation()?)
                         } else {
                             None
                         };
@@ -2678,15 +2683,25 @@ impl<'a> PostgreSQLParser<'a> {
                     } else if self.parse_word(DEFAULT)? {
                         let expr = self.parse_expr()?.into();
                         data = AlterColumnData::SetDefault { expr };
+                    } else if self.parse_word(STORAGE)? {
+                        let storage = self.parse_storage()?;
+                        data = AlterColumnData::SetStorage { storage };
+                    } else if self.parse_word(COMPRESSION)? {
+                        let compression = if self.parse_word(NULL)? {
+                            None // XXX: I don't think it can be NULL?
+                        } else {
+                            Some(self.expect_name()?)
+                        };
+                        data = AlterColumnData::SetCompression { compression };
                     } else {
                         return Err(self.expected_one_of(&[
-                            DATA, NOT, DEFAULT
+                            DATA, NOT, DEFAULT, STORAGE, COMPRESSION
                         ]));
                     }
                 } else if self.parse_word(TYPE)? {
                     let data_type = Rc::new(self.parse_data_type()?);
                     let collation = if self.parse_word(COLLATE)? {
-                        Some(self.expect_name()?)
+                        Some(self.parse_ref_collation()?)
                     } else {
                         None
                     };
@@ -2701,19 +2716,9 @@ impl<'a> PostgreSQLParser<'a> {
                     self.expect_word(NOT)?;
                     self.expect_word(NULL)?;
                     data = AlterColumnData::DropNotNull;
-                } else if self.parse_word(STORAGE)? {
-                    let storage = self.parse_storage()?;
-                    data = AlterColumnData::SetStorage { storage };
-                } else if self.parse_word(COMPRESSION)? {
-                    let compression = if self.parse_word(NULL)? {
-                        None // XXX: I don't think it can be NULL?
-                    } else {
-                        Some(self.expect_name()?)
-                    };
-                    data = AlterColumnData::SetCompression { compression };
                 } else {
                     return Err(self.expected_one_of(&[
-                        SET, TYPE, DROP, STORAGE, COMPRESSION
+                        SET, TYPE, DROP
                     ]));
                 }
 
@@ -2909,7 +2914,7 @@ impl<'a> PostgreSQLParser<'a> {
         let name = self.expect_name()?;
         let data_type = self.parse_data_type()?;
         let collation = if self.parse_word(COLLATE)? {
-            Some(self.expect_name()?)
+            Some(self.parse_ref_collation()?)
         } else {
             None
         };
@@ -2937,7 +2942,7 @@ impl<'a> PostgreSQLParser<'a> {
 
         let data_type = self.parse_data_type()?;
         let collation = if self.parse_word(COLLATE)? {
-            Some(self.expect_name()?)
+            Some(self.parse_ref_collation()?)
         } else {
             None
         };

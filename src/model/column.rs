@@ -14,7 +14,7 @@ pub struct Column {
     data_type: Rc<DataType>,
     storage: Storage,
     compression: Option<Name>,
-    collation: Option<Name>,
+    collation: Option<QName>,
     constraints: Vec<Rc<ColumnConstraint>>,
     comment: Option<Rc<str>>,
 }
@@ -51,7 +51,7 @@ impl Column {
         data_type: impl Into<Rc<DataType>>,
         storage: Storage,
         compression: Option<Name>,
-        collation: Option<Name>,
+        collation: Option<QName>,
         constraints: Vec<Rc<ColumnConstraint>>
     ) -> Self {
         Self {
@@ -86,12 +86,12 @@ impl Column {
     }
 
     #[inline]
-    pub fn collation(&self) -> Option<&Name> {
+    pub fn collation(&self) -> Option<&QName> {
         self.collation.as_ref()
     }
 
     #[inline]
-    pub fn set_collation(&mut self, collation: Option<Name>) {
+    pub fn set_collation(&mut self, collation: Option<QName>) {
         self.collation = collation;
     }
 

@@ -185,7 +185,7 @@ impl std::fmt::Display for TypeData {
 pub struct CompositeAttribute {
     name: Name,
     data_type: DataType,
-    collation: Option<Name>,
+    collation: Option<QName>,
 }
 
 impl CompositeAttribute {
@@ -193,7 +193,7 @@ impl CompositeAttribute {
     pub fn new(
         name: Name,
         data_type: DataType,
-        collation: Option<Name>,
+        collation: Option<QName>,
     ) -> Self {
         Self { name, data_type, collation }
     }
@@ -219,12 +219,12 @@ impl CompositeAttribute {
     }
 
     #[inline]
-    pub fn collation(&self) -> Option<&Name> {
+    pub fn collation(&self) -> Option<&QName> {
         self.collation.as_ref()
     }
 
     #[inline]
-    pub fn set_collation(&mut self, collation: Option<Name>) {
+    pub fn set_collation(&mut self, collation: Option<QName>) {
         self.collation = collation;
     }
 }

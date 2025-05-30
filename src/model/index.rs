@@ -70,7 +70,7 @@ impl std::fmt::Display for IndexItemData {
 #[derive(Debug, Clone, PartialEq)]
 pub struct IndexItem {
     data: IndexItemData,
-    collation: Option<Name>,
+    collation: Option<QName>,
     direction: Option<Direction>,
     nulls_position: Option<NullsPosition>,
 }
@@ -100,7 +100,7 @@ impl IndexItem {
     #[inline]
     pub fn new(
         data: IndexItemData,
-        collation: Option<Name>,
+        collation: Option<QName>,
         direction: Option<Direction>,
         nulls_position: Option<NullsPosition>,
     ) -> Self {
@@ -113,7 +113,7 @@ impl IndexItem {
     }
 
     #[inline]
-    pub fn collation(&self) -> Option<&Name> {
+    pub fn collation(&self) -> Option<&QName> {
         self.collation.as_ref()
     }
 

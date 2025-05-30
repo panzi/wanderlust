@@ -352,7 +352,7 @@ impl AlterColumn {
     }
 
     #[inline]
-    pub fn change_type(column_name: Name, data_type: Rc<DataType>, collation: Option<Name>, using: Option<Rc<[ParsedToken]>>) -> Self {
+    pub fn change_type(column_name: Name, data_type: Rc<DataType>, collation: Option<QName>, using: Option<Rc<[ParsedToken]>>) -> Self {
         Self { column_name, data: AlterColumnData::Type { data_type, collation, using } }
     }
 
@@ -406,7 +406,7 @@ impl std::fmt::Display for AlterColumn {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AlterColumnData {
-    Type { data_type: Rc<DataType>, collation: Option<Name>, using: Option<Rc<[ParsedToken]>> },
+    Type { data_type: Rc<DataType>, collation: Option<QName>, using: Option<Rc<[ParsedToken]>> },
     SetDefault { expr: Rc<[ParsedToken]> },
     DropDefault,
     SetNotNull,
