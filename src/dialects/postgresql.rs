@@ -17,7 +17,7 @@ use crate::{
         database::Database,
         extension::{CreateExtension, Extension, Version},
         floats::Float,
-        function::{self, Argmode, Argument, CreateFunction, Function, FunctionRef, FunctionSignature, ReturnType, SignatureArgument},
+        function::{self, Argmode, Argument, ConfigurationValue, CreateFunction, Function, FunctionBody, FunctionRef, FunctionSignature, ReturnType, SignatureArgument},
         index::{CreateIndex, Direction, Index, IndexItem, IndexItemData, NullsPosition},
         integers::{Integer, SignedInteger, UnsignedInteger},
         name::{Name, QName},
@@ -1627,7 +1627,7 @@ impl<'a> PostgreSQLParser<'a> {
             let mut dims = None;
             if self.parse_token(TokenKind::LBracket)? {
                 if !self.peek_kind(TokenKind::RBracket)? {
-                    dims = Some(self.parse_uint()?.1);
+                    dims = Some(self.expect_uint()?);
                 }
                 self.expect_token(TokenKind::RBracket)?;
             }
@@ -1637,7 +1637,7 @@ impl<'a> PostgreSQLParser<'a> {
             let mut dims = Vec::new();
             while self.parse_token(TokenKind::LBracket)? {
                 if !self.peek_kind(TokenKind::RBracket)? {
-                    dims.push(Some(self.parse_uint()?.1));
+                    dims.push(Some(self.expect_uint()?));
                 } else {
                     dims.push(None);
                 }
@@ -1646,7 +1646,7 @@ impl<'a> PostgreSQLParser<'a> {
             array_dimensions = Some(dims.into_boxed_slice());
         }
 
-        Ok(DataType::new(data_type, array_dimensions))
+        Ok(DataType::new(data_type, array_dimensions.map(Into::into)))
     }
 
     #[inline]
@@ -3066,9 +3066,188 @@ impl<'a> PostgreSQLParser<'a> {
             });
         }
 
-        let body = self.parse_token_list(false, true)?;
+        let mut language = None;
+        let mut transform = Vec::new();
+        let mut window = false;
+        let mut state = None;
+        let mut leakproof = None;
+        let mut null_input_handling = None;
+        let mut security = None;
+        let mut parallelism = None;
+        let mut cost = None;
+        let mut rows = None;
+        let mut support = None;
+        let mut configuration_parameters = Vec::new();
+        let mut body = None;
 
-        Ok(CreateFunction::new(or_replace, Function::new(name, arguments, returns, body)))
+        // function only: WINDOW, LEAKPROOF, STATE, NULL INPUT, PARALLEL, COST, ROWS, SUPPORT
+
+        // TODO...
+        while !self.peek_kind(TokenKind::SemiColon)? {
+            if self.parse_word(LANGUAGE)? {
+                language = Some(if self.peek_kind(TokenKind::String)? {
+                    Name::new_quoted(self.expect_string()?)
+                } else {
+                    self.expect_name()?
+                });
+            } else if self.parse_word(TRANSFORM)? {
+                loop {
+                    self.expect_word(FOR)?;
+                    self.expect_word(TYPE)?;
+                    transform.push(self.parse_ref_type()?);
+
+                    if !self.parse_token(TokenKind::Comma)? {
+                        break;
+                    }
+                }
+            } else if !is_procedure && self.parse_word(WINDOW)? {
+                window = true;
+            } else if !is_procedure && self.parse_word(IMMUTABLE)? {
+                state = Some(function::State::Immutable);
+            } else if !is_procedure && self.parse_word(STABLE)? {
+                state = Some(function::State::Stable);
+            } else if !is_procedure && self.parse_word(VOLATILE)? {
+                state = Some(function::State::Volatile);
+            } else if !is_procedure && self.parse_word(NOT)? {
+                self.expect_word(LEAKPROOF)?;
+                leakproof = Some(false);
+            } else if !is_procedure && self.parse_word(LEAKPROOF)? {
+                leakproof = Some(true);
+            } else if !is_procedure && self.parse_word(CALLED)? {
+                self.expect_word(ON)?;
+                self.expect_word(NULL)?;
+                self.expect_word(INPUT)?;
+                null_input_handling = Some(function::NullInputHandling::Called);
+            } else if !is_procedure && self.parse_word(RETURNS)? {
+                self.expect_word(NULL)?;
+                self.expect_word(ON)?;
+                self.expect_word(NULL)?;
+                self.expect_word(INPUT)?;
+                null_input_handling = Some(function::NullInputHandling::ReturnsNull);
+            } else if !is_procedure && self.parse_word(STRICT)? {
+                null_input_handling = Some(function::NullInputHandling::Strict);
+            } else if self.parse_word(EXTERNAL)? {
+                self.expect_word(SECURITY)?;
+                if self.parse_word(INVOKER)? {
+                    security = Some(function::Security::Invoker { external: true });
+                } else if self.parse_word(DEFINER)? {
+                    security = Some(function::Security::Definer { external: true });
+                } else {
+                    return Err(self.expected_one_of(&[
+                        INVOKER, DEFINER
+                    ]));
+                }
+            } else if self.parse_word(SECURITY)? {
+                if self.parse_word(INVOKER)? {
+                    security = Some(function::Security::Invoker { external: false });
+                } else if self.parse_word(DEFINER)? {
+                    security = Some(function::Security::Definer { external: false });
+                } else {
+                    return Err(self.expected_one_of(&[
+                        INVOKER, DEFINER
+                    ]));
+                }
+            } else if !is_procedure && self.parse_word(PARALLEL)? {
+                if self.parse_word(UNSAFE)? {
+                    parallelism = Some(function::Parallelism::Unsafe);
+                } else if self.parse_word(RESTRICTED)? {
+                    parallelism = Some(function::Parallelism::Restricted);
+                } else if self.parse_word(SAFE)? {
+                    parallelism = Some(function::Parallelism::Safe);
+                } else {
+                    return Err(self.expected_one_of(&[
+                        UNSAFE, RESTRICTED, SAFE
+                    ]));
+                }
+            } else if !is_procedure && self.parse_word(COST)? {
+                cost = Some(self.expect_uint()?);
+            } else if !is_procedure && self.parse_word(ROWS)? {
+                rows = Some(self.expect_uint()?);
+            } else if !is_procedure && self.parse_word(SUPPORT)? {
+                let mut function_name = self.parse_qual_name()?;
+
+                if function_name.schema().is_none() {
+                    // lookup possibly schema qualified function: supportfn(internal) returns internal
+                    let reference = FunctionRef::new(function_name.name().clone(), vec![
+                        DataType::new(BasicType::Internal, None)
+                    ]);
+                    function_name = self.database.resolve_function_reference(&reference);
+                }
+
+                support = Some(function_name);
+            } else if self.parse_word(SET)? {
+                let name = self.expect_name()?;
+                let value = if self.parse_word(TO)? || self.parse_token(TokenKind::Equal)? {
+                    ConfigurationValue::Value(self.parse_token_list(true, true)?.into())
+                } else if self.parse_word(FROM)? {
+                    self.expect_word(CURRENT)?;
+                    ConfigurationValue::FromCurrent
+                } else {
+                    return Err(self.expected_one_of(&[
+                        TO, "=", "FROM CURRENT"
+                    ]));
+                };
+
+                configuration_parameters.push((name, value));
+            } else if self.parse_word(AS)? {
+                let first = self.expect_string()?;
+                if self.parse_token(TokenKind::Comma)? {
+                    let link_symbol = self.expect_string()?;
+                    body = Some(FunctionBody::Object { object_file: first, link_symbol });
+                } else {
+                    body = Some(FunctionBody::Definition { source: first });
+                }
+            } else if self.parse_word(BEGIN)? {
+                let mut statements = Vec::new();
+                self.parse_word(ATOMIC)?;
+                while !self.parse_word(END)? {
+                    let mut statement = self.parse_token_list(false, true)?;
+                    self.expect_token(TokenKind::SemiColon)?;
+                    statement.push(ParsedToken::SemiColon);
+                    statements.push(statement.into());
+                }
+                body = Some(FunctionBody::SqlBody { statements: statements.into() });
+            } else if is_procedure {
+                return Err(self.expected_one_of(&[
+                    LANGUAGE, TRANSFORM, "[EXTERNAL] SECURITY", AS, BEGIN,
+                ]));
+            } else {
+                return Err(self.expected_one_of(&[
+                    LANGUAGE, TRANSFORM, WINDOW, IMMUTABLE, STABLE, VOLATILE, "[NOT] LEAKPROOF",
+                    CALLED, RETURNS, STRICT, "[EXTERNAL] SECURITY", PARALLEL, COST, ROWS,
+                    SUPPORT, AS, BEGIN,
+                ]));
+            }
+        }
+
+        let Some(body) = body else {
+            return Err(Error::with_message(
+                ErrorKind::SyntaxError,
+                Cursor::new(self.tokenizer.offset(), self.tokenizer.offset() + 1),
+                format!("function {} misses a body", name)
+            ))
+        };
+
+        Ok(CreateFunction::new(or_replace,
+            Function::new(
+                name,
+                arguments,
+                returns,
+                language,
+                transform,
+                window,
+                state,
+                leakproof,
+                null_input_handling,
+                security,
+                parallelism,
+                cost,
+                rows,
+                support,
+                configuration_parameters,
+                body,
+            )
+        ))
     }
 
     fn parse_trigger_event(&mut self) -> Result<Event> {

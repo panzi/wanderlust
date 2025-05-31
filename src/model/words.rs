@@ -91,6 +91,7 @@ pub const INT2: &str = "INT2";
 pub const INT4: &str = "INT4";
 pub const INT8: &str = "INT8";
 pub const INTEGER: &str = "INTEGER";
+pub const INTERNAL: &str = "INTERNAL";
 pub const INTERVAL: &str = "INTERVAL";
 pub const INTO: &str = "INTO";
 pub const INVOKER: &str = "INVOKER";

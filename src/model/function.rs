@@ -261,7 +261,6 @@ pub struct Function {
     name: QName,
     arguments: Rc<[Argument]>,
     returns: Option<ReturnType>,
-    // TODO: parse and handle all properties and correctly parse SQL body
     language: Option<Name>,
     transform: Vec<QName>,
     window: bool,

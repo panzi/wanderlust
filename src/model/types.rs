@@ -299,6 +299,7 @@ impl std::fmt::Display for IntervalFields {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum BasicType {
+    Internal,
     Bigint,
     BigSerial,
     Bit(Option<NonZeroU32>),
@@ -408,6 +409,7 @@ impl ToTokens for Value {
 impl ToTokens for BasicType {
     fn to_tokens_into(&self, tokens: &mut Vec<ParsedToken>) {
         match self {
+            Self::Internal => make_tokens!(tokens, INTERNAL),
             Self::Bigint => make_tokens!(tokens, BIGINT),
             Self::BigSerial => make_tokens!(tokens, BIGSERIAL),
             Self::Bit(p) => {
@@ -539,13 +541,14 @@ impl ToTokens for BasicType {
 impl std::fmt::Display for BasicType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Bigint => BIGINT.fmt(f),
-            Self::BigSerial => BIGSERIAL.fmt(f),
+            Self::Internal => f.write_str(INTERNAL),
+            Self::Bigint => f.write_str(BIGINT),
+            Self::BigSerial => f.write_str(BIGSERIAL),
             Self::Bit(p) => {
                 if let Some(p) = p {
                     write!(f, "{BIT} ({p})")
                 } else {
-                    BIT.fmt(f)
+                    f.write_str(BIT)
                 }
             }
             Self::BitVarying(p) => {
@@ -684,8 +687,8 @@ pub struct DataType {
 
 impl DataType {
     #[inline]
-    pub fn new(data_type: BasicType, array_dimensions: Option<impl Into<Rc<[Option<u32>]>>>) -> Self {
-        Self { basic_type: data_type, array_dimensions: array_dimensions.map(Into::into) }
+    pub fn new(data_type: BasicType, array_dimensions: Option<Rc<[Option<u32>]>>) -> Self {
+        Self { basic_type: data_type, array_dimensions }
     }
 
     #[inline]
