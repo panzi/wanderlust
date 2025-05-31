@@ -1908,11 +1908,13 @@ impl<'a> PostgreSQLParser<'a> {
     fn parse_column(&mut self) -> Result<Rc<Column>> {
         let column_name = self.expect_name()?;
         let data_type = self.parse_data_type()?;
+
         let storage = if self.parse_word(STORAGE)? {
             self.parse_storage()?
         } else {
             Storage::Default
         };
+
         let compression = if self.parse_word(COMPRESSION)? {
             if self.parse_word(DEFAULT)? {
                 None
@@ -1923,12 +1925,12 @@ impl<'a> PostgreSQLParser<'a> {
             None
         };
 
-        let mut collation = None;
-
-        if self.peek_word(COLLATE)? {
+        let collation = if self.peek_word(COLLATE)? {
             self.expect_some()?;
-            collation = Some(self.parse_ref_collation()?);
-        }
+            Some(self.parse_ref_collation()?)
+        } else {
+            None
+        };
 
         let mut column_constraints = Vec::new();
 
@@ -2407,14 +2409,20 @@ impl<'a> PostgreSQLParser<'a> {
             self.expect_word(NOT)?;
             self.expect_word(EXISTS)?;
             if_not_exists = true;
-            Some(self.expect_name()?)
+
+            let name = self.expect_name()?;
+            self.expect_word(ON)?;
+            Some(name)
+        } else if self.parse_word(ON)? {
+            None
         } else if peek_token!(self, TokenKind::Word | TokenKind::QuotName | TokenKind::UName)?.is_some() {
-            Some(self.expect_name()?)
+            let name = self.expect_name()?;
+            self.expect_word(ON)?;
+            Some(name)
         } else {
+            self.expect_word(ON)?;
             None
         };
-
-        self.expect_word(ON)?;
 
         let table_name = self.parse_ref_table()?;
 
