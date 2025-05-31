@@ -259,7 +259,17 @@ pub struct Function {
     name: QName,
     arguments: Rc<[Argument]>,
     returns: Option<ReturnType>,
-    body: Rc<[ParsedToken]>,
+    // TODO: parse and handle all properties and correctly parse SQL body
+    transform: Vec<QName>,
+    state: Option<State>,
+    leakproof: Option<bool>,
+    null_input_handling: Option<NullInputHandling>,
+    parallelism: Option<Parallelism>,
+    cost: Option<u32>,
+    rows: Option<u32>,
+    support: Option<QName>,
+    configuration_parameters: Vec<(Name, ConfigurationValue)>,
+    body: FunctionBody,
     comment: Option<Rc<str>>,
 }
 
@@ -364,6 +374,15 @@ impl Function {
     pub fn eq_no_comment(&self, other: &Function) -> bool {
         self.arguments == other.arguments &&
         self.returns == other.returns &&
+        self.transform == other.transform &&
+        self.state == other.state &&
+        self.leakproof == other.leakproof &&
+        self.null_input_handling == other.null_input_handling &&
+        self.parallelism == other.parallelism &&
+        self.cost == other.cost &&
+        self.rows == other.rows &&
+        self.support == other.support &&
+        self.configuration_parameters == other.configuration_parameters &&
         self.body == other.body
     }
 }
@@ -381,6 +400,46 @@ impl From<&Function> for QFunctionRef {
     fn from(value: &Function) -> Self {
         value.to_qref()
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum FunctionBody {
+    Definition { source: Rc<str> },
+    Object { object_file: Rc<str>, link_symbol: Rc<str> },
+    SqlBody { tokens: Rc<[ParsedToken]> },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Parallelism {
+    Unsafe,
+    Restricted,
+    Safe,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum State {
+    Immutable,
+    Stable,
+    Volatile,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum NullInputHandling {
+    Called,
+    ReturnsNull,
+    Strict,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Security {
+    Invoker { external: bool },
+    Definer { external: bool },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ConfigurationValue {
+    FromCurrent,
+    Value(Rc<[ParsedToken]>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
