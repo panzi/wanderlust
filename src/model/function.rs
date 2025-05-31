@@ -2,7 +2,9 @@ use std::{ops::Deref, rc::Rc};
 
 use super::{name::{Name, QName}, token::ParsedToken, types::DataType};
 
-use crate::{format::{join_into, write_token_list, write_token_list_with_options}, model::words::*};
+use crate::format::{format_string_for_functions, join_into, write_token_list, IsoString};
+
+use crate::model::words::*;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct QFunctionRef {
@@ -260,10 +262,13 @@ pub struct Function {
     arguments: Rc<[Argument]>,
     returns: Option<ReturnType>,
     // TODO: parse and handle all properties and correctly parse SQL body
+    language: Option<Name>,
     transform: Vec<QName>,
+    window: bool,
     state: Option<State>,
     leakproof: Option<bool>,
     null_input_handling: Option<NullInputHandling>,
+    security: Option<Security>,
     parallelism: Option<Parallelism>,
     cost: Option<u32>,
     rows: Option<u32>,
@@ -275,8 +280,43 @@ pub struct Function {
 
 impl Function {
     #[inline]
-    pub fn new(name: QName, arguments: impl Into<Rc<[Argument]>>, returns: Option<ReturnType>, body: impl Into<Rc<[ParsedToken]>>) -> Self {
-        Self { name, arguments: arguments.into(), returns, body: body.into(), comment: None }
+    pub fn new(
+            name: QName,
+            arguments: impl Into<Rc<[Argument]>>,
+            returns: Option<ReturnType>,
+            language: Option<Name>,
+            transform: Vec<QName>,
+            window: bool,
+            state: Option<State>,
+            leakproof: Option<bool>,
+            null_input_handling: Option<NullInputHandling>,
+            security: Option<Security>,
+            parallelism: Option<Parallelism>,
+            cost: Option<u32>,
+            rows: Option<u32>,
+            support: Option<QName>,
+            configuration_parameters: Vec<(Name, ConfigurationValue)>,
+            body: FunctionBody,
+    ) -> Self {
+        Self {
+            name,
+            arguments: arguments.into(),
+            returns,
+            language,
+            transform,
+            window,
+            state,
+            leakproof,
+            null_input_handling,
+            security,
+            parallelism,
+            cost,
+            rows,
+            support,
+            configuration_parameters,
+            body,
+            comment: None,
+        }
     }
 
     #[inline]
@@ -295,7 +335,67 @@ impl Function {
     }
 
     #[inline]
-    pub fn body(&self) -> &Rc<[ParsedToken]> {
+    pub fn language(&self) -> Option<&Name> {
+        self.language.as_ref()
+    }
+
+    #[inline]
+    pub fn transform(&self) -> &[QName] {
+        &self.transform
+    }
+
+    #[inline]
+    pub fn window(&self) -> bool {
+        self.window
+    }
+
+    #[inline]
+    pub fn state(&self) -> Option<State> {
+        self.state
+    }
+
+    #[inline]
+    pub fn leakproof(&self) -> Option<bool> {
+        self.leakproof
+    }
+
+    #[inline]
+    pub fn null_input_handling(&self) -> Option<NullInputHandling> {
+        self.null_input_handling
+    }
+
+    #[inline]
+    pub fn security(&self) -> Option<&Security> {
+        self.security.as_ref()
+    }
+
+    #[inline]
+    pub fn parallelism(&self) -> Option<Parallelism> {
+        self.parallelism
+    }
+
+    #[inline]
+    pub fn cost(&self) -> Option<u32> {
+        self.cost
+    }
+
+    #[inline]
+    pub fn rows(&self) -> Option<u32> {
+        self.rows
+    }
+
+    #[inline]
+    pub fn support(&self) -> Option<&QName> {
+        self.support.as_ref()
+    }
+
+    #[inline]
+    pub fn configuration_parameters(&self) -> &[(Name, ConfigurationValue)] {
+        &self.configuration_parameters
+    }
+
+    #[inline]
+    pub fn body(&self) -> &FunctionBody {
         &self.body
     }
 
@@ -343,7 +443,7 @@ impl Function {
         )
     }
 
-    pub fn write(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    pub fn write(&self, mut f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.returns.is_none() {
             f.write_str(PROCEDURE)?;
         } else {
@@ -366,7 +466,93 @@ impl Function {
             writeln!(f, "{RETURNS} {returns}")?;
         }
 
-        write_token_list_with_options(&self.body, f, true)?;
+        if let Some(language) = &self.language {
+            writeln!(f, "{LANGUAGE} {language}")?;
+        }
+
+        {
+            let mut iter = self.transform.iter();
+            if let Some(first) = iter.next() {
+                write!(f, "{TRANSFORM} {FOR} {TYPE} {first}")?;
+                for type_name in iter {
+                    write!(f, ", {FOR} {TYPE} {type_name}")?;
+                }
+                f.write_str("\n")?;
+            }
+        }
+
+        if self.window {
+            writeln!(f, "{WINDOW}")?;
+        }
+
+        if let Some(state) = self.state {
+            writeln!(f, "{state}")?;
+        }
+
+        if let Some(leakproof) = self.leakproof {
+            if leakproof {
+                writeln!(f, "{LEAKPROOF}")?;
+            } else {
+                writeln!(f, "{NOT} {LEAKPROOF}")?;
+            }
+        }
+
+        if let Some(null_input_handling) = self.null_input_handling {
+            writeln!(f, "{null_input_handling}")?;
+        }
+
+        if let Some(security) = self.security {
+            writeln!(f, "{security}")?;
+        }
+
+        if let Some(parallelism) = self.parallelism {
+            writeln!(f, "{parallelism}")?;
+        }
+
+        if let Some(cost) = self.cost {
+            writeln!(f, "{COST} {cost}")?;
+        }
+
+        if let Some(rows) = self.rows {
+            writeln!(f, "{ROWS} {rows}")?;
+        }
+
+        if let Some(support) = &self.support {
+            writeln!(f, "{SUPPORT} {support}")?;
+        }
+
+        for (name, value) in &self.configuration_parameters {
+            match value {
+                ConfigurationValue::FromCurrent => {
+                    writeln!(f, "{SET} {name} {FROM} {CURRENT}")?;
+                }
+                ConfigurationValue::Value(value) => {
+                    write!(f, "{SET} {name} {TO} ")?;
+                    write_token_list(&value, f)?;
+                    f.write_str("\n")?;
+                }
+            }
+        }
+
+        match &self.body {
+            FunctionBody::Definition { source } => {
+                write!(f, "{AS} ")?;
+                format_string_for_functions(&mut f, &source)?;
+                f.write_str("\n")?;
+            }
+            FunctionBody::Object { object_file, link_symbol } => {
+                writeln!(f, "{AS} {}, {}", IsoString(&object_file), IsoString(&link_symbol))?;
+            }
+            FunctionBody::SqlBody { statements } => {
+                writeln!(f, "{BEGIN} {ATOMIC}")?;
+                for statement in statements.deref() {
+                    f.write_str("    ")?;
+                    write_token_list(statement, f)?;
+                    f.write_str("\n")?;
+                }
+                writeln!(f, "{END}")?;
+            }
+        }
 
         f.write_str(";\n")
     }
@@ -375,6 +561,7 @@ impl Function {
         self.arguments == other.arguments &&
         self.returns == other.returns &&
         self.transform == other.transform &&
+        self.window == other.window &&
         self.state == other.state &&
         self.leakproof == other.leakproof &&
         self.null_input_handling == other.null_input_handling &&
@@ -406,34 +593,83 @@ impl From<&Function> for QFunctionRef {
 pub enum FunctionBody {
     Definition { source: Rc<str> },
     Object { object_file: Rc<str>, link_symbol: Rc<str> },
-    SqlBody { tokens: Rc<[ParsedToken]> },
+    SqlBody { statements: Rc<[Rc<[ParsedToken]>]> },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Parallelism {
     Unsafe,
     Restricted,
     Safe,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+impl std::fmt::Display for Parallelism {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unsafe     => write!(f, "{PARALLEL} {UNSAFE}"),
+            Self::Restricted => write!(f, "{PARALLEL} {RESTRICTED}"),
+            Self::Safe       => write!(f, "{PARALLEL} {SAFE}"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum State {
     Immutable,
     Stable,
     Volatile,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+impl std::fmt::Display for State {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Immutable => f.write_str(IMMUTABLE),
+            Self::Stable    => f.write_str(STABLE),
+            Self::Volatile  => f.write_str(VOLATILE),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum NullInputHandling {
     Called,
     ReturnsNull,
     Strict,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+impl std::fmt::Display for NullInputHandling {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Called => write!(f, "{CALLED} {ON} {NULL} {INPUT}"),
+            Self::ReturnsNull => write!(f, "{RETURNS} {NULL} {ON} {NULL} {INPUT}"),
+            Self::Strict => write!(f, "{STRICT}"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Security {
     Invoker { external: bool },
     Definer { external: bool },
+}
+
+impl std::fmt::Display for Security {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Invoker { external } => {
+                if *external {
+                    write!(f, "{EXTERNAL} ")?;
+                }
+                write!(f, "{SECURITY} {INVOKER}")
+            }
+            Self::Definer { external } => {
+                if *external {
+                    write!(f, "{EXTERNAL} ")?;
+                }
+                write!(f, "{SECURITY} {DEFINER}")
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
