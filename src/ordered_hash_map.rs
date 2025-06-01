@@ -274,6 +274,16 @@ where K: Eq + Hash, S: BuildHasher {
     }
 
     #[inline]
+    pub fn iter_unordered(&self) -> impl Iterator<Item = (&K, &V)> {
+        self.inner.iter().map(|(k, v)| (k, v.inner()))
+    }
+
+    #[inline]
+    pub fn iter_unordered_mut(&mut self) -> impl Iterator<Item = (&K, &mut V)> {
+        self.inner.iter_mut().map(|(k, v)| (k, v.inner_mut()))
+    }
+
+    #[inline]
     pub fn iter_mut<'a>(&'a mut self) -> IterMut<'a, K, V> {
         let mut items: Vec<(&K, &mut OrderedCell<V>)> = self.inner.iter_mut().collect();
         items.sort_by(|a, b| a.1.order.cmp(&b.1.order) );

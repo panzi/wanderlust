@@ -301,7 +301,7 @@ impl Index {
         f.write_str(";")
     }
 
-    pub fn eq_no_comment(&self, other: &Index) -> bool {
+    pub fn eq_content(&self, other: &Index) -> bool {
         self.unique == other.unique &&
         self.table_name == other.table_name &&
         self.method == other.method &&

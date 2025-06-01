@@ -15,7 +15,7 @@ use super::extension::{CreateExtension, Extension};
 use super::function::{CreateFunction, Function, FunctionRef, QFunctionRef};
 use super::index::{CreateIndex, Index};
 use super::name::{Name, QName};
-use super::schema::Schema;
+use super::schema::{self, Schema};
 use super::table::{CreateTable, Table};
 use super::trigger::CreateTrigger;
 use super::types::{BasicType, CompositeAttribute};
@@ -590,18 +590,30 @@ impl Database {
         let mut found_columns = Vec::new();
 
         for schema in self.schemas.values() {
-            for table in schema.tables().values_unordered() {
-                for column in table.columns().values_unordered() {
-                    if let BasicType::UserDefined { name, .. } = column.data_type().basic_type() {
-                        if type_name == name {
-                            found_columns.push((table.name(), column));
-                        }
+            for table in schema.tables().values() {
+                for column in table.columns().values() {
+                    if column.data_type().basic_type().is_user_defined(type_name) {
+                        found_columns.push((table.name(), column));
                     }
                 }
             }
         }
 
         found_columns
+    }
+
+    pub fn find_functions_with_type(&self, type_name: &QName) -> Vec<(QFunctionRef, &Rc<Function>)> {
+        let mut found_functions = Vec::new();
+
+        for schema in self.schemas.values() {
+            for (func_ref, function) in schema.functions() {
+                if function.arguments().iter().any(|arg| arg.data_type().basic_type().is_user_defined(type_name)) || function.returns().map(|returns| returns.is_user_defined(type_name)).unwrap_or(false) {
+                    found_functions.push((func_ref.to_qualified(schema.name().clone()), function));
+                }
+            }
+        }
+
+        found_functions
     }
 
     pub fn alter_type(&mut self, alter_type: &AlterType) -> Result<()> {

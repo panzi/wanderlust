@@ -197,7 +197,7 @@ impl Trigger {
         Ok(())
     }
 
-    pub fn eq_no_comment(&self, other: &Trigger) -> bool {
+    pub fn eq_content(&self, other: &Trigger) -> bool {
         self.constraint == other.constraint &&
         self.when == other.when &&
         self.events == other.events &&

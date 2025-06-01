@@ -1,4 +1,4 @@
-use std::{collections::HashMap, ops::Deref, rc::Rc};
+use std::{collections::{HashMap, HashSet}, ops::Deref, rc::Rc};
 
 use crate::model::{
     alter::{
@@ -9,7 +9,7 @@ use crate::model::{
     column::{Column, ColumnConstraintData},
     database::Database,
     extension::Extension,
-    function::{CreateFunction, Function},
+    function::{CreateFunction, Function, QFunctionRef},
     index::Index,
     name::{Name, QName},
     object_ref::ObjectRef,
@@ -150,10 +150,18 @@ pub fn create_schema(schema: &Schema, stmts: &mut Vec<Statement>) {
 
 pub fn generate_migration(old: &Database, new: &Database) -> Vec<Statement> {
     let mut stmts = Vec::new();
+    let mut epilog = Vec::new();
+    let mut replace_functions = HashSet::new();
 
     for schema in old.schemas().values() {
         if let Some(new_schema) = new.schemas().get(schema.name()) {
-            migrate_schema(old, schema, new_schema, &mut stmts);
+            migrate_types(old, schema, new_schema, &mut replace_functions, &mut stmts, &mut epilog);
+        }
+    }
+
+    for schema in old.schemas().values() {
+        if let Some(new_schema) = new.schemas().get(schema.name()) {
+            migrate_schema(schema, new_schema, &replace_functions, &mut stmts);
         } else {
             stmts.push(Statement::drop_schema(schema.name().clone()));
         }
@@ -165,20 +173,13 @@ pub fn generate_migration(old: &Database, new: &Database) -> Vec<Statement> {
         }
     }
 
+    stmts.extend(epilog);
+
     stmts
 }
 
-pub fn migrate_schema(old_database: &Database, old: &Schema, new: &Schema, stmts: &mut Vec<Statement>) {
-    let mut create_indices = Vec::new();
-
-    let old_tables = old.tables();
-    let new_tables = new.tables();
-
+pub fn migrate_types(old_database: &Database, old: &Schema, new: &Schema, replace_functions: &mut HashSet<QFunctionRef>, stmts: &mut Vec<Statement>, epilog: &mut Vec<Statement>) {
     let old_types = old.types();
-    let new_types = new.types();
-
-    let old_indices = old.indices();
-    let new_indices = new.indices();
 
     let mut tmp_id = 0u64;
 
@@ -259,8 +260,12 @@ pub fn migrate_schema(old_database: &Database, old: &Schema, new: &Schema, stmts
                                 ));
                             }
 
-                            stmts.push(Statement::drop_type(type_def.name().clone()));
-                            stmts.push(Statement::AlterType(
+                            replace_functions.extend(
+                                old_database.find_functions_with_type(type_def.name()).into_iter().map(|(k, _)| k)
+                            );
+
+                            epilog.push(Statement::drop_type(type_def.name().clone()));
+                            epilog.push(Statement::AlterType(
                                 AlterType::rename(tmp_name, type_def.name().name().clone())
                             ));
                         }
@@ -278,6 +283,18 @@ pub fn migrate_schema(old_database: &Database, old: &Schema, new: &Schema, stmts
             create_type(type_def, stmts);
         }
     }
+}
+
+pub fn migrate_schema(old: &Schema, new: &Schema, replace_functions: &HashSet<QFunctionRef>, stmts: &mut Vec<Statement>) {
+    let mut create_indices = Vec::new();
+
+    let old_tables = old.tables();
+    let new_tables = new.tables();
+
+    let new_types = new.types();
+
+    let old_indices = old.indices();
+    let new_indices = new.indices();
 
     for table in old_tables.values() {
         if !new_tables.contains_key(table.name().name()) {
@@ -300,7 +317,7 @@ pub fn migrate_schema(old_database: &Database, old: &Schema, new: &Schema, stmts
     for index in old.indices().values() {
         if let Some(name) = index.name() {
             if let Some(new_index) = new_indices.get(name.name()) {
-                if !new_index.eq_no_comment(index) {
+                if !new_index.eq_content(index) {
                     stmts.push(Statement::drop_index(name.clone()));
                     create_indices.push(Statement::create_index(new_index.clone()));
                 }
@@ -347,7 +364,7 @@ pub fn migrate_schema(old_database: &Database, old: &Schema, new: &Schema, stmts
 
     for function in new.functions().values() {
         if let Some(old_function) = old.functions().get(&function.to_ref()) {
-            if !function.eq_no_comment(old_function) {
+            if !function.eq_content(old_function) || replace_functions.contains(&old_function.to_qref()) {
                 stmts.push(Statement::CreateFunction(
                     Rc::new(CreateFunction::new(true, function.clone()))
                 ));
@@ -528,7 +545,7 @@ fn migrate_table(old_table: &Table, new_table: &Table, stmts: &mut Vec<Statement
     // create triggers
     for trigger in new_table.triggers().values() {
         if let Some(old_trigger) = old_table.triggers().get(trigger.name()) {
-            if !trigger.eq_no_comment(old_trigger) {
+            if !trigger.eq_content(old_trigger) {
                 stmts.push(Statement::CreateTrigger(
                     Rc::new(CreateTrigger::new(true, trigger.clone()))
                 ));

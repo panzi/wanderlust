@@ -556,7 +556,9 @@ impl Function {
         f.write_str(";\n")
     }
 
-    pub fn eq_no_comment(&self, other: &Function) -> bool {
+    pub fn eq_content(&self, other: &Function) -> bool {
+        // arguments need to be compared because out arguments and
+        // default values aren't part of the signature
         self.arguments == other.arguments &&
         self.returns == other.returns &&
         self.transform == other.transform &&
@@ -735,6 +737,17 @@ pub enum ReturnType {
     Trigger,
     Type(DataType),
     Table { columns: Rc<[Column]> }
+}
+
+impl ReturnType {
+    #[inline]
+    pub fn is_user_defined(&self, type_name: &QName) -> bool {
+        if let Self::Type(type_def) = self {
+            type_def.basic_type().is_user_defined(type_name)
+        } else {
+            false
+        }
+    }
 }
 
 impl std::fmt::Display for ReturnType {

@@ -350,6 +350,15 @@ impl BasicType {
     pub fn is_serial(&self) -> bool {
         matches!(self, Self::Serial | Self::BigSerial | Self::SmallSerial)
     }
+
+    #[inline]
+    pub fn is_user_defined(&self, type_name: &QName) -> bool {
+        if let BasicType::UserDefined { name, .. } = self {
+            name == type_name
+        } else {
+            false
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
