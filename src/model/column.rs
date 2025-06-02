@@ -436,36 +436,43 @@ pub struct ColumnConstraint {
     initially_deferred: Option<bool>,
 }
 
-pub fn make_constraint_name(column_name: &Name, data: &ColumnConstraintData) -> Name {
+pub fn make_constraint_name(table_name: &Name, column_name: &Name, data: &ColumnConstraintData) -> Name {
     let mut constraint_name = String::new();
-    constraint_name.push_str(column_name.name());
+    constraint_name.push_str(table_name.name());
 
     match data {
-        ColumnConstraintData::Check { expr, .. } => {
-            for token in expr.iter() {
-                if let ParsedToken::Name(name) = token {
-                    constraint_name.push_str("_");
-                    constraint_name.push_str(name.name());
-                }
-            }
+        ColumnConstraintData::Check { .. } => {
+            constraint_name.push_str("_");
+            constraint_name.push_str(column_name.name());
             constraint_name.push_str("_check");
         }
         ColumnConstraintData::References { .. } => {
+            constraint_name.push_str("_");
+            constraint_name.push_str(column_name.name());
             constraint_name.push_str("_fkey");
         }
         ColumnConstraintData::PrimaryKey => {
             constraint_name.push_str("_pkey");
         }
         ColumnConstraintData::Unique { .. } => {
-            constraint_name.push_str("_unique");
+            constraint_name.push_str("_");
+            constraint_name.push_str(column_name.name());
+            constraint_name.push_str("_key");
         }
+        // shouldn't be called with any of the below
         ColumnConstraintData::Null => {
+            constraint_name.push_str("_");
+            constraint_name.push_str(column_name.name());
             constraint_name.push_str("_null");
         }
         ColumnConstraintData::NotNull => {
+            constraint_name.push_str("_");
+            constraint_name.push_str(column_name.name());
             constraint_name.push_str("_not_null");
         }
         ColumnConstraintData::Default { .. } => {
+            constraint_name.push_str("_");
+            constraint_name.push_str(column_name.name());
             constraint_name.push_str("_default");
         }
     }
@@ -474,9 +481,9 @@ pub fn make_constraint_name(column_name: &Name, data: &ColumnConstraintData) -> 
 }
 
 impl ColumnConstraint {
-    pub fn ensure_name(&mut self, column_name: &Name) -> &Name {
+    pub fn ensure_name(&mut self, table_name: &Name, column_name: &Name) -> &Name {
         if self.name.is_none() {
-            self.name = Some(make_constraint_name(column_name, &self.data));
+            self.name = Some(make_constraint_name(table_name, column_name, &self.data));
         }
         self.name.as_ref().unwrap()
     }
@@ -526,14 +533,22 @@ impl ColumnConstraint {
         )
     }
 
-    pub fn to_table_constraint(&self, column_name: &Name) -> Option<TableConstraint> {
+    fn some_name(&self, table_name: &Name, column_name: &Name) -> Name {
+        if let Some(name) = &self.name {
+            name.clone()
+        } else {
+            make_constraint_name(table_name, column_name, &self.data)
+        }
+    }
+
+    pub fn to_table_constraint(&self, table_name: &Name, column_name: &Name) -> Option<TableConstraint> {
         match self.data() {
             ColumnConstraintData::Default { .. } => None,
             ColumnConstraintData::NotNull => None,
             ColumnConstraintData::Null => None,
             ColumnConstraintData::Check { expr, inherit } => {
                 Some(TableConstraint::new(
-                    self.name.clone(),
+                    Some(self.some_name(table_name, column_name)),
                     super::table::TableConstraintData::Check {
                         expr: expr.clone(),
                         inherit: *inherit,
@@ -544,7 +559,7 @@ impl ColumnConstraint {
             },
             ColumnConstraintData::PrimaryKey => {
                 Some(TableConstraint::new(
-                    self.name.clone(),
+                    Some(self.some_name(table_name, column_name)),
                     super::table::TableConstraintData::PrimaryKey {
                         columns: [column_name.clone()].into()
                     },
@@ -554,7 +569,7 @@ impl ColumnConstraint {
             },
             ColumnConstraintData::Unique { nulls_distinct } => {
                 Some(TableConstraint::new(
-                    self.name.clone(),
+                    Some(self.some_name(table_name, column_name)),
                     super::table::TableConstraintData::Unique {
                         columns: [column_name.clone()].into(),
                         nulls_distinct: *nulls_distinct
@@ -565,7 +580,7 @@ impl ColumnConstraint {
             },
             ColumnConstraintData::References { ref_table, ref_column, column_match, on_delete, on_update } => {
                 Some(TableConstraint::new(
-                    self.name.clone(),
+                    Some(self.some_name(table_name, column_name)),
                     super::table::TableConstraintData::ForeignKey {
                         columns: [column_name.clone()].into(),
                         ref_table: ref_table.clone(),

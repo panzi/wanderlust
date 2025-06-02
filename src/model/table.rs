@@ -1,8 +1,17 @@
-use std::{ops::Deref, rc::Rc};
+use std::{collections::HashSet, rc::Rc};
 
-use crate::{format::{write_paren_names, write_token_list}, ordered_hash_map::OrderedHashMap};
+use crate::{
+    format::{write_paren_names, write_token_list},
+    make_tokens,
+    ordered_hash_map::OrderedHashMap,
+};
 
-use super::{column::{Column, ColumnMatch, ReferentialAction}, name::{Name, QName}, token::ParsedToken, trigger::Trigger};
+use super::{
+    column::{Column, ColumnMatch, ReferentialAction},
+    name::{Name, QName},
+    token::ParsedToken,
+    trigger::Trigger,
+};
 
 use super::words::*;
 
@@ -220,13 +229,31 @@ impl Table {
 
         for column in self.columns.values_unordered() {
             for constraint in column.constraints() {
-                if let Some(table_constraint) = constraint.to_table_constraint(column.name()) {
+                if let Some(table_constraint) = constraint.to_table_constraint(self.name.name(), column.name()) {
                     merged.push(Rc::new(table_constraint));
                 }
             }
         }
 
         merged
+    }
+
+    pub fn convert_serial(&mut self) {
+        for column in self.columns.values_unordered_mut() {
+            if let Some(integer_type) = column.data_type().serial_to_integer() {
+                let column = Rc::make_mut(column);
+                column.set_data_type(integer_type);
+                column.set_not_null();
+                let seq_name = format!(
+                    "{}_{}_seq",
+                    self.name, column.name()
+                );
+
+                let mut tokens = Vec::new();
+                make_tokens!(&mut tokens, nextval({seq_name}::regclass));
+                column.set_default(tokens.into());
+            }
+        }
     }
 }
 
@@ -279,19 +306,18 @@ impl std::fmt::Display for TableConstraintData {
                 write_paren_names(columns, f)
             },
             Self::PrimaryKey { columns } => {
-                write!(f, "{PRIMARY} {KEY} ")?;
+                write!(f, "{PRIMARY} {KEY}")?;
 
                 write_paren_names(columns, f)
             },
             Self::ForeignKey { columns, ref_table, ref_columns, column_match, on_delete, on_update } => {
-                write!(f, "{FOREIGN} {KEY} ")?;
+                write!(f, "{FOREIGN} {KEY}")?;
 
                 write_paren_names(columns, f)?;
 
                 write!(f, " {REFERENCES} {ref_table}")?;
 
                 if let Some(ref_columns) = ref_columns {
-                    f.write_str(" ")?;
                     write_paren_names(ref_columns, f)?;
                 }
 
@@ -321,7 +347,7 @@ fn eq_expr(lhs: &[ParsedToken], rhs: &[ParsedToken]) -> bool {
     } else if lhs.len() > rhs.len() {
         lhs.starts_with(&[ParsedToken::LParen]) &&
         lhs.ends_with(&[ParsedToken::RParen]) &&
-        &lhs[1..rhs.len() - 1] == rhs
+        &lhs[1..lhs.len() - 1] == rhs
     } else {
         lhs == rhs
     }
@@ -389,42 +415,37 @@ pub struct TableConstraint {
     comment: Option<Rc<str>>,
 }
 
-pub fn make_constraint_name(table_name: &Name, data: &TableConstraintData) -> Name {
+fn append_constraint_name_columns(constraint_name: &mut String, columns: &[Name]) {
+    let mut visited = HashSet::new();
+    for column in columns {
+        if visited.insert(column) {
+            constraint_name.push_str(column.name());
+            constraint_name.push_str("_");
+        }
+    }
+}
+
+pub fn make_constraint_name(table_name: &Name, data: &TableConstraintData) -> String {
     let mut constraint_name = table_name.name().to_string();
+    constraint_name.push_str("_");
     match data {
-        TableConstraintData::Check { expr, .. } => {
-            for token in expr.deref() {
-                if let ParsedToken::Name(name) = token {
-                    constraint_name.push_str(name.name());
-                    constraint_name.push_str("_");
-                }
-            }
+        TableConstraintData::Check { .. } => {
             constraint_name.push_str("check");
         }
         TableConstraintData::ForeignKey { columns, .. } => {
-            for column in columns.deref() {
-                constraint_name.push_str(column.name());
-                constraint_name.push_str("_");
-            }
+            append_constraint_name_columns(&mut constraint_name, &columns);
             constraint_name.push_str("fkey");
         }
-        TableConstraintData::PrimaryKey { columns } => {
-            for column in columns.deref() {
-                constraint_name.push_str(column.name());
-                constraint_name.push_str("_");
-            }
+        TableConstraintData::PrimaryKey { .. } => {
             constraint_name.push_str("pkey");
         }
         TableConstraintData::Unique { columns, .. } => {
-            for column in columns.deref() {
-                constraint_name.push_str(column.name());
-                constraint_name.push_str("_");
-            }
+            append_constraint_name_columns(&mut constraint_name, &columns);
             constraint_name.push_str("key");
         }
     }
 
-    Name::new(constraint_name)
+    constraint_name
 }
 
 impl std::fmt::Display for TableConstraint {
@@ -485,9 +506,18 @@ impl TableConstraint {
         self.name = name;
     }
 
-    pub fn ensure_name(&mut self, table_name: &Name) -> &Name {
+    pub fn ensure_name(&mut self, table_name: &Name, other_constraints: &OrderedHashMap<Name, Rc<TableConstraint>>) -> &Name {
         if self.name.is_none() {
-            self.name = Some(make_constraint_name(table_name, &self.data));
+            let prefix = make_constraint_name(table_name, &self.data);
+            let mut name = Name::new(prefix.clone());
+            let mut counter = 0u32;
+
+            while other_constraints.contains_key(&name) {
+                counter += 1;
+                name = Name::new(format!("{prefix}{counter}"));
+            }
+
+            self.name = Some(name);
         }
         self.name.as_ref().unwrap()
     }
@@ -537,12 +567,6 @@ impl TableConstraint {
         self.comment = comment;
     }
 
-    pub fn matches(&self, other: &TableConstraint) -> bool {
-        self.data == other.data &&
-        self.default_deferrable() == other.default_deferrable() &&
-        self.default_initially_deferred() == other.default_initially_deferred()
-    }
-
     pub fn columns(&self) -> Option<&Rc<[Name]>> {
         match self.data() {
             TableConstraintData::Check { .. } => None,
@@ -550,5 +574,11 @@ impl TableConstraint {
             TableConstraintData::PrimaryKey { columns, .. } => Some(columns),
             TableConstraintData::ForeignKey { columns, .. } => Some(columns),
         }
+    }
+
+    pub fn eq_content(&self, other: &TableConstraint) -> bool {
+        self.data == other.data &&
+        self.deferrable == other.deferrable &&
+        self.initially_deferred == other.initially_deferred
     }
 }

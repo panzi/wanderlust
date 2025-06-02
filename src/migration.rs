@@ -1,6 +1,6 @@
-use std::{collections::{HashMap, HashSet}, ops::Deref, rc::Rc};
+use std::{collections::{HashMap, HashSet}, rc::Rc};
 
-use crate::model::{
+use crate::{make_tokens, model::{
     alter::{
         extension::{AlterExtension, AlterExtensionData},
         table::{AlterColumn, AlterTable},
@@ -18,8 +18,8 @@ use crate::model::{
     table::Table,
     token::ParsedToken,
     trigger::{CreateTrigger, Trigger},
-    types::{TypeData, TypeDef},
-};
+    types::{DataType, TypeData, TypeDef},
+}};
 
 use crate::model::words::*;
 
@@ -329,8 +329,6 @@ pub fn migrate_schema(old: &Schema, new: &Schema, replace_functions: &HashSet<QF
                     ));
                 }
             } else {
-                // XXX: DBMSs generate indices for things like foreign keys and such.
-                //      Those should of course not be dropped!
                 stmts.push(Statement::drop_index(name.clone()));
             }
         }
@@ -392,20 +390,12 @@ pub fn migrate_schema(old: &Schema, new: &Schema, replace_functions: &HashSet<QF
     for index in new.indices().values() {
         if let Some(name) = index.name() {
             if !old_indices.contains_key(name.name()) {
+                // TODO: find matching unnamed index?
                 create_index(index, stmts);
             }
         } else {
             // TODO: find matching unnamed index?
             create_index(index, stmts);
-        }
-    }
-
-    for index in old.indices().values() {
-        if let Some(name) = index.name() {
-            if !new_indices.contains_key(name.name()) {
-                // TODO: find matching unnamed index?
-                stmts.push(Statement::drop_index(name.clone()));
-            }
         }
     }
 
@@ -501,7 +491,7 @@ fn migrate_table(old_table: &Table, new_table: &Table, stmts: &mut Vec<Statement
 
     for constraint in &old_merged_constraints {
         if let Some(old_name) = constraint.name() {
-            if let Some(new_constraint) = new_merged_constraints.iter().find(|other| other.matches(constraint)) {
+            if let Some(new_constraint) = new_merged_constraints.iter().find(|other| other.eq_content(constraint)) {
                 if let Some(new_name) = new_constraint.name() {
                     if old_name != new_name {
                         stmts.push(Statement::AlterTable(
@@ -674,13 +664,18 @@ fn migrate_column(table_name: &QName, old_column: &Column, new_column: &Column, 
 
     if old_default != new_default {
         if let Some(new_default) = new_default {
-            stmts.push(Statement::AlterTable(
-                AlterTable::alter_column(table_name.clone(), AlterColumn::set_default(new_column.name().clone(), new_default.clone()))
-            ));
-        } else if !new_column.data_type().basic_type().is_serial() || !is_nextval(old_default.map(Deref::deref).unwrap_or_default()) {
-            // FIXME: DBMS specific!
-            // E.g. PostgreSQL generates DEFAULT nextval('schema.sequence'::regclass) for SERIAL columns.
-            // These should not be removed!
+            if let Some(old_default) = old_default {
+                if !is_same_default_value(new_column.data_type(), old_default, new_default) {
+                    stmts.push(Statement::AlterTable(
+                        AlterTable::alter_column(table_name.clone(), AlterColumn::set_default(new_column.name().clone(), new_default.clone()))
+                    ));
+                }
+            } else {
+                stmts.push(Statement::AlterTable(
+                    AlterTable::alter_column(table_name.clone(), AlterColumn::set_default(new_column.name().clone(), new_default.clone()))
+                ));
+            }
+        } else {
             stmts.push(Statement::AlterTable(
                 AlterTable::alter_column(table_name.clone(), AlterColumn::drop_default(new_column.name().clone()))
             ));
@@ -688,6 +683,39 @@ fn migrate_column(table_name: &QName, old_column: &Column, new_column: &Column, 
     }
 }
 
+fn is_same_default_value(data_type: &DataType, old_default: &[ParsedToken], new_default: &[ParsedToken]) -> bool {
+    let shorter;
+    let longer;
+    if old_default.len() < new_default.len() {
+        shorter = old_default;
+        longer = new_default;
+    } else if old_default.len() > new_default.len() {
+        shorter = new_default;
+        longer = old_default;
+    } else {
+        return old_default == new_default;
+    }
+
+    let mut tokens = Vec::new();
+    make_tokens!(&mut tokens, {shorter}::{data_type});
+
+    if tokens == longer {
+        return true;
+    }
+
+    tokens.clear();
+    make_tokens!(&mut tokens, ({shorter}));
+    if tokens == longer {
+        return true;
+    }
+
+    tokens.clear();
+    make_tokens!(&mut tokens, CAST({shorter} AS {data_type}));
+
+    tokens == longer
+}
+
+#[allow(unused)]
 fn is_nextval(expr: &[ParsedToken]) -> bool {
     // nextval('schema.sequence'::regclass)
     // nextval(regclass 'schema.sequence')

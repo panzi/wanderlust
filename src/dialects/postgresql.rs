@@ -1661,6 +1661,17 @@ impl<'a> PostgreSQLParser<'a> {
     }
 
     #[inline]
+    fn parse_qual_name_default(&mut self) -> Result<QName> {
+        let name = self.expect_name()?;
+        if self.parse_token(TokenKind::Period)? {
+            let actual_name = self.expect_name()?;
+            Ok(QName::new(Some(name), actual_name))
+        } else {
+            Ok(QName::new(Some(self.database.default_schema().clone()), name))
+        }
+    }
+
+    #[inline]
     fn parse_ref_table(&mut self) -> Result<QName> {
         let first = self.expect_name()?;
 
@@ -1905,7 +1916,7 @@ impl<'a> PostgreSQLParser<'a> {
         }
     }
 
-    fn parse_column(&mut self) -> Result<Rc<Column>> {
+    fn parse_column(&mut self, table_name: &Name, mut table_constraints: Option<&mut OrderedHashMap<Name, Rc<TableConstraint>>>) -> Result<Rc<Column>> {
         let column_name = self.expect_name()?;
         let data_type = self.parse_data_type()?;
 
@@ -2041,14 +2052,22 @@ impl<'a> PostgreSQLParser<'a> {
                 }
             }
 
-            column_constraints.push(
-                Rc::new(ColumnConstraint::new(
-                    constraint_name,
-                    constraint_data,
-                    deferrable,
-                    initially_deferred,
-                ))
+            let constraint = ColumnConstraint::new(
+                constraint_name,
+                constraint_data,
+                deferrable,
+                initially_deferred,
             );
+
+            if let Some(table_constraints) = &mut table_constraints {
+                if let Some(mut table_constraint) = constraint.to_table_constraint(&table_name, &column_name) {
+                    let name = table_constraint.ensure_name(table_name, table_constraints);
+                    table_constraints.insert(name.clone(), Rc::new(table_constraint));
+                    continue;
+                }
+            }
+
+            column_constraints.push(Rc::new(constraint));
         }
 
         Ok(Rc::new(Column::new(
@@ -2297,7 +2316,7 @@ impl<'a> PostgreSQLParser<'a> {
         // "CREATE TABLE" is already parsed
 
         let if_not_exists = self.parse_if_not_exists()?;
-        let table_name = self.parse_qual_name()?;
+        let table_name = self.parse_qual_name_default()?;
         let mut columns = OrderedHashMap::new();
         let mut table_constraints = OrderedHashMap::new();
 
@@ -2306,11 +2325,11 @@ impl<'a> PostgreSQLParser<'a> {
         while !self.peek_kind(TokenKind::RParen)? {
             if self.peek_words(&[CONSTRAINT, CHECK, UNIQUE, PRIMARY, FOREIGN])?.is_some() {
                 let mut constraint = self.parse_table_constaint()?;
-                let constraint_name = constraint.ensure_name(table_name.name());
+                let constraint_name = constraint.ensure_name(table_name.name(), &table_constraints);
                 table_constraints.insert(constraint_name.clone(), Rc::new(constraint));
             } else {
                 let start_offset = self.tokenizer.offset();
-                let column = self.parse_column()?;
+                let column = self.parse_column(table_name.name(), Some(&mut table_constraints))?;
                 if columns.contains_key(column.name()) {
                     return Err(Error::with_message(
                         ErrorKind::ColumnExists,
@@ -2348,7 +2367,7 @@ impl<'a> PostgreSQLParser<'a> {
             self.expect_token(TokenKind::RParen)?;
         }
 
-        let table = Table::new(
+        let mut table = Table::new(
             table_name,
             logged,
             columns,
@@ -2356,6 +2375,8 @@ impl<'a> PostgreSQLParser<'a> {
             OrderedHashMap::new(),
             inherits,
         );
+
+        table.convert_serial();
 
         Ok(CreateTable::new(table, if_not_exists))
     }
@@ -2487,7 +2508,7 @@ impl<'a> PostgreSQLParser<'a> {
     fn parse_type_def_intern(&mut self) -> Result<TypeDef> {
         // "CREATE TYPE" is already parsed
         // TODO: other types
-        let type_name = self.parse_qual_name()?;
+        let type_name = self.parse_qual_name_default()?;
         self.expect_word(AS)?;
 
         if self.parse_word(ENUM)? {
@@ -2573,7 +2594,7 @@ impl<'a> PostgreSQLParser<'a> {
         } else {
             let mut actions = Vec::new();
             loop {
-                let action = self.parse_alter_table_action()?;
+                let action = self.parse_alter_table_action(table_name.name())?;
                 actions.push(action);
 
                 if !self.parse_token(TokenKind::Comma)? {
@@ -2606,7 +2627,7 @@ impl<'a> PostgreSQLParser<'a> {
         }
     }
 
-    fn parse_alter_table_action(&mut self) -> Result<AlterTableAction> {
+    fn parse_alter_table_action(&mut self, table_name: &Name) -> Result<AlterTableAction> {
         if self.parse_word(ADD)? {
             // ADD COLUMN or CONSTRAINT
             if self.peek_words(&[CONSTRAINT, CHECK, UNIQUE, PRIMARY, EXCLUDE, FOREIGN])?.is_some() {
@@ -2619,7 +2640,7 @@ impl<'a> PostgreSQLParser<'a> {
                 self.parse_word(COLUMN)?;
 
                 let if_not_exists = self.parse_if_not_exists()?;
-                let column = self.parse_column()?;
+                let column = self.parse_column(table_name, None)?;
 
                 Ok(AlterTableAction::AddColumn { if_not_exists, column })
             }
@@ -3037,7 +3058,7 @@ impl<'a> PostgreSQLParser<'a> {
 
     fn parse_function_intern(&mut self, is_procedure: bool, or_replace: bool) -> Result<CreateFunction> {
         // "CREATE [OR REPLACE] {FUNCTION|PROCEDURE}" is already parsed
-        let name = self.parse_qual_name()?;
+        let name = self.parse_qual_name_default()?;
 
         let mut arguments = Vec::new();
         self.expect_token(TokenKind::LParen)?;

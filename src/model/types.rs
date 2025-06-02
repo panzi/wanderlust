@@ -359,6 +359,16 @@ impl BasicType {
             false
         }
     }
+
+    #[inline]
+    pub fn serial_to_integer(&self) -> Option<Self> {
+        match self {
+            Self::Serial => Some(Self::Integer),
+            Self::BigSerial => Some(Self::Bigint),
+            Self::SmallSerial => Some(Self::SmallInt),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -696,13 +706,13 @@ pub struct DataType {
 
 impl DataType {
     #[inline]
-    pub fn new(data_type: BasicType, array_dimensions: Option<Rc<[Option<u32>]>>) -> Self {
-        Self { basic_type: data_type, array_dimensions }
+    pub fn new(basic_type: BasicType, array_dimensions: Option<Rc<[Option<u32>]>>) -> Self {
+        Self { basic_type, array_dimensions }
     }
 
     #[inline]
-    pub fn basic(data_type: BasicType) -> Self {
-        Self { basic_type: data_type, array_dimensions: None }
+    pub fn basic(basic_type: BasicType) -> Self {
+        Self { basic_type, array_dimensions: None }
     }
 
     #[inline]
@@ -747,6 +757,13 @@ impl DataType {
             basic_type: BasicType::UserDefined { name: type_name, parameters },
             array_dimensions: self.array_dimensions.clone(),
         }
+    }
+
+    pub fn serial_to_integer(&self) -> Option<Self> {
+        let Some(basic_type) = self.basic_type.serial_to_integer() else {
+            return None;
+        };
+        Some(DataType::new(basic_type, self.array_dimensions.clone()))
     }
 
     pub fn cast(&self, value: impl ToTokens) -> Vec<ParsedToken> {

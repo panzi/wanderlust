@@ -15,10 +15,10 @@ use super::extension::{CreateExtension, Extension};
 use super::function::{CreateFunction, Function, FunctionRef, QFunctionRef};
 use super::index::{CreateIndex, Index};
 use super::name::{Name, QName};
-use super::schema::{self, Schema};
+use super::schema::Schema;
 use super::table::{CreateTable, Table};
 use super::trigger::CreateTrigger;
-use super::types::{BasicType, CompositeAttribute};
+use super::types::CompositeAttribute;
 use super::types::TypeDef;
 
 use super::words::*;
@@ -1100,7 +1100,7 @@ impl Database {
                                 }
                                 AlterTableAction::AddConstraint { constraint } => {
                                     let mut constraint = constraint.clone();
-                                    let constraint_name = Rc::make_mut(&mut constraint).ensure_name(alter_table.name().name());
+                                    let constraint_name = Rc::make_mut(&mut constraint).ensure_name(table.name().name(), table.constraints());
 
                                     if table.constraints().contains_key(constraint_name) {
                                         return Err(Error::new(
