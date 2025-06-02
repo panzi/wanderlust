@@ -1,3 +1,5 @@
+#![allow(non_upper_case_globals)]
+
 pub const ACTION: &str = "ACTION";
 pub const ADD: &str = "ADD";
 pub const AFTER: &str = "AFTER";

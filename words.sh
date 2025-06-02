@@ -7,4 +7,8 @@ DIR=$(dirname "$SELF")
 
 cd "$DIR"
 
-exec sed 's/.*/pub const &: \&str = "&";/' < words.txt > src/model/words.rs
+{
+    echo '#![allow(non_upper_case_globals)]'
+    echo
+    sed 's/.*/pub const &: \&str = "&";/' < words.txt
+} > src/model/words.rs

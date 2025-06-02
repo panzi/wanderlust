@@ -433,14 +433,14 @@ pub fn make_constraint_name(table_name: &Name, data: &TableConstraintData) -> St
             constraint_name.push_str("check");
         }
         TableConstraintData::ForeignKey { columns, .. } => {
-            append_constraint_name_columns(&mut constraint_name, &columns);
+            append_constraint_name_columns(&mut constraint_name, columns);
             constraint_name.push_str("fkey");
         }
         TableConstraintData::PrimaryKey { .. } => {
             constraint_name.push_str("pkey");
         }
         TableConstraintData::Unique { columns, .. } => {
-            append_constraint_name_columns(&mut constraint_name, &columns);
+            append_constraint_name_columns(&mut constraint_name, columns);
             constraint_name.push_str("key");
         }
     }

@@ -495,7 +495,7 @@ macro_rules! make_tokens {
     };
     (@make ($out:expr)) => {};
     (@make ($out:expr) $word:ident $($tail:tt)*) => {
-        $out.push(ParsedToken::new_unquoted(crate::model::words::$word));
+        $out.push(ParsedToken::new_unquoted($crate::model::words::$word));
         make_tokens!(@make ($out) $($tail)*);
     };
     (@make ($out:expr) ($($expr:tt)*) $($tail:tt)*) => {
@@ -513,7 +513,7 @@ macro_rules! make_tokens {
     (@make ($out:expr) ?{$($expr:tt)+} $($tail:tt)*) => {
         if let Some(_value) = ($($expr)+) {
             #[allow(unused)]
-            use crate::model::token::ToTokens;
+            use $crate::model::token::ToTokens;
             _value.to_tokens_into($out);
         }
         make_tokens!(@make ($out) $($tail)*);
@@ -521,7 +521,7 @@ macro_rules! make_tokens {
     (@make ($out:expr) ?$ident:ident $($tail:tt)*) => {
         if let Some(_value) = $ident {
             #[allow(unused)]
-            use crate::model::token::ToTokens;
+            use $crate::model::token::ToTokens;
             _value.to_tokens_into($out);
         }
         make_tokens!(@make ($out) $($tail)*);
@@ -529,7 +529,7 @@ macro_rules! make_tokens {
     (@make ($out:expr) {$($expr:tt)+} $($tail:tt)*) => {
         {
             #[allow(unused)]
-            use crate::model::token::ToTokens;
+            use $crate::model::token::ToTokens;
             ($($expr)+).to_tokens_into($out);
         }
         make_tokens!(@make ($out) $($tail)*);
@@ -540,7 +540,7 @@ macro_rules! make_tokens {
     (@make ($out:expr) $val:literal $($tail:tt)*) => {
         {
             #[allow(unused)]
-            use crate::model::token::ToTokens;
+            use $crate::model::token::ToTokens;
             $val.to_tokens_into($out);
         }
         make_tokens!(@make ($out) $($tail)*);

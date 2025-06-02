@@ -1,5 +1,4 @@
-use std::{collections::{HashMap, TryReserveError}, hash::{BuildHasher, Hash, RandomState}, iter::Map, usize};
-
+use std::{collections::{HashMap, TryReserveError}, hash::{BuildHasher, Hash, RandomState}, iter::Map};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct OrderedCell<T> {

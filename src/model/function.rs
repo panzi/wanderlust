@@ -278,6 +278,7 @@ pub struct Function {
 }
 
 impl Function {
+    #[allow(clippy::too_many_arguments)]
     #[inline]
     pub fn new(
             name: QName,
@@ -527,7 +528,7 @@ impl Function {
                 }
                 ConfigurationValue::Value(value) => {
                     write!(f, "{SET} {name} {TO} ")?;
-                    write_token_list(&value, f)?;
+                    write_token_list(value, f)?;
                     f.write_str("\n")?;
                 }
             }
@@ -536,11 +537,11 @@ impl Function {
         match &self.body {
             FunctionBody::Definition { source } => {
                 write!(f, "{AS} ")?;
-                format_string_for_functions(&mut f, &source)?;
+                format_string_for_functions(&mut f, source)?;
                 f.write_str("\n")?;
             }
             FunctionBody::Object { object_file, link_symbol } => {
-                writeln!(f, "{AS} {}, {}", IsoString(&object_file), IsoString(&link_symbol))?;
+                writeln!(f, "{AS} {}, {}", IsoString(object_file), IsoString(link_symbol))?;
             }
             FunctionBody::SqlBody { statements } => {
                 writeln!(f, "{BEGIN} {ATOMIC}")?;

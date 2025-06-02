@@ -760,9 +760,7 @@ impl DataType {
     }
 
     pub fn serial_to_integer(&self) -> Option<Self> {
-        let Some(basic_type) = self.basic_type.serial_to_integer() else {
-            return None;
-        };
+        let basic_type = self.basic_type.serial_to_integer()?;
         Some(DataType::new(basic_type, self.array_dimensions.clone()))
     }
 

@@ -2060,7 +2060,7 @@ impl<'a> PostgreSQLParser<'a> {
             );
 
             if let Some(table_constraints) = &mut table_constraints {
-                if let Some(mut table_constraint) = constraint.to_table_constraint(&table_name, &column_name) {
+                if let Some(mut table_constraint) = constraint.to_table_constraint(table_name, &column_name) {
                     let name = table_constraint.ensure_name(table_name, table_constraints);
                     table_constraints.insert(name.clone(), Rc::new(table_constraint));
                     continue;
