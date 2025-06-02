@@ -565,20 +565,16 @@ macro_rules! make_tokens {
         $out.push(ParsedToken::Period);
         make_tokens!(@make ($out) $($tail)*);
     };
-    (@make ($out:expr) = $($tail:tt)*) => {
-        $out.push(ParsedToken::Equal);
-        make_tokens!(@make ($out) $($tail)*);
-    };
     (@make ($out:expr) + $($tail:tt)*) => {
         $out.push(ParsedToken::Operator("+".into()));
         make_tokens!(@make ($out) $($tail)*);
     };
-    (@make ($out:expr) -> $($tail:tt)*) => {
-        $out.push(ParsedToken::Operator("->".into()));
-        make_tokens!(@make ($out) $($tail)*);
-    };
     (@make ($out:expr) ->> $($tail:tt)*) => {
         $out.push(ParsedToken::Operator("->>".into()));
+        make_tokens!(@make ($out) $($tail)*);
+    };
+    (@make ($out:expr) -> $($tail:tt)*) => {
+        $out.push(ParsedToken::Operator("->".into()));
         make_tokens!(@make ($out) $($tail)*);
     };
     (@make ($out:expr) - $($tail:tt)*) => {
@@ -633,12 +629,24 @@ macro_rules! make_tokens {
         $out.push(ParsedToken::Operator(">=".into()));
         make_tokens!(@make ($out) $($tail)*);
     };
+    (@make ($out:expr) != $($tail:tt)*) => {
+        $out.push(ParsedToken::Operator("!=".into()));
+        make_tokens!(@make ($out) $($tail)*);
+    };
+    (@make ($out:expr) <> $($tail:tt)*) => {
+        $out.push(ParsedToken::Operator("<>".into()));
+        make_tokens!(@make ($out) $($tail)*);
+    };
     (@make ($out:expr) < $($tail:tt)*) => {
         $out.push(ParsedToken::Operator("<".into()));
         make_tokens!(@make ($out) $($tail)*);
     };
     (@make ($out:expr) > $($tail:tt)*) => {
         $out.push(ParsedToken::Operator(">".into()));
+        make_tokens!(@make ($out) $($tail)*);
+    };
+    (@make ($out:expr) = $($tail:tt)*) => {
+        $out.push(ParsedToken::Equal);
         make_tokens!(@make ($out) $($tail)*);
     };
 }
