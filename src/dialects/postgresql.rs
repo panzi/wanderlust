@@ -18,7 +18,7 @@ use crate::{
         extension::{CreateExtension, Extension, Version},
         floats::Float,
         function::{self, Argmode, Argument, ConfigurationValue, CreateFunction, Function, FunctionBody, FunctionRef, FunctionSignature, ReturnType, SignatureArgument},
-        index::{CreateIndex, Direction, Index, IndexItem, IndexItemData, NullsPosition},
+        index::{CreateIndex, Direction, Index, IndexItem, IndexItemData, IndexParameters, NullsPosition},
         integers::{Integer, SignedInteger, UnsignedInteger},
         name::{Name, QName},
         syntax::{Cursor, Parser, SourceLocation, Tokenizer},
@@ -1799,7 +1799,9 @@ impl<'a> PostgreSQLParser<'a> {
             }
             self.expect_token(TokenKind::RParen)?;
 
-            constraint_data = TableConstraintData::Unique { nulls_distinct, columns: columns.into() };
+            let index_parameters = self.parse_index_parameters()?;
+
+            constraint_data = TableConstraintData::Unique { nulls_distinct, columns: columns.into(), index_parameters };
         } else if self.peek_word(PRIMARY)? {
             self.expect_some()?;
             self.expect_word(KEY)?;
@@ -1814,7 +1816,9 @@ impl<'a> PostgreSQLParser<'a> {
             }
             self.expect_token(TokenKind::RParen)?;
 
-            constraint_data = TableConstraintData::PrimaryKey { columns: columns.into() };
+            let index_parameters = self.parse_index_parameters()?;
+
+            constraint_data = TableConstraintData::PrimaryKey { columns: columns.into(), index_parameters };
         } else if self.peek_word(FOREIGN)? {
             self.expect_some()?;
             self.expect_word(KEY)?;
@@ -1916,6 +1920,62 @@ impl<'a> PostgreSQLParser<'a> {
         }
     }
 
+    fn parse_index_parameters(&mut self) -> Result<IndexParameters> {
+        let include = if self.parse_word(INCLUDE)? {
+            let mut include = Vec::new();
+
+            self.expect_token(TokenKind::LParen)?;
+
+            loop {
+                include.push(self.expect_name()?);
+
+                if !self.parse_token(TokenKind::Comma)? {
+                    break;
+                }
+            }
+
+            self.expect_token(TokenKind::RParen)?;
+
+            Some(include.into())
+        } else {
+            None
+        };
+
+        let storage_parameters = if self.parse_word(WITH)? {
+            let mut storage_parameters = OrderedHashMap::new();
+
+            loop {
+                let key = self.expect_name()?;
+
+                let value = if self.parse_token(TokenKind::Equal)? {
+                    Some(self.parse_token_list(true, true)?.into())
+                } else {
+                    None
+                };
+
+                storage_parameters.insert(key, value);
+
+                if !self.parse_token(TokenKind::Comma)? {
+                    break;
+                }
+            }
+
+            self.expect_token(TokenKind::RParen)?;
+
+            Some(storage_parameters.into())
+        } else {
+            None
+        };
+
+        let tablespace = if self.parse_word(TABLESPACE)? {
+            Some(self.expect_name()?)
+        } else {
+            None
+        };
+
+        Ok(IndexParameters::new(include, storage_parameters, tablespace))
+    }
+
     fn parse_column(&mut self, table_name: &Name, mut table_constraints: Option<&mut OrderedHashMap<Name, Rc<TableConstraint>>>) -> Result<Rc<Column>> {
         let column_name = self.expect_name()?;
         let data_type = self.parse_data_type()?;
@@ -1988,11 +2048,15 @@ impl<'a> PostgreSQLParser<'a> {
                     self.expect_word(DISTINCT)?;
                 }
 
-                constraint_data = ColumnConstraintData::Unique { nulls_distinct };
+                let index_parameters = self.parse_index_parameters()?;
+
+                constraint_data = ColumnConstraintData::Unique { nulls_distinct, index_parameters };
             } else if self.parse_word(PRIMARY)? {
                 self.expect_word(KEY)?;
 
-                constraint_data = ColumnConstraintData::PrimaryKey;
+                let index_parameters = self.parse_index_parameters()?;
+
+                constraint_data = ColumnConstraintData::PrimaryKey { index_parameters };
             } else if self.parse_word(REFERENCES)? {
                 let ref_table = self.parse_ref_table()?;
 

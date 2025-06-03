@@ -622,7 +622,7 @@ fn migrate_column(table_name: &QName, old_column: &Column, new_column: &Column, 
             }
             // these are converted into table constraints and thus done in migrate_table()
             ColumnConstraintData::Check { .. } => {}
-            ColumnConstraintData::PrimaryKey => {}
+            ColumnConstraintData::PrimaryKey { .. } => {}
             ColumnConstraintData::Unique { .. } => {}
             ColumnConstraintData::References { .. } => {}
         }
@@ -644,7 +644,7 @@ fn migrate_column(table_name: &QName, old_column: &Column, new_column: &Column, 
                 new_default = Some(value);
             }
             ColumnConstraintData::Check { .. } => {}
-            ColumnConstraintData::PrimaryKey => {}
+            ColumnConstraintData::PrimaryKey { .. } => {}
             ColumnConstraintData::Unique { .. } => {}
             ColumnConstraintData::References { .. } => {}
         }

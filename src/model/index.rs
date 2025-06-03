@@ -1,7 +1,9 @@
+use std::collections::HashSet;
 use std::ops::Deref;
 use std::rc::Rc;
 
-use crate::format::write_token_list;
+use crate::format::{write_paren_names, write_token_list};
+use crate::ordered_hash_map::OrderedHashMap;
 
 use super::name::QName;
 use super::{name::Name, token::ParsedToken};
@@ -191,6 +193,7 @@ impl Index {
     pub fn make_name(&self) -> Name {
         let table_name = self.table_name.name().name();
         let mut index_name = table_name.to_string();
+        let mut visited = HashSet::new();
 
         for item in self.items.deref() {
             match item.data() {
@@ -201,8 +204,10 @@ impl Index {
                 IndexItemData::Expr(expr) => {
                     for token in expr.deref() {
                         if let ParsedToken::Name(name) = token {
-                            index_name.push_str("_");
-                            index_name.push_str(name.name());
+                            if visited.insert(name) {
+                                index_name.push_str("_");
+                                index_name.push_str(name.name());
+                            }
                         }
                     }
                 }
@@ -384,5 +389,59 @@ impl std::fmt::Display for CreateIndex {
             write!(f, " {IF} {NOT} {EXISTS}")?;
         }
         self.index.write(f)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct IndexParameters {
+    include: Option<Rc<[Name]>>,
+    storage_parameters: Option<OrderedHashMap<Name, Option<Rc<[ParsedToken]>>>>,
+    tablespace: Option<Name>,
+}
+
+impl IndexParameters {
+    #[inline]
+    pub fn new(
+        include: Option<Rc<[Name]>>,
+        storage_parameters: Option<OrderedHashMap<Name, Option<Rc<[ParsedToken]>>>>,
+        tablespace: Option<Name>,
+    ) -> Self {
+        Self { include, storage_parameters, tablespace }
+    }
+}
+
+impl std::fmt::Display for IndexParameters {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(include) = &self.include {
+            write!(f, " {INCLUDE}")?;
+            write_paren_names(&include, f)?;
+        }
+
+        if let Some(storage_parameters) = &self.storage_parameters {
+            write!(f, " {WITH} (")?;
+            let mut iter = storage_parameters.iter();
+            if let Some((key, value)) = iter.next() {
+                key.fmt(f)?;
+                if let Some(value) = value {
+                    f.write_str(" = ")?;
+                    write_token_list(value, f)?;
+                }
+
+                for (key, value) in iter {
+                    write!(f, ", {key}")?;
+                    if let Some(value) = value {
+                        f.write_str(" = ")?;
+                        write_token_list(value, f)?;
+                    }
+                }
+            }
+            f.write_str(")")?;
+        }
+
+        if let Some(tablespace) = &self.tablespace {
+            write!(f, " {USING} {INDEX} {TABLESPACE} {tablespace}")?;
+        }
+
+        Ok(())
     }
 }

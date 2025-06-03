@@ -1,6 +1,7 @@
 use std::rc::Rc;
 
 use crate::format::{write_paren_names, write_token_list};
+use crate::model::index::IndexParameters;
 
 use super::name::QName;
 use super::table::TableConstraint;
@@ -304,8 +305,8 @@ pub enum ColumnConstraintData {
         inherit: bool,
     },
     Default { value: Rc<[ParsedToken]> },
-    Unique { nulls_distinct: Option<bool> },
-    PrimaryKey,
+    Unique { nulls_distinct: Option<bool>, index_parameters: IndexParameters },
+    PrimaryKey { index_parameters: IndexParameters },
     References {
         ref_table: QName,
         ref_column: Option<Name>,
@@ -337,15 +338,23 @@ impl PartialEq for ColumnConstraintData {
                     _ => false
                 }
             },
-            Self::Unique { nulls_distinct } => {
+            Self::Unique { nulls_distinct, index_parameters } => {
                 match other {
-                    Self::Unique { nulls_distinct: other_nulls_distinct } => {
-                        nulls_distinct == other_nulls_distinct
+                    Self::Unique { nulls_distinct: other_nulls_distinct, index_parameters: other_index_parameters } => {
+                        nulls_distinct == other_nulls_distinct &&
+                        index_parameters == other_index_parameters
                     }
                     _ => false
                 }
             },
-            Self::PrimaryKey => matches!(other, Self::PrimaryKey),
+            Self::PrimaryKey { index_parameters } => {
+                match other {
+                    Self::PrimaryKey { index_parameters: other_index_parameters } => {
+                        index_parameters == other_index_parameters
+                    }
+                    _ => false
+                }
+            },
             Self::References { ref_table, ref_column, column_match, on_delete, on_update } => {
                 match other {
                     Self::References {
@@ -387,7 +396,7 @@ impl std::fmt::Display for ColumnConstraintData {
                 write!(f, "{DEFAULT} ")?;
                 write_token_list(value, f)
             },
-            Self::Unique { nulls_distinct } => {
+            Self::Unique { nulls_distinct, index_parameters } => {
                 f.write_str(UNIQUE)?;
 
                 if let Some(nulls_distinct) = nulls_distinct {
@@ -398,10 +407,10 @@ impl std::fmt::Display for ColumnConstraintData {
                     }
                 }
 
-                Ok(())
+                index_parameters.fmt(f)
             },
-            Self::PrimaryKey => {
-                write!(f, "{PRIMARY} {KEY}")
+            Self::PrimaryKey { index_parameters } => {
+                write!(f, "{PRIMARY} {KEY}{index_parameters}")
             },
             Self::References { ref_table, ref_column, column_match, on_delete, on_update } => {
                 write!(f, "{REFERENCES} {ref_table}")?;
@@ -451,7 +460,7 @@ pub fn make_constraint_name(table_name: &Name, column_name: &Name, data: &Column
             constraint_name.push_str(column_name.name());
             constraint_name.push_str("_fkey");
         }
-        ColumnConstraintData::PrimaryKey => {
+        ColumnConstraintData::PrimaryKey { .. } => {
             constraint_name.push_str("_pkey");
         }
         ColumnConstraintData::Unique { .. } => {
@@ -515,7 +524,7 @@ impl ColumnConstraint {
 
     #[inline]
     pub fn is_primary_key(&self) -> bool {
-        matches!(self.data, ColumnConstraintData::PrimaryKey)
+        matches!(self.data, ColumnConstraintData::PrimaryKey { .. })
     }
 
     #[inline]
@@ -528,7 +537,7 @@ impl ColumnConstraint {
         matches!(self.data,
             ColumnConstraintData::Check { .. } |
             ColumnConstraintData::Unique { .. } |
-            ColumnConstraintData::PrimaryKey |
+            ColumnConstraintData::PrimaryKey { .. } |
             ColumnConstraintData::References { .. }
         )
     }
@@ -557,22 +566,24 @@ impl ColumnConstraint {
                     self.initially_deferred
                 ))
             },
-            ColumnConstraintData::PrimaryKey => {
+            ColumnConstraintData::PrimaryKey { index_parameters } => {
                 Some(TableConstraint::new(
                     Some(self.some_name(table_name, column_name)),
                     super::table::TableConstraintData::PrimaryKey {
-                        columns: [column_name.clone()].into()
+                        columns: [column_name.clone()].into(),
+                        index_parameters: index_parameters.clone(),
                     },
                     self.deferrable,
                     self.initially_deferred
                 ))
             },
-            ColumnConstraintData::Unique { nulls_distinct } => {
+            ColumnConstraintData::Unique { nulls_distinct, index_parameters } => {
                 Some(TableConstraint::new(
                     Some(self.some_name(table_name, column_name)),
                     super::table::TableConstraintData::Unique {
                         columns: [column_name.clone()].into(),
-                        nulls_distinct: *nulls_distinct
+                        nulls_distinct: *nulls_distinct,
+                        index_parameters: index_parameters.clone(),
                     },
                     self.deferrable,
                     self.initially_deferred

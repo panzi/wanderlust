@@ -3,6 +3,7 @@ use std::{collections::HashSet, rc::Rc};
 use crate::{
     format::{write_paren_names, write_token_list},
     make_tokens,
+    model::index::IndexParameters,
     ordered_hash_map::OrderedHashMap,
 };
 
@@ -266,9 +267,11 @@ pub enum TableConstraintData {
     Unique {
         nulls_distinct: Option<bool>,
         columns: Rc<[Name]>,
+        index_parameters: IndexParameters,
     },
     PrimaryKey {
         columns: Rc<[Name]>,
+        index_parameters: IndexParameters,
     },
     ForeignKey {
         columns: Rc<[Name]>,
@@ -292,7 +295,7 @@ impl std::fmt::Display for TableConstraintData {
                     write!(f, ") {NO} {INHERIT}")
                 }
             },
-            Self::Unique { nulls_distinct, columns } => {
+            Self::Unique { nulls_distinct, columns, index_parameters } => {
                 f.write_str(UNIQUE)?;
 
                 if let Some(nulls_distinct) = nulls_distinct {
@@ -303,12 +306,15 @@ impl std::fmt::Display for TableConstraintData {
                     }
                 }
 
-                write_paren_names(columns, f)
+                write_paren_names(columns, f)?;
+
+                index_parameters.fmt(f)
             },
-            Self::PrimaryKey { columns } => {
+            Self::PrimaryKey { columns, index_parameters } => {
                 write!(f, "{PRIMARY} {KEY}")?;
 
-                write_paren_names(columns, f)
+                write_paren_names(columns, f)?;
+                index_parameters.fmt(f)
             },
             Self::ForeignKey { columns, ref_table, ref_columns, column_match, on_delete, on_update } => {
                 write!(f, "{FOREIGN} {KEY}")?;
@@ -365,19 +371,21 @@ impl PartialEq for TableConstraintData {
                     _ => false
                 }
             },
-            Self::Unique { nulls_distinct, columns } => {
+            Self::Unique { nulls_distinct, columns, index_parameters } => {
                 match other {
-                    Self::Unique { nulls_distinct: other_nulls_distinct, columns: other_columns } => {
+                    Self::Unique { nulls_distinct: other_nulls_distinct, columns: other_columns, index_parameters: other_index_parameters } => {
                         nulls_distinct.unwrap_or(true) == other_nulls_distinct.unwrap_or(true) &&
-                        columns == other_columns
+                        columns == other_columns &&
+                        index_parameters == other_index_parameters
                     }
                     _ => false
                 }
             },
-            Self::PrimaryKey { columns } => {
+            Self::PrimaryKey { columns, index_parameters } => {
                 match other {
-                    Self::PrimaryKey { columns: other_columns } => {
-                        columns == other_columns
+                    Self::PrimaryKey { columns: other_columns, index_parameters: other_index_parameters } => {
+                        columns == other_columns &&
+                        index_parameters == other_index_parameters
                     }
                     _ => false
                 }
