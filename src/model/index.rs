@@ -115,6 +115,11 @@ impl IndexItem {
     }
 
     #[inline]
+    pub fn data_mut(&mut self) -> &mut IndexItemData {
+        &mut self.data
+    }
+
+    #[inline]
     pub fn collation(&self) -> Option<&QName> {
         self.collation.as_ref()
     }
@@ -240,8 +245,18 @@ impl Index {
     }
 
     #[inline]
-    pub fn items(&self) -> &[IndexItem] {
+    pub fn table_name_mut(&mut self) -> &mut QName {
+        &mut self.table_name
+    }
+
+    #[inline]
+    pub fn items(&self) -> &Rc<[IndexItem]> {
         &self.items
+    }
+
+    #[inline]
+    pub fn items_mut(&mut self) -> &mut Rc<[IndexItem]> {
+        &mut self.items
     }
 
     #[inline]
@@ -414,7 +429,7 @@ impl std::fmt::Display for IndexParameters {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some(include) = &self.include {
             write!(f, " {INCLUDE}")?;
-            write_paren_names(&include, f)?;
+            write_paren_names(include, f)?;
         }
 
         if let Some(storage_parameters) = &self.storage_parameters {

@@ -6,7 +6,10 @@ use crate::error::{Error, ErrorKind, Result};
 use crate::format::IsoString;
 use crate::model::alter::table::{AlterColumnData, AlterTable, AlterTableAction, AlterTableData};
 use crate::model::alter::types::{AlterType, AlterTypeData, ValuePosition};
-use crate::model::types::TypeData;
+use crate::model::column::ColumnConstraintData;
+use crate::model::index::IndexItemData;
+use crate::model::table::TableConstraintData;
+use crate::model::types::{BasicType, TypeData};
 
 use super::alter::extension::{AlterExtension, AlterExtensionData};
 use super::alter::types::AlterTypeAction;
@@ -71,7 +74,8 @@ impl std::fmt::Display for Database {
             }
             for table in schema.tables().values() {
                 for trigger in table.triggers().values() {
-                    writeln!(f, "{trigger}")?;
+                    trigger.write(false, table.name(), f)?;
+                    f.write_str("\n")?;
                 }
             }
             for index in schema.indices().values() {
@@ -175,7 +179,6 @@ impl Database {
         &mut self.schemas
     }
 
-    // TODO: fix search_path based name resolution
     pub fn has_table(&self, name: &QName) -> bool {
         self.get_table(name).is_some()
     }
@@ -556,13 +559,13 @@ impl Database {
     }
 
     pub fn create_trigger(&mut self, create_trigger: CreateTrigger) -> Result<()> {
-        let schema = self.get_schema_mut(create_trigger.trigger().table_name())?;
+        let schema = self.get_schema_mut(create_trigger.table_name())?;
 
-        let Some(table) = schema.tables_mut().get_mut(create_trigger.trigger().table_name().name()) else {
+        let Some(table) = schema.tables_mut().get_mut(create_trigger.table_name().name()) else {
             return Err(Error::new(
                 ErrorKind::TableNotExists,
                 None,
-                Some(format!("table {} not found: {create_trigger}", create_trigger.trigger().table_name())),
+                Some(format!("table {} not found: {create_trigger}", create_trigger.table_name())),
                 None
             ));
         };
@@ -573,7 +576,7 @@ impl Database {
                 None,
                 Some(format!("trigger {} already exists in table {} not found: {create_trigger}",
                     create_trigger.trigger().name(),
-                    create_trigger.trigger().table_name())),
+                    create_trigger.table_name())),
                 None
             ));
         }
@@ -633,9 +636,13 @@ impl Database {
                     ));
                 }
 
+                let new_qname = QName::new(Some(schema.name().clone()), new_name.clone());
+
                 if let Some(mut type_def) = schema.types_mut().remove(alter_type.type_name().name()) {
                     Rc::make_mut(&mut type_def).name_mut().set_name(new_name.clone());
                     schema.types_mut().insert(new_name.clone(), type_def);
+
+                    self.update_ref_types(alter_type.type_name(), &new_qname)?;
 
                     Ok(())
                 } else {
@@ -669,7 +676,9 @@ impl Database {
 
                 if let Some(mut type_def) = self.get_schema_mut(alter_type.type_name())?.types_mut().remove(alter_type.type_name().name()) {
                     Rc::make_mut(&mut type_def).set_name(new_name.clone());
-                    self.get_schema_mut(&new_name)?.types_mut().insert(new_name.into_name(), type_def);
+                    self.get_schema_mut(&new_name)?.types_mut().insert(new_name.name().clone(), type_def);
+
+                    self.update_ref_types(alter_type.type_name(), &new_name)?;
                 } else {
                     return Err(Error::new(
                         ErrorKind::TypeNotExists,
@@ -903,7 +912,7 @@ impl Database {
 
     pub fn drop_table(&mut self, table_name: &QName) -> Result<()> {
         let schema = self.get_schema_mut(table_name)?;
-        
+
         schema.indices_mut().retain(|_, v| v.table_name() != table_name);
         if schema.tables_mut().remove(table_name.name()).is_none() {
             return Err(Error::new(
@@ -912,6 +921,326 @@ impl Database {
                 Some(format!("table {table_name} not found")),
                 None
             ));
+        }
+
+        Ok(())
+    }
+
+    fn update_ref_tables(&mut self, old_table_name: &QName, new_table_name: &QName) -> Result<()> {
+        for schema in self.schemas.values_mut() {
+            for table in schema.tables_mut().values_unordered_mut() {
+                let table = Rc::make_mut(table);
+                for table_name in table.inherits_mut() {
+                    if table_name == old_table_name {
+                        *table_name = new_table_name.clone();
+                    }
+                }
+
+                for constraint in table.constraints_mut().values_unordered_mut() {
+                    let constraint = Rc::make_mut(constraint);
+                    if let TableConstraintData::ForeignKey { ref_table, .. } = constraint.data_mut() {
+                        if ref_table == old_table_name {
+                            *ref_table = new_table_name.clone();
+                        }
+                    }
+                }
+
+                for column in table.columns_mut().values_unordered_mut() {
+                    let column = Rc::make_mut(column);
+
+                    if let BasicType::ColumnType { table_name, .. } = Rc::make_mut(column.data_type_mut()).basic_type_mut() {
+                        if table_name == old_table_name {
+                            *table_name = new_table_name.clone();
+                        }
+                    }
+
+                    for constraint in column.constraints_mut() {
+                        let constraint = Rc::make_mut(constraint);
+                        if let ColumnConstraintData::References { ref_table, .. } = constraint.data_mut() {
+                            if ref_table == old_table_name {
+                                *ref_table = new_table_name.clone();
+                            }
+                        }
+                    }
+                }
+
+                for trigger in table.triggers_mut().values_unordered_mut() {
+                    let trigger = Rc::make_mut(trigger);
+                    let ref_table = trigger.ref_table_mut();
+                    if ref_table.as_ref().is_some_and(|ref_table| ref_table == old_table_name) {
+                        *ref_table = Some(new_table_name.clone());
+                    }
+                }
+            }
+
+            for index in schema.indices_mut().values_unordered_mut() {
+                let index = Rc::make_mut(index);
+                let ref_table = index.table_name_mut();
+                if ref_table == old_table_name {
+                    *ref_table = new_table_name.clone();
+                }
+            }
+
+            for type_def in schema.types_mut().values_unordered_mut() {
+                let type_def = Rc::make_mut(type_def);
+                if let TypeData::Composite { attributes } = type_def.data_mut() {
+                    for attribute in attributes.values_unordered_mut() {
+                        if let BasicType::ColumnType { table_name, .. } = attribute.data_type_mut().basic_type_mut() {
+                            if table_name == old_table_name {
+                                *table_name = new_table_name.clone();
+                            }
+                        }
+                    }
+                }
+            }
+
+            let mut rename_functions = Vec::new();
+            for (reference, function) in schema.functions_mut().iter_unordered_mut() {
+                let function = Rc::make_mut(function);
+                let arguments = Rc::make_mut(function.arguments_mut());
+                let mut sig_change = false;
+                for argument in arguments {
+                    if let BasicType::ColumnType { table_name, .. } = argument.data_type_mut().basic_type_mut() {
+                        if table_name == old_table_name {
+                            *table_name = new_table_name.clone();
+                            if argument.mode().is_input() {
+                                sig_change = true;
+                            }
+                        }
+                    }
+                }
+
+                if sig_change {
+                    rename_functions.push((reference.clone(), function.to_ref()));
+                }
+            }
+
+            for (old_function, new_function) in rename_functions {
+                if schema.functions().contains_key(&new_function) {
+                    return Err(Error::new(
+                        ErrorKind::FunctionExists,
+                        None,
+                        Some(format!(
+                            "signature of function {} changed to {} but that already exists",
+                            old_function, new_function
+                        )),
+                        None
+                    ));
+                }
+
+                if let Some(function) = schema.functions_mut().remove(&old_function) {
+                    schema.functions_mut().insert(new_function, function);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn update_ref_columns(&mut self, table_name: &QName, old_column_name: &Name, new_column_name: &Name) -> Result<()> {
+        if let Some(table) = self.get_table_mut(table_name) {
+            let table = Rc::make_mut(table);
+
+            for constraint in table.constraints_mut().values_unordered_mut() {
+                let constraint = Rc::make_mut(constraint);
+                match constraint.data_mut() {
+                    TableConstraintData::Check { .. } => {
+                        // XXX: not supported
+                    }
+                    TableConstraintData::ForeignKey { columns, .. } => {
+                        for column in Rc::make_mut(columns) {
+                            if column == old_column_name {
+                                *column = new_column_name.clone();
+                            }
+                        }
+                    }
+                    TableConstraintData::PrimaryKey { columns, .. } => {
+                        for column in Rc::make_mut(columns) {
+                            if column == old_column_name {
+                                *column = new_column_name.clone();
+                            }
+                        }
+                    }
+                    TableConstraintData::Unique { columns, .. } => {
+                        for column in Rc::make_mut(columns) {
+                            if column == old_column_name {
+                                *column = new_column_name.clone();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        for schema in self.schemas.values_mut() {
+            for table in schema.tables_mut().values_unordered_mut() {
+                let table = Rc::make_mut(table);
+
+                for constraint in table.constraints_mut().values_unordered_mut() {
+                    let constraint = Rc::make_mut(constraint);
+                    if let TableConstraintData::ForeignKey { ref_table, ref_columns: Some(ref_columns), .. } = constraint.data_mut() {
+                        if ref_table == table_name {
+                            for ref_column in Rc::make_mut(ref_columns) {
+                                if ref_column == old_column_name {
+                                    *ref_column = new_column_name.clone();
+                                }
+                            }
+                        }
+                    }
+                }
+
+                for column in table.columns_mut().values_unordered_mut() {
+                    let column = Rc::make_mut(column);
+
+                    if let BasicType::ColumnType { table_name: ref_table, column_name } = Rc::make_mut(column.data_type_mut()).basic_type_mut() {
+                        if ref_table == table_name && column_name == old_column_name {
+                            *column_name = new_column_name.clone();
+                        }
+                    }
+
+                    for constraint in column.constraints_mut() {
+                        let constraint = Rc::make_mut(constraint);
+                        if let ColumnConstraintData::References { ref_table, ref_column, .. } = constraint.data_mut() {
+                            if ref_table == table_name {
+                                if let Some(ref_column) = ref_column {
+                                    if ref_column == old_column_name {
+                                        *ref_column = new_column_name.clone();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            for index in schema.indices_mut().values_unordered_mut() {
+                let index = Rc::make_mut(index);
+                let ref_table = index.table_name_mut();
+                if ref_table == table_name {
+                    for item in Rc::make_mut(index.items_mut()) {
+                        match item.data_mut() {
+                            IndexItemData::Expr(..) => {
+                                // XXX: not supported!
+                            }
+                            IndexItemData::Column(column) => {
+                                if column == old_column_name {
+                                    *column = new_column_name.clone();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            for type_def in schema.types_mut().values_unordered_mut() {
+                let type_def = Rc::make_mut(type_def);
+                if let TypeData::Composite { attributes } = type_def.data_mut() {
+                    for attribute in attributes.values_unordered_mut() {
+                        if let BasicType::ColumnType { table_name: ref_table, column_name } = attribute.data_type_mut().basic_type_mut() {
+                            if ref_table == table_name && column_name == old_column_name {
+                                *column_name = new_column_name.clone();
+                            }
+                        }
+                    }
+                }
+            }
+
+            let mut rename_functions = Vec::new();
+            for (reference, function) in schema.functions_mut().iter_unordered_mut() {
+                let function = Rc::make_mut(function);
+                let arguments = Rc::make_mut(function.arguments_mut());
+                let mut sig_change = false;
+                for argument in arguments {
+                    if let BasicType::ColumnType { table_name: ref_table, column_name } = argument.data_type_mut().basic_type_mut() {
+                        if ref_table == table_name && column_name == old_column_name {
+                            *column_name = new_column_name.clone();
+                            if argument.mode().is_input() {
+                                sig_change = true;
+                            }
+                        }
+                    }
+                }
+
+                if sig_change {
+                    rename_functions.push((reference.clone(), function.to_ref()));
+                }
+            }
+
+            for (old_function, new_function) in rename_functions {
+                if schema.functions().contains_key(&new_function) {
+                    return Err(Error::new(
+                        ErrorKind::FunctionExists,
+                        None,
+                        Some(format!(
+                            "signature of function {} changed to {} but that already exists",
+                            old_function, new_function
+                        )),
+                        None
+                    ));
+                }
+
+                if let Some(function) = schema.functions_mut().remove(&old_function) {
+                    schema.functions_mut().insert(new_function, function);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn update_ref_types(&mut self, old_type_name: &QName, new_type_name: &QName) -> Result<()> {
+        for schema in self.schemas.values_mut() {
+            for table in schema.tables_mut().values_unordered_mut() {
+                let table = Rc::make_mut(table);
+                for column in table.columns_mut().values_unordered_mut() {
+                    let column = Rc::make_mut(column);
+
+                    if let BasicType::UserDefined { name, .. } = Rc::make_mut(column.data_type_mut()).basic_type_mut() {
+                        if name == old_type_name {
+                            *name = new_type_name.clone();
+                        }
+                    }
+                }
+            }
+
+            let mut rename_functions = Vec::new();
+            for (reference, function) in schema.functions_mut().iter_unordered_mut() {
+                let function = Rc::make_mut(function);
+                let arguments = Rc::make_mut(function.arguments_mut());
+                let mut sig_change = false;
+                for argument in arguments {
+                    if let BasicType::UserDefined { name, .. } = argument.data_type_mut().basic_type_mut() {
+                        if name == old_type_name {
+                            *name = new_type_name.clone();
+                            if argument.mode().is_input() {
+                                sig_change = true;
+                            }
+                        }
+                    }
+                }
+
+                if sig_change {
+                    rename_functions.push((reference.clone(), function.to_ref()));
+                }
+            }
+
+            for (old_function, new_function) in rename_functions {
+                if schema.functions().contains_key(&new_function) {
+                    return Err(Error::new(
+                        ErrorKind::FunctionExists,
+                        None,
+                        Some(format!(
+                            "signature of function {} changed to {} but that already exists",
+                            old_function, new_function
+                        )),
+                        None
+                    ));
+                }
+
+                if let Some(function) = schema.functions_mut().remove(&old_function) {
+                    schema.functions_mut().insert(new_function, function);
+                }
+            }
         }
 
         Ok(())
@@ -934,9 +1263,16 @@ impl Database {
                     ));
                 }
 
+                let new_qname = QName::new(
+                    Some(schema.name().clone()),
+                    new_name.clone()
+                );
+
                 if let Some(mut table) = schema.tables_mut().remove(alter_table.name().name()) {
                     Rc::make_mut(&mut table).name_mut().set_name(new_name.clone());
                     schema.tables_mut().insert(new_name.clone(), table);
+
+                    self.update_ref_tables(alter_table.name(), &new_qname)?;
 
                     Ok(())
                 } else if *if_exists {
@@ -972,7 +1308,9 @@ impl Database {
 
                 if let Some(mut table) = self.get_schema_mut(alter_table.name())?.tables_mut().remove(alter_table.name().name()) {
                     Rc::make_mut(&mut table).name_mut().set_schema(Some(new_schema.clone()));
-                    self.get_schema_mut(&new_name)?.tables_mut().insert(new_name.into_name(), table);
+                    self.get_schema_mut(&new_name)?.tables_mut().insert(new_name.name().clone(), table);
+
+                    self.update_ref_tables(alter_table.name(), &new_name)?;
 
                     Ok(())
                 } else if *if_exists {
@@ -1020,11 +1358,13 @@ impl Database {
                                 None
                             ));
                         }
-
                         let table = Rc::make_mut(table);
                         if let Some(mut column) = table.columns_mut().remove(column_name) {
                             Rc::make_mut(&mut column).set_name(new_column_name.clone());
                             table.columns_mut().insert(new_column_name.clone(), column);
+                            let table_name = table.name().clone();
+
+                            self.update_ref_columns(&table_name, column_name, new_column_name)?;
                         } else {
                             if *if_exists {
                                 return Ok(());
@@ -1256,7 +1596,7 @@ impl Database {
 
                 Ok(())
             }
-            AlterExtensionData::SetSchema(new_schema) => { // XXX: WRONG
+            AlterExtensionData::SetSchema(new_schema) => {
                 let new_name = QName::new(
                     Some(new_schema.clone()),
                     alter_extension.name().name().clone()

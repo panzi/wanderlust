@@ -214,6 +214,11 @@ impl CompositeAttribute {
     }
 
     #[inline]
+    pub fn data_type_mut(&mut self) -> &mut DataType {
+        &mut self.data_type
+    }
+
+    #[inline]
     pub fn set_data_type(&mut self, data_type: DataType) {
         self.data_type = data_type;
     }
@@ -739,6 +744,11 @@ impl DataType {
     #[inline]
     pub fn basic_type(&self) -> &BasicType {
         &self.basic_type
+    }
+
+    #[inline]
+    pub fn basic_type_mut(&mut self) -> &mut BasicType {
+        &mut self.basic_type
     }
 
     #[inline]

@@ -10,7 +10,6 @@ pub struct Trigger {
     name: Name, // NOTE: Triggers are scoped to their table
     when: When,
     events: Rc<[Event]>,
-    table_name: QName,
     ref_table: Option<QName>,
     referencing: Rc<[ReferencedTable]>,
     for_each_row: bool,
@@ -30,7 +29,6 @@ impl Trigger {
         name: Name,
         when: When,
         events: Rc<[Event]>,
-        table_name: QName,
         ref_table: Option<QName>,
         referencing: Rc<[ReferencedTable]>,
         for_each_row: bool,
@@ -45,7 +43,6 @@ impl Trigger {
             name,
             when,
             events,
-            table_name,
             ref_table,
             referencing,
             for_each_row,
@@ -79,13 +76,13 @@ impl Trigger {
     }
 
     #[inline]
-    pub fn table_name(&self) -> &QName {
-        &self.table_name
+    pub fn referencing(&self) -> &Rc<[ReferencedTable]> {
+        &self.referencing
     }
 
     #[inline]
-    pub fn referencing(&self) -> &Rc<[ReferencedTable]> {
-        &self.referencing
+    pub fn referencing_mut(&mut self) -> &mut Rc<[ReferencedTable]> {
+        &mut self.referencing
     }
 
     #[inline]
@@ -96,6 +93,11 @@ impl Trigger {
     #[inline]
     pub fn ref_table(&self) -> Option<&QName> {
         self.ref_table.as_ref()
+    }
+
+    #[inline]
+    pub fn ref_table_mut(&mut self) -> &mut Option<QName> {
+        &mut self.ref_table
     }
 
     #[inline]
@@ -133,7 +135,7 @@ impl Trigger {
         self.comment = comment;
     }
 
-    fn write(&self, or_replace: bool, mut f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    pub fn write(&self, or_replace: bool, table_name: &QName, mut f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(CREATE)?;
 
         if or_replace {
@@ -148,7 +150,7 @@ impl Trigger {
 
         join_into(" OR ", self.events.deref(), f)?;
         
-        write!(f, "\n{ON} {}", self.table_name)?;
+        write!(f, "\n{ON} {}", table_name)?;
 
         if let Some(ref_table) = &self.ref_table {
             write!(f, "\n{FROM} {}", ref_table)?;
@@ -209,13 +211,6 @@ impl Trigger {
         self.predicate == other.predicate &&
         self.function_name == other.function_name &&
         self.arguments == other.arguments
-    }
-}
-
-impl std::fmt::Display for Trigger {
-    #[inline]
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.write(false, f)
     }
 }
 
@@ -312,18 +307,24 @@ impl std::fmt::Display for LifeCycle {
 #[derive(Debug, Clone, PartialEq)]
 pub struct CreateTrigger {
     or_replace: bool,
+    table_name: QName,
     trigger: Rc<Trigger>,
 }
 
 impl CreateTrigger {
     #[inline]
-    pub fn new(or_replace: bool, trigger: impl Into<Rc<Trigger>>) -> Self {
-        Self { or_replace, trigger: trigger.into() }
+    pub fn new(or_replace: bool, table_name: QName, trigger: impl Into<Rc<Trigger>>) -> Self {
+        Self { or_replace, table_name, trigger: trigger.into() }
     }
 
     #[inline]
     pub fn or_replace(&self) -> bool {
         self.or_replace
+    }
+
+    #[inline]
+    pub fn table_name(&self) -> &QName {
+        &self.table_name
     }
 
     #[inline]
@@ -340,7 +341,7 @@ impl CreateTrigger {
 impl std::fmt::Display for CreateTrigger {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.trigger.write(self.or_replace, f)
+        self.trigger.write(self.or_replace, &self.table_name, f)
     }
 }
 

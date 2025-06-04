@@ -536,6 +536,11 @@ impl TableConstraint {
     }
 
     #[inline]
+    pub fn data_mut(&mut self) -> &mut TableConstraintData {
+        &mut self.data
+    }
+
+    #[inline]
     pub fn deferrable(&self) -> Option<bool> {
         self.deferrable
     }

@@ -82,6 +82,11 @@ impl Column {
     }
 
     #[inline]
+    pub fn data_type_mut(&mut self) -> &mut Rc<DataType> {
+        &mut self.data_type
+    }
+
+    #[inline]
     pub fn set_data_type(&mut self, data_type: impl Into<Rc<DataType>>) {
         self.data_type = data_type.into();
     }
@@ -665,6 +670,11 @@ impl ColumnConstraint {
     #[inline]
     pub fn data(&self) -> &ColumnConstraintData {
         &self.data
+    }
+
+    #[inline]
+    pub fn data_mut(&mut self) -> &mut ColumnConstraintData {
+        &mut self.data
     }
 
     #[inline]

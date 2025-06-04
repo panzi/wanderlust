@@ -1962,7 +1962,7 @@ impl<'a> PostgreSQLParser<'a> {
 
             self.expect_token(TokenKind::RParen)?;
 
-            Some(storage_parameters.into())
+            Some(storage_parameters)
         } else {
             None
         };
@@ -3520,12 +3520,12 @@ impl<'a> PostgreSQLParser<'a> {
 
         Ok(CreateTrigger::new(
             or_replace,
+            table_name,
             Trigger::new(
                 constraint,
                 name,
                 when,
                 events.into(),
-                table_name,
                 ref_table,
                 referencing.into(),
                 for_each_row,

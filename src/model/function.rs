@@ -238,6 +238,18 @@ pub enum Argmode {
     Variadic,
 }
 
+impl Argmode {
+    #[inline]
+    pub fn is_input(&self) -> bool {
+        matches!(self, Self::In | Self::InOut | Self::Variadic)
+    }
+
+    #[inline]
+    pub fn is_output(&self) -> bool {
+        matches!(self, Self::Out | Self::InOut)
+    }
+}
+
 impl std::fmt::Display for Argmode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -327,6 +339,11 @@ impl Function {
     #[inline]
     pub fn arguments(&self) -> &Rc<[Argument]> {
         &self.arguments
+    }
+
+    #[inline]
+    pub fn arguments_mut(&mut self) -> &mut Rc<[Argument]> {
+        &mut self.arguments
     }
 
     #[inline]
@@ -707,6 +724,11 @@ impl Argument {
     #[inline]
     pub fn data_type(&self) -> &DataType {
         &self.data_type
+    }
+
+    #[inline]
+    pub fn data_type_mut(&mut self) -> &mut DataType {
+        &mut self.data_type
     }
 
     #[inline]

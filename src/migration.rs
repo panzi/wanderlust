@@ -85,18 +85,18 @@ pub fn create_table(table: &Rc<Table>, stmts: &mut Vec<Statement>) {
     }
 
     for trigger in table.triggers().values() {
-        create_trigger(trigger, stmts);
+        create_trigger(table.name(), trigger, stmts);
     }
 }
 
-pub fn create_trigger(trigger: &Rc<Trigger>, stmts: &mut Vec<Statement>) {
+pub fn create_trigger(table_name: &QName, trigger: &Rc<Trigger>, stmts: &mut Vec<Statement>) {
     stmts.push(Statement::CreateTrigger(
-        Rc::new(CreateTrigger::new(false, trigger.clone()))
+        Rc::new(CreateTrigger::new(false, table_name.clone(), trigger.clone()))
     ));
 
     if let Some(comment) = trigger.comment() {
         stmts.push(Statement::comment_on(
-            ObjectRef::trigger(trigger.table_name().clone(), trigger.name().clone()),
+            ObjectRef::trigger(table_name.clone(), trigger.name().clone()),
             Some(comment.clone())
         ));
     }
@@ -537,18 +537,18 @@ fn migrate_table(old_table: &Table, new_table: &Table, stmts: &mut Vec<Statement
         if let Some(old_trigger) = old_table.triggers().get(trigger.name()) {
             if !trigger.eq_content(old_trigger) {
                 stmts.push(Statement::CreateTrigger(
-                    Rc::new(CreateTrigger::new(true, trigger.clone()))
+                    Rc::new(CreateTrigger::new(true, new_table.name().clone(), trigger.clone()))
                 ));
             }
 
             if trigger.comment() != old_trigger.comment() {
                 stmts.push(Statement::comment_on(
-                    ObjectRef::trigger(trigger.table_name().clone(), trigger.name().clone()),
+                    ObjectRef::trigger(new_table.name().clone(), trigger.name().clone()),
                     trigger.comment().cloned()
                 ));
             }
         } else {
-            create_trigger(trigger, stmts);
+            create_trigger(new_table.name(), trigger, stmts);
         }
     }
 }
