@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::error::{Error, ErrorKind, Result};
+use crate::{error::{Error, ErrorKind, Result}, model::statement::Statement};
 
 use super::{database::Database, name::Name, token::{ParsedToken, Token, TokenKind}};
 
@@ -61,6 +61,18 @@ impl Cursor {
     pub fn set_offsets(&mut self, start_offset: usize, end_offset: usize) {
         self.start_offset = start_offset;
         self.end_offset   = end_offset;
+    }
+
+    #[inline]
+    pub fn advance_by(&mut self, offset: usize) {
+        self.start_offset += offset;
+        self.end_offset   += offset;
+    }
+
+    #[inline]
+    pub fn reverse_by(&mut self, offset: usize) {
+        self.start_offset -= offset;
+        self.end_offset   -= offset;
     }
 
     #[inline]

@@ -1722,7 +1722,17 @@ impl<'a> PostgreSQLParser<'a> {
 
     #[inline]
     fn parse_ref_collation(&mut self) -> Result<QName> {
-        self.parse_qual_name()
+        // TODO: proper collation support (create/alter/drop/lookup)
+        let first = self.expect_name()?;
+
+        if self.parse_token(TokenKind::Period)? {
+            let second = self.expect_name()?;
+            Ok(QName::new(Some(first), second))
+        } else {
+            Ok(QName::new(Some(Name::new("pg_catalog")), first))
+        }
+
+        //self.parse_qual_name()
     }
 
     fn parse_operator(&mut self, op: &str) -> Result<bool> {

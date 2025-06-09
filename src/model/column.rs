@@ -370,7 +370,12 @@ impl PartialEq for ColumnConstraintData {
                         on_update: other_on_update,
                     } => {
                         ref_table == other_ref_table &&
-                        ref_column == other_ref_column && // XXX: false negatives if only one side uses the default
+                        // XXX: false negatives if only one side uses the default
+                        ref_column == other_ref_column &&
+                        //match (ref_column, other_ref_column) {
+                        //    (Some(ref_column), Some(other_ref_column)) => ref_column == other_ref_column,
+                        //    _ => true
+                        //} &&
                         column_match.unwrap_or_default() == other_column_match.unwrap_or_default() &&
                         on_delete.as_ref().unwrap_or(&ReferentialAction::NoAction) == other_on_delete.as_ref().unwrap_or(&ReferentialAction::NoAction) &&
                         on_update.as_ref().unwrap_or(&ReferentialAction::NoAction) == other_on_update.as_ref().unwrap_or(&ReferentialAction::NoAction)

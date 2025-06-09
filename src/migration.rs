@@ -643,6 +643,7 @@ fn migrate_column(table_name: &QName, old_column: &Column, new_column: &Column, 
             ColumnConstraintData::Default { value } => {
                 new_default = Some(value);
             }
+            // these are converted into table constraints and thus done in migrate_table()
             ColumnConstraintData::Check { .. } => {}
             ColumnConstraintData::PrimaryKey { .. } => {}
             ColumnConstraintData::Unique { .. } => {}

@@ -402,7 +402,7 @@ impl PartialEq for TableConstraintData {
                     } => {
                         ref_table == other_ref_table &&
                         columns == other_columns &&
-                        ref_columns.as_ref().unwrap_or(columns) == other_ref_columns.as_ref().unwrap_or(columns) &&
+                        ref_columns.as_ref().unwrap_or(columns) == other_ref_columns.as_ref().unwrap_or(other_columns) &&
                         column_match.unwrap_or_default() == other_column_match.unwrap_or_default() &&
                         on_delete.as_ref().unwrap_or(&ReferentialAction::NoAction) == other_on_delete.as_ref().unwrap_or(&ReferentialAction::NoAction) &&
                         on_update.as_ref().unwrap_or(&ReferentialAction::NoAction) == other_on_update.as_ref().unwrap_or(&ReferentialAction::NoAction)
