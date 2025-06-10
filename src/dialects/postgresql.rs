@@ -5,6 +5,7 @@
 
 pub mod tokenizer;
 pub mod parser;
+pub mod reflect;
 
 pub use tokenizer::PostgreSQLTokenizer;
 pub use parser::PostgreSQLParser;

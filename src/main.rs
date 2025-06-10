@@ -21,15 +21,13 @@ fn main() {
 
     let old = args.next().unwrap();
     let old_source = std::fs::read_to_string(&old).unwrap();
-    let mut parser = PostgreSQLParser::new(&old_source);
 
-    match parser.parse() {
+    match PostgreSQLParser::parse(&old_source) {
         Ok(old_schema) => {
             if let Some(new) = args.next() {
                 let new_source = std::fs::read_to_string(&new).unwrap();
-                let mut parser = PostgreSQLParser::new(&new_source);
 
-                match parser.parse() {
+                match PostgreSQLParser::parse(&new_source) {
                     Ok(new_schema) => {
                         let migrations = generate_migration(&old_schema, &new_schema);
 

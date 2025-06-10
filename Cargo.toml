@@ -2,8 +2,10 @@
 name = "wanderlust"
 version = "0.1.0"
 edition = "2024"
+default-run = "wanderlust"
 
 [dependencies]
+postgres = "0.19.10"
 
 [[bin]]
 name = "wanderlust"

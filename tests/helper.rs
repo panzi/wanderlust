@@ -1,10 +1,8 @@
-use std::rc::Rc;
-
 use wanderlust::{dialects::postgresql::PostgreSQLParser, model::{database::Database, syntax::Parser}};
 
 pub struct TestData {
-    pub before: Rc<Database>,
-    pub after: Rc<Database>,
+    pub before: Database,
+    pub after: Database,
 }
 
 pub const BEFORE_MARKER: &str = "-- before\n";
@@ -16,7 +14,7 @@ pub fn load_file(filename: &str, source: &str) -> TestData {
     let before_source = &source[before_index..after_index];
     let after_source = &source[after_index..];
 
-    let before = match PostgreSQLParser::new(before_source).parse() {
+    let before = match PostgreSQLParser::parse(before_source) {
         Ok(db) => db,
         Err(mut err) => {
             let mut msg = String::new();
@@ -28,7 +26,7 @@ pub fn load_file(filename: &str, source: &str) -> TestData {
         }
     };
 
-    let after = match PostgreSQLParser::new(after_source).parse() {
+    let after = match PostgreSQLParser::parse(after_source) {
         Ok(db) => db,
         Err(mut err) => {
             let mut msg = String::new();

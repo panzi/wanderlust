@@ -9,18 +9,21 @@ struct Test {
 }
 
 impl PartialOrd for Test {
+    #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.number.partial_cmp(&other.number)
+        Some(self.cmp(other))
     }
 }
 
 impl PartialEq for Test {
+    #[inline]
     fn eq(&self, other: &Self) -> bool {
         self.number == other.number
     }
 }
 
 impl Ord for Test {
+    #[inline]
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.number.cmp(&other.number)
     }
@@ -37,18 +40,21 @@ struct TestSuit {
 }
 
 impl PartialOrd for TestSuit {
+    #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.number.partial_cmp(&other.number)
+        Some(self.cmp(other))
     }
 }
 
 impl PartialEq for TestSuit {
+    #[inline]
     fn eq(&self, other: &Self) -> bool {
         self.number == other.number
     }
 }
 
 impl Ord for TestSuit {
+    #[inline]
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.number.cmp(&other.number)
     }

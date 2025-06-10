@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::{error::{Error, ErrorKind, Result}, model::statement::Statement};
+use crate::error::{Error, ErrorKind, Result};
 
 use super::{database::Database, name::Name, token::{ParsedToken, Token, TokenKind}};
 
@@ -305,9 +305,25 @@ macro_rules! peek_token {
 }
 
 pub trait Parser {
+    fn get_default_schema() -> Name;
+
+    #[inline]
+    fn new_database() -> Database {
+        Database::new(Self::get_default_schema())
+    }
+
+    #[inline]
+    fn parse(source: &str) -> Result<Database> {
+        let mut database = Self::new_database();
+        Self::parse_into(source, &mut database)?;
+        Ok(database)
+    }
+
+    fn parse_into(source: &str, database: &mut Database) -> Result<()>;
+
     fn get_source(&self, cursor: &Cursor) -> &str;
 
-    fn parse(&mut self) -> Result<Rc<Database>>;
+    fn parse_all(&mut self) -> Result<()>;
 
     fn expect_some(&mut self) -> Result<Token>;
 
@@ -403,7 +419,7 @@ pub trait Parser {
         Ok(true)
     }
 
-    fn peek_words<'a>(&mut self, words: &[&'a str]) -> Result<Option<&'a str>> {
+    fn peek_words<'w>(&mut self, words: &[&'w str]) -> Result<Option<&'w str>> {
         let Some(token) = self.peek_token()? else {
             return Ok(None);
         };

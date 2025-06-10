@@ -32,6 +32,8 @@ pub enum ErrorKind {
     SchemaNotExists,
     AttributeNotExists,
 
+    ConnectionError,
+
     NotSupported,
 }
 
@@ -68,6 +70,8 @@ impl std::fmt::Display for ErrorKind {
             Self::TriggerNotExists    => f.write_str("Trigger Not Exists"),
             Self::SchemaNotExists     => f.write_str("Schema Not Exists"),
             Self::AttributeNotExists  => f.write_str("Attribute Not Exists"),
+
+            Self::ConnectionError     => f.write_str("Connection Error"),
 
             Self::NotSupported        => f.write_str("Not Supported"),
         }
@@ -152,6 +156,11 @@ impl Error {
         let _ = self.write(source, filename, &mut result);
         result
     }
+
+    #[inline]
+    pub fn into_source(self) -> Option<Box<dyn std::error::Error>> {
+        self.source
+    }
 }
 
 impl std::fmt::Display for Error {
@@ -175,6 +184,17 @@ impl std::error::Error for Error {
     #[inline]
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         self.source.as_deref()
+    }
+}
+
+impl From<postgres::Error> for Error {
+    fn from(value: postgres::Error) -> Self {
+        Self::new(
+            ErrorKind::ConnectionError,
+            None,
+            Some(format!("{value}")),
+            Some(Box::new(value))
+        )
     }
 }
 

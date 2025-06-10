@@ -39,19 +39,18 @@ use crate::{
 
 use crate::model::words::*;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct PostgreSQLParser<'a> {
     tokenizer: PostgreSQLTokenizer<'a>,
-    database: Rc<Database>,
+    database: &'a mut Database,
 }
 
 impl<'a> PostgreSQLParser<'a> {
     #[inline]
-    pub fn new(source: &'a str) -> Self {
-        let default_schema = Name::new("public");
+    pub fn new(source: &'a str, database: &'a mut Database) -> Self {
         Self {
             tokenizer: PostgreSQLTokenizer::new(source),
-            database: Rc::new(Database::new(default_schema)),
+            database,
         }
     }
 
@@ -1376,7 +1375,7 @@ impl<'a> PostgreSQLParser<'a> {
     }
 
     fn parse_schema_tail(&mut self, start_offset: usize, if_not_exists: bool, name: Name) -> Result<()> {
-        Rc::make_mut(&mut self.database).create_schema(if_not_exists, name.clone()).map_err(|mut err| {
+        self.database.create_schema(if_not_exists, name.clone()).map_err(|mut err| {
             *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
             err
         })?;
@@ -1384,15 +1383,14 @@ impl<'a> PostgreSQLParser<'a> {
         if !if_not_exists && !self.peek_kind(TokenKind::SemiColon)? && self.peek_token()?.is_some() {
             // TODO: optional schema elements
             // See: https://www.postgresql.org/docs/17/sql-createschema.html
-            let old_default_schema = Rc::make_mut(&mut self.database).set_default_schema(name.clone());
+            let old_default_schema = self.database.set_default_schema(name.clone());
             let old_search_path = self.database.search_path().to_vec();
-            Rc::make_mut(&mut self.database).set_default_search_path();
+            self.database.set_default_search_path();
 
             let res = self.parse_schema_elements();
 
-            let database = Rc::make_mut(&mut self.database);
-            database.set_default_schema(old_default_schema);
-            *database.search_path_mut() = old_search_path;
+            self.database.set_default_schema(old_default_schema);
+            *self.database.search_path_mut() = old_search_path;
 
             res?;
         }
@@ -1430,32 +1428,32 @@ impl<'a> PostgreSQLParser<'a> {
         // "CREATE" is already parsed
         if self.parse_word(TABLE)? {
             let table = self.parse_table_intern(true)?;
-            Rc::make_mut(&mut self.database).create_table(table).map_err(|mut err| {
+            self.database.create_table(table).map_err(|mut err| {
                 *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
                 err
             })
         } else if self.parse_word(UNLOGGED)? {
             self.expect_word(TABLE)?;
             let table = self.parse_table_intern(false)?;
-            Rc::make_mut(&mut self.database).create_table(table).map_err(|mut err| {
+            self.database.create_table(table).map_err(|mut err| {
                 *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
                 err
             })
         } else if self.parse_word(INDEX)? {
             let index = self.parse_index_intern(false)?;
-            Rc::make_mut(&mut self.database).create_index(index).map_err(|mut err| {
+            self.database.create_index(index).map_err(|mut err| {
                 *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
                 err
             })
         } else if self.parse_word(UNIQUE)? && self.parse_word(INDEX)? {
             let index = self.parse_index_intern(true)?;
-            Rc::make_mut(&mut self.database).create_index(index).map_err(|mut err| {
+            self.database.create_index(index).map_err(|mut err| {
                 *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
                 err
             })
         } else if self.parse_word(TYPE)? {
             let type_def = self.parse_type_def_intern()?;
-            Rc::make_mut(&mut self.database).create_type(type_def).map_err(|mut err| {
+            self.database.create_type(type_def).map_err(|mut err| {
                 *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
                 err
             })
@@ -1499,21 +1497,21 @@ impl<'a> PostgreSQLParser<'a> {
                 cascade
             );
 
-            Rc::make_mut(&mut self.database).create_extension(extension).map_err(|mut err| {
+            self.database.create_extension(extension).map_err(|mut err| {
                 *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
                 err
             })
         } else if self.parse_word(FUNCTION)? {
             // CREATE FUNCTION/PROCEDURE
             let function = self.parse_function_intern(false, true)?;
-            Rc::make_mut(&mut self.database).create_function(function).map_err(|mut err| {
+            self.database.create_function(function).map_err(|mut err| {
                 *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
                 err
             })
         } else if self.parse_word(PROCEDURE)? {
             // CREATE FUNCTION/PROCEDURE
             let function = self.parse_function_intern(true, true)?;
-            Rc::make_mut(&mut self.database).create_function(function).map_err(|mut err| {
+            self.database.create_function(function).map_err(|mut err| {
                 *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
                 err
             })
@@ -1523,13 +1521,13 @@ impl<'a> PostgreSQLParser<'a> {
 
             if self.parse_word(FUNCTION)? {
                 let function = self.parse_function_intern(false, true)?;
-                Rc::make_mut(&mut self.database).create_function(function).map_err(|mut err| {
+                self.database.create_function(function).map_err(|mut err| {
                     *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
                     err
                 })
             } else if self.parse_word(PROCEDURE)? {
                 let function = self.parse_function_intern(true, true)?;
-                Rc::make_mut(&mut self.database).create_function(function).map_err(|mut err| {
+                self.database.create_function(function).map_err(|mut err| {
                     *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
                     err
                 })
@@ -1537,13 +1535,13 @@ impl<'a> PostgreSQLParser<'a> {
                 // CREATE CONSTRAINT TRIGGER
                 self.expect_word(TRIGGER)?;
                 let trigger = self.parse_trigger_intern(true, true)?;
-                Rc::make_mut(&mut self.database).create_trigger(trigger).map_err(|mut err| {
+                self.database.create_trigger(trigger).map_err(|mut err| {
                     *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
                     err
                 })
             } else if self.parse_word(TRIGGER)? {
                 let trigger = self.parse_trigger_intern(true, false)?;
-                Rc::make_mut(&mut self.database).create_trigger(trigger).map_err(|mut err| {
+                self.database.create_trigger(trigger).map_err(|mut err| {
                     *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
                     err
                 })
@@ -1555,7 +1553,7 @@ impl<'a> PostgreSQLParser<'a> {
         } else if self.parse_word(TRIGGER)? {
             // CREATE TRIGGER
             let trigger = self.parse_trigger_intern(false, false)?;
-            Rc::make_mut(&mut self.database).create_trigger(trigger).map_err(|mut err| {
+            self.database.create_trigger(trigger).map_err(|mut err| {
                 *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
                 err
             })
@@ -1563,7 +1561,7 @@ impl<'a> PostgreSQLParser<'a> {
             // CREATE CONSTRAINT TRIGGER
             self.expect_word(TRIGGER)?;
             let trigger = self.parse_trigger_intern(false, true)?;
-            Rc::make_mut(&mut self.database).create_trigger(trigger).map_err(|mut err| {
+            self.database.create_trigger(trigger).map_err(|mut err| {
                 *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
                 err
             })
@@ -2764,7 +2762,7 @@ impl<'a> PostgreSQLParser<'a> {
 
             let comment = self.parse_comment_tail()?;
 
-            let Some(table) = Rc::make_mut(&mut self.database).get_table_mut(&table_name) else {
+            let Some(table) = self.database.get_table_mut(&table_name) else {
                 return Err(Error::with_message(
                     ErrorKind::TableNotExists,
                     Cursor::new(start_offset, self.tokenizer.offset()),
@@ -2783,7 +2781,7 @@ impl<'a> PostgreSQLParser<'a> {
             let name = self.parse_qual_name()?;
             let comment = self.parse_comment_tail()?;
 
-            let Some(extension) = Rc::make_mut(&mut self.database).get_extension_mut(&name) else {
+            let Some(extension) = self.database.get_extension_mut(&name) else {
                 return Err(Error::with_message(
                     ErrorKind::ExtensionNotExists,
                     Cursor::new(start_offset, self.tokenizer.offset()),
@@ -2796,7 +2794,7 @@ impl<'a> PostgreSQLParser<'a> {
             let name = self.parse_qual_name()?;
             let comment = self.parse_comment_tail()?;
 
-            let Some(index) = Rc::make_mut(&mut self.database).get_index_mut(&name) else {
+            let Some(index) = self.database.get_index_mut(&name) else {
                 return Err(Error::with_message(
                     ErrorKind::IndexNotExists,
                     Cursor::new(start_offset, self.tokenizer.offset()),
@@ -2809,7 +2807,7 @@ impl<'a> PostgreSQLParser<'a> {
             let name = self.expect_name()?;
             let comment = self.parse_comment_tail()?;
 
-            let Some(schema) = Rc::make_mut(&mut self.database).schemas_mut().get_mut(&name) else {
+            let Some(schema) = self.database.schemas_mut().get_mut(&name) else {
                 return Err(Error::with_message(
                     ErrorKind::SchemaNotExists,
                     Cursor::new(start_offset, self.tokenizer.offset()),
@@ -2822,7 +2820,7 @@ impl<'a> PostgreSQLParser<'a> {
             let name = self.parse_qual_name()?;
             let comment = self.parse_comment_tail()?;
 
-            let Some(table) = Rc::make_mut(&mut self.database).get_table_mut(&name) else {
+            let Some(table) = self.database.get_table_mut(&name) else {
                 return Err(Error::with_message(
                     ErrorKind::TableNotExists,
                     Cursor::new(start_offset, self.tokenizer.offset()),
@@ -2835,7 +2833,7 @@ impl<'a> PostgreSQLParser<'a> {
             let name = self.parse_qual_name()?;
             let comment = self.parse_comment_tail()?;
 
-            let Some(type_def) = Rc::make_mut(&mut self.database).get_type_mut(&name) else {
+            let Some(type_def) = self.database.get_type_mut(&name) else {
                 return Err(Error::with_message(
                     ErrorKind::TypeNotExists,
                     Cursor::new(start_offset, self.tokenizer.offset()),
@@ -2850,7 +2848,7 @@ impl<'a> PostgreSQLParser<'a> {
             let table_name = self.parse_qual_name()?;
             let comment = self.parse_comment_tail()?;
 
-            let Some(table) = Rc::make_mut(&mut self.database).get_table_mut(&table_name) else {
+            let Some(table) = self.database.get_table_mut(&table_name) else {
                 return Err(Error::with_message(
                     ErrorKind::TableNotExists,
                     Cursor::new(start_offset, self.tokenizer.offset()),
@@ -2883,7 +2881,7 @@ impl<'a> PostgreSQLParser<'a> {
             let sig = FunctionSignature::new(name, arguments);
             let comment = self.parse_comment_tail()?;
 
-            let Some(function) = Rc::make_mut(&mut self.database).get_function_mut(&sig.to_qref()) else {
+            let Some(function) = self.database.get_function_mut(&sig.to_qref()) else {
                 return Err(Error::with_message(
                     ErrorKind::FunctionNotExists,
                     Cursor::new(start_offset, self.tokenizer.offset()),
@@ -2907,7 +2905,7 @@ impl<'a> PostgreSQLParser<'a> {
                 let table_name = self.parse_qual_name()?;
                 let comment = self.parse_comment_tail()?;
 
-                let Some(table) = Rc::make_mut(&mut self.database).get_table_mut(&table_name) else {
+                let Some(table) = self.database.get_table_mut(&table_name) else {
                     return Err(Error::with_message(
                         ErrorKind::TableNotExists,
                         Cursor::new(start_offset, self.tokenizer.offset()),
@@ -2954,6 +2952,18 @@ impl BracketType {
 }
 
 impl<'a> Parser for PostgreSQLParser<'a> {
+    #[inline]
+    fn parse_into(source: &str, database: &mut Database) -> Result<()> {
+        let mut parser = PostgreSQLParser::new(source, database);
+        parser.parse_all()?;
+        Ok(())
+    }
+
+    #[inline]
+    fn get_default_schema() -> Name {
+        Name::new("public")
+    }
+
     #[inline]
     fn get_source(&self, cursor: &Cursor) -> &str {
         cursor.get(self.tokenizer.source())
@@ -3052,9 +3062,7 @@ impl<'a> Parser for PostgreSQLParser<'a> {
         }
     }
 
-    fn parse(&mut self) -> Result<Rc<Database>> {
-        Rc::make_mut(&mut self.database).clear();
-
+    fn parse_all(&mut self) -> Result<()> {
         while let Some(token) = self.tokenizer.peek()? {
             let start_offset = token.cursor().start_offset();
 
@@ -3066,7 +3074,7 @@ impl<'a> Parser for PostgreSQLParser<'a> {
 
                 if name.name().eq_ignore_ascii_case("search_path") {
                     if self.parse_word(DEFAULT)? {
-                        Rc::make_mut(&mut self.database).set_default_search_path();
+                        self.database.set_default_search_path();
                     } else {
                         let mut new_search_path = Vec::new();
 
@@ -3079,7 +3087,7 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                             }
                         }
 
-                        *Rc::make_mut(&mut self.database).search_path_mut() = new_search_path;
+                        *self.database.search_path_mut() = new_search_path;
                     }
                 } else {
                     // ignored. store it somewhere?
@@ -3109,11 +3117,10 @@ impl<'a> Parser for PostgreSQLParser<'a> {
                                     // matched: SELECT pg_catalog.set_config('search_path', '...', true|false);
                                     // if true then it should be only for the current transaction
                                     let value = value.trim();
-                                    let schema = Rc::make_mut(&mut self.database);
                                     if value.is_empty() {
-                                        schema.set_default_search_path();
+                                        self.database.set_default_search_path();
                                     } else {
-                                        let search_path = schema.search_path_mut();
+                                        let search_path = self.database.search_path_mut();
                                         search_path.clear();
                                         for schema_name in value.split(',') {
                                             search_path.push(Name::new(schema_name.trim()));
@@ -3132,13 +3139,13 @@ impl<'a> Parser for PostgreSQLParser<'a> {
 
                 if self.parse_word(TABLE)? {
                     let alter_table = self.parse_alter_table_intern()?;
-                    Rc::make_mut(&mut self.database).alter_table(&alter_table).map_err(|mut err| {
+                    self.database.alter_table(&alter_table).map_err(|mut err| {
                         *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
                         err
                     })?;
                 } else if self.parse_word(TYPE)? {
                     let alter_type = self.parse_alter_type_intern()?;
-                    Rc::make_mut(&mut self.database).alter_type(&alter_type).map_err(|mut err| {
+                    self.database.alter_type(&alter_type).map_err(|mut err| {
                         *err.cursor_mut() = Some(Cursor::new(start_offset, self.tokenizer.offset()));
                         err
                     })?;
@@ -3200,6 +3207,6 @@ impl<'a> Parser for PostgreSQLParser<'a> {
             self.expect_semicolon_or_eof()?;
         }
 
-        Ok(self.database.clone())
+        Ok(())
     }
 }
