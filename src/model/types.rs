@@ -305,6 +305,7 @@ impl std::fmt::Display for IntervalFields {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum BasicType {
     Internal,
+    Trigger,
     Bigint,
     BigSerial,
     Bit(Option<NonZeroU32>),
@@ -535,6 +536,7 @@ impl ToTokens for BasicType {
                     make_tokens!(tokens, WITHOUT TIME ZONE);
                 }
             }
+            Self::Trigger => make_tokens!(tokens, TRIGGER),
             Self::TsQuery => make_tokens!(tokens, TSQUERY),
             Self::TsVector => make_tokens!(tokens, TSVECTOR),
             Self::TxIdSnapshot => make_tokens!(tokens, TXID_SNAPSHOT),
@@ -582,14 +584,14 @@ impl std::fmt::Display for BasicType {
                     write!(f, "{BIT} {VARYING}")
                 }
             }
-            Self::Boolean => BOOLEAN.fmt(f),
-            Self::Box => BOX.fmt(f),
-            Self::ByteA => BYTEA.fmt(f),
+            Self::Boolean => f.write_str(BOOLEAN),
+            Self::Box => f.write_str(BOX),
+            Self::ByteA => f.write_str(BYTEA),
             Self::Character(p) => {
                 if let Some(p) = p {
                     write!(f, "{CHARACTER} ({p})")
                 } else {
-                    CHARACTER.fmt(f)
+                    f.write_str(CHARACTER)
                 }
             }
             Self::CharacterVarying(p) => {
@@ -599,14 +601,14 @@ impl std::fmt::Display for BasicType {
                     write!(f, "{CHARACTER} {VARYING}")
                 }
             }
-            Self::CIDR => CIDR.fmt(f),
-            Self::Circle => CIRCLE.fmt(f),
-            Self::Date => DATE.fmt(f),
+            Self::CIDR => f.write_str(CIDR),
+            Self::Circle => f.write_str(CIRCLE),
+            Self::Date => f.write_str(DATE),
             Self::DoublePrecision => write!(f, "{DOUBLE} {PRECISION}"),
-            Self::INet => INET.fmt(f),
-            Self::Integer => INTEGER.fmt(f),
+            Self::INet => f.write_str(INET),
+            Self::Integer => f.write_str(INTEGER),
             Self::Interval { fields, precision } => {
-                INTERVAL.fmt(f)?;
+                f.write_str(INTERVAL)?;
 
                 if let Some(fields) = fields {
                     f.write_str(" ")?;
@@ -619,13 +621,13 @@ impl std::fmt::Display for BasicType {
 
                 Ok(())
             }
-            Self::JSON => JSON.fmt(f),
-            Self::JSONB => JSONB.fmt(f),
-            Self::Line => LINE.fmt(f),
-            Self::LSeg => LSEG.fmt(f),
-            Self::MacAddr => MACADDR.fmt(f),
-            Self::MacAddr8 => MACADDR8.fmt(f),
-            Self::Money => MONEY.fmt(f),
+            Self::JSON => f.write_str(JSON),
+            Self::JSONB => f.write_str(JSONB),
+            Self::Line => f.write_str(LINE),
+            Self::LSeg => f.write_str(LSEG),
+            Self::MacAddr => f.write_str(MACADDR),
+            Self::MacAddr8 => f.write_str(MACADDR8),
+            Self::Money => f.write_str(MONEY),
             Self::Numeric(p) => {
                 if let Some((p, s)) = p {
                     write!(f, "{NUMERIC} ({p}, {s})")
@@ -633,16 +635,16 @@ impl std::fmt::Display for BasicType {
                     f.write_str(NUMERIC)
                 }
             }
-            Self::Path => PATH.fmt(f),
-            Self::PgLSN => PG_LSN.fmt(f),
-            Self::PgSnapshot => PG_SNAPSHOT.fmt(f),
-            Self::Point => POINT.fmt(f),
-            Self::Polygon => POLYGON.fmt(f),
-            Self::Real => REAL.fmt(f),
-            Self::SmallInt => SMALLINT.fmt(f),
-            Self::SmallSerial => SMALLSERIAL.fmt(f),
-            Self::Serial => SERIAL.fmt(f),
-            Self::Text => TEXT.fmt(f),
+            Self::Path => f.write_str(PATH),
+            Self::PgLSN => f.write_str(PG_LSN),
+            Self::PgSnapshot => f.write_str(PG_SNAPSHOT),
+            Self::Point => f.write_str(POINT),
+            Self::Polygon => f.write_str(POLYGON),
+            Self::Real => f.write_str(REAL),
+            Self::SmallInt => f.write_str(SMALLINT),
+            Self::SmallSerial => f.write_str(SMALLSERIAL),
+            Self::Serial => f.write_str(SERIAL),
+            Self::Text => f.write_str(TEXT),
             Self::Time { precision, with_time_zone } => {
                 f.write_str(TIME)?;
 
@@ -673,11 +675,12 @@ impl std::fmt::Display for BasicType {
 
                 Ok(())
             }
-            Self::TsQuery => TSQUERY.fmt(f),
-            Self::TsVector => TSVECTOR.fmt(f),
-            Self::TxIdSnapshot => TXID_SNAPSHOT.fmt(f),
-            Self::UUID => UUID.fmt(f),
-            Self::XML => XML.fmt(f),
+            Self::Trigger => f.write_str(TRIGGER),
+            Self::TsQuery => f.write_str(TSQUERY),
+            Self::TsVector => f.write_str(TSVECTOR),
+            Self::TxIdSnapshot => f.write_str(TXID_SNAPSHOT),
+            Self::UUID => f.write_str(UUID),
+            Self::XML => f.write_str(XML),
             Self::UserDefined { name, parameters } => {
                 name.fmt(f)?;
 

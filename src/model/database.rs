@@ -29,7 +29,8 @@ use super::words::*;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Database {
     schemas: HashMap<Name, Schema>,
-    default_schema: Name,
+    default_schema: Name, // "public"
+    builtin_type_schema: Name, // "pg_catalog"
     search_path: Vec<Name>,
 }
 
@@ -151,13 +152,14 @@ impl std::fmt::Display for Database {
 
 impl Database {
     #[inline]
-    pub fn new(default_schema: Name) -> Self {
+    pub fn new(default_schema: Name, builtin_type_schema: Name) -> Self {
         let mut schemas = HashMap::new();
         schemas.insert(default_schema.clone(), Schema::new(default_schema.clone()));
 
         Self {
             schemas,
             default_schema: default_schema.clone(),
+            builtin_type_schema,
             search_path: vec![default_schema],
         }
     }
@@ -380,7 +382,20 @@ impl Database {
             }
         }
 
-        QName::new(Some(self.default_schema.clone()), name.clone())
+        // all tables have an automatic associated type
+        for schema_name in &self.search_path {
+            if let Some(schema) = self.schemas.get(schema_name) {
+                if schema.tables().contains_key(name) {
+                    return QName::new(
+                        Some(schema_name.clone()),
+                        name.clone()
+                    );
+                }
+            }
+        }
+
+        // built-in types are in their own schema that doesn't need to be in search_path
+        QName::new(Some(self.builtin_type_schema.clone()), name.clone())
     }
 
     /// Resolve index name using the current search_path

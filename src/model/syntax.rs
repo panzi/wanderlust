@@ -253,6 +253,21 @@ pub trait Tokenizer {
     fn peek(&mut self) -> Result<Option<Token>>;
     fn next(&mut self) -> Result<Option<Token>>;
     fn parse(&mut self) -> Result<ParsedToken>;
+
+    #[inline]
+    fn has_next(&mut self) -> Result<bool> {
+        Ok(self.peek()?.is_some())
+    }
+
+    fn parse_all(&mut self) -> Result<Vec<ParsedToken>> {
+        let mut tokens = Vec::new();
+
+        while self.has_next()? {
+            tokens.push(self.parse()?);
+        }
+
+        Ok(tokens)
+    }
 }
 
 #[macro_export]
@@ -306,10 +321,11 @@ macro_rules! peek_token {
 
 pub trait Parser {
     fn get_default_schema() -> Name;
+    fn get_builtin_type_schema() -> Name;
 
     #[inline]
     fn new_database() -> Database {
-        Database::new(Self::get_default_schema())
+        Database::new(Self::get_default_schema(), Self::get_builtin_type_schema())
     }
 
     #[inline]

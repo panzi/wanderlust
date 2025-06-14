@@ -21,6 +21,11 @@ pub struct PostgreSQLTokenizer<'a> {
 }
 
 impl<'a> PostgreSQLTokenizer<'a> {
+    pub fn parse_all(source: &'a str) -> Result<Vec<ParsedToken>> {
+        let mut tokenizer = Self::new(source);
+        tokenizer.parse_all()
+    }
+
     #[inline]
     pub fn new(source: &'a str) -> Self {
         Self { source, offset: 0, peeked: None }

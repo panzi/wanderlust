@@ -661,6 +661,8 @@ impl<'a> PostgreSQLParser<'a> {
                 self.expect_token(TokenKind::RParen)?;
             }
             BasicType::Interval { fields, precision }
+        } else if self.parse_word(INTERNAL)? {
+            BasicType::Internal
         } else if self.parse_word(JSON)? {
             BasicType::JSON
         } else if self.parse_word(JSONB)? {
@@ -754,6 +756,8 @@ impl<'a> PostgreSQLParser<'a> {
             BasicType::Timestamp { precision, with_time_zone }
         } else if self.parse_word(TIMESTAMPTZ)? {
             BasicType::Timestamp { precision: None, with_time_zone: true }
+        } else if self.parse_word(TRIGGER)? {
+            BasicType::Trigger
         } else if self.parse_word(TSQUERY)? {
             BasicType::TsQuery
         } else if self.parse_word(TSVECTOR)? {
@@ -2348,8 +2352,6 @@ impl<'a> PostgreSQLParser<'a> {
                 }
                 self.expect_token(TokenKind::RParen)?;
                 ReturnType::Table { columns: columns.into() }
-            } else if self.parse_word(TRIGGER)? {
-                ReturnType::Trigger
             } else {
                 ReturnType::Type(self.parse_data_type()?)
             });
@@ -2371,7 +2373,6 @@ impl<'a> PostgreSQLParser<'a> {
 
         // function only: WINDOW, LEAKPROOF, STATE, NULL INPUT, PARALLEL, COST, ROWS, SUPPORT
 
-        // TODO...
         while !self.peek_kind(TokenKind::SemiColon)? {
             if self.parse_word(LANGUAGE)? {
                 language = Some(if self.peek_kind(TokenKind::String)? {
@@ -2962,6 +2963,11 @@ impl<'a> Parser for PostgreSQLParser<'a> {
     #[inline]
     fn get_default_schema() -> Name {
         Name::new("public")
+    }
+
+    #[inline]
+    fn get_builtin_type_schema() -> Name {
+        Name::new("pg_catalog")
     }
 
     #[inline]

@@ -757,7 +757,6 @@ impl std::fmt::Display for Argument {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ReturnType {
-    Trigger,
     Type(DataType),
     Table { columns: Rc<[Column]> }
 }
@@ -776,7 +775,6 @@ impl ReturnType {
 impl std::fmt::Display for ReturnType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Trigger => f.write_str(TRIGGER),
             Self::Type(data_type) => data_type.fmt(f),
             Self::Table { columns } => {
                 write!(f, "{TABLE} (")?;

@@ -2,10 +2,35 @@ use std::{num::NonZeroU32, rc::Rc};
 
 use postgres::{Client, NoTls};
 
-use crate::{dialects::postgresql::PostgreSQLParser, error::{Error, ErrorKind, Result}, model::{column::{Column, ColumnConstraint, ColumnConstraintData, Storage}, database::Database, name::{Name, QName}, schema::Schema, syntax::Parser, table::Table, types::{BasicType, DataType, Value}}, ordered_hash_map::OrderedHashMap};
+use crate::{dialects::postgresql::{PostgreSQLParser, PostgreSQLTokenizer}, error::{Error, ErrorKind, Result}, model::{column::{Column, ColumnConstraint, ColumnConstraintData, Storage}, database::Database, name::{Name, QName}, schema::Schema, syntax::Parser, table::Table, types::{BasicType, DataType, IntervalFields, Value}}, ordered_hash_map::OrderedHashMap};
 
 // mabe these functions help? https://www.postgresql.org/docs/17/functions-info.html#FUNCTIONS-INFO-CATALOG
 // https://www.postgresql.org/docs/17/catalogs.html
+
+#[allow(unused)]
+mod consts {
+    pub const MONTH:       u16 =  1;
+    pub const YEAR:        u16 =  2;
+    pub const DAY:         u16 =  3;
+    pub const JULIAN:      u16 =  4;
+    pub const TZ:          u16 =  5;
+    pub const DTZ:         u16 =  6;
+    pub const DYNTZ:       u16 =  7;
+    pub const IGNORE_DTF:  u16 =  8;
+    pub const AMPM:        u16 =  9;
+    pub const HOUR:        u16 = 10;
+    pub const MINUTE:      u16 = 11;
+    pub const SECOND:      u16 = 12;
+    pub const MILLISECOND: u16 = 13;
+    pub const MICROSECOND: u16 = 14;
+    pub const INTERVAL_FULL_RANGE: u16 = 0x7FFF;
+}
+
+macro_rules! interval_mask {
+    ($val:expr) => {
+        1 << $val
+    };
+}
 
 // TODO: implement loading from database
 pub fn load_from_database(url: &str) -> Result<Database> {
@@ -77,7 +102,7 @@ pub fn load_from_database(url: &str) -> Result<Database> {
                 let column_name: &str = reflect_column.get("attname");
                 let column_name = Name::new(column_name);
                 let is_not_null: bool = reflect_column.get("attnotnull");
-                let default_value: &str = reflect_column.get("default_value"); // TODO
+                let default_value: Option<&str> = reflect_column.get("default_value"); // TODO
 
                 let mut column_constraints = Vec::new();
 
@@ -88,6 +113,18 @@ pub fn load_from_database(url: &str) -> Result<Database> {
                         None,
                         None
                     ).into());
+                }
+
+                if let Some(default_value) = default_value {
+                    if !default_value.is_empty() {
+                        let tokens = PostgreSQLTokenizer::parse_all(default_value)?;
+                        column_constraints.push(ColumnConstraint::new(
+                            None,
+                            ColumnConstraintData::Default { value: tokens.into() },
+                            None,
+                            None
+                        ).into());
+                    }
                 }
 
                 let collation_name: Option<&str> = reflect_column.get("collname");
@@ -118,7 +155,7 @@ pub fn load_from_database(url: &str) -> Result<Database> {
                 let compression = if matches!(storage, Storage::Main | Storage::Extended) {
                     let compression_value: &str = reflect_column.get("attcompression");
                     match compression_value {
-                        "" | "\x00" => None,
+                        "" | "\x00" => None, // documentation says '\0', reality is ''
                         "p" => Some(Name::new("pglz")),
                         "l" => Some(Name::new("LZ4")),
                         _ => {
@@ -161,6 +198,7 @@ pub fn load_from_database(url: &str) -> Result<Database> {
                             None
                         }),
                         "bool" => BasicType::Boolean,
+                        "boolean" => BasicType::Boolean,
                         "box" => BasicType::Box,
                         "bytea" => BasicType::ByteA,
                         "char" => BasicType::Character(if atttypmod > 0 {
@@ -179,8 +217,58 @@ pub fn load_from_database(url: &str) -> Result<Database> {
                         "float8" => BasicType::DoublePrecision,
                         "inet" => BasicType::INet,
                         "int4" => BasicType::Integer,
-                        // TODO: see intervaltypmodin() in https://github.com/postgres/postgres/blob/master/src/backend/utils/adt/timestamp.c
-                        "interval" => unimplemented!(), // TODO
+                        "interval" => {
+                            // See intervaltypmodout() in https://github.com/postgres/postgres/blob/master/src/backend/utils/adt/timestamp.c
+                            let fields = (atttypmod as u32 >> 16) as u16 & 0x7FFF;
+                            let precision = (atttypmod as u32 & 0xFFFF) as u16;
+
+                            use consts::*;
+
+                            let fields = if fields == interval_mask!(YEAR) {
+                                Some(IntervalFields::Year)
+                            } else if fields == interval_mask!(MONTH) {
+                                Some(IntervalFields::Month)
+                            } else if fields == interval_mask!(DAY) {
+                                Some(IntervalFields::Day)
+                            } else if fields == interval_mask!(HOUR) {
+                                Some(IntervalFields::Hour)
+                            } else if fields == interval_mask!(MINUTE) {
+                                Some(IntervalFields::Minute)
+                            } else if fields == interval_mask!(SECOND) {
+                                Some(IntervalFields::Second)
+                            } else if fields == interval_mask!(YEAR) | interval_mask!(MONTH) {
+                                Some(IntervalFields::YearToMonth)
+                            } else if fields == interval_mask!(DAY) | interval_mask!(HOUR) {
+                                Some(IntervalFields::DayToHour)
+                            } else if fields == interval_mask!(DAY) | interval_mask!(HOUR) | interval_mask!(MINUTE) {
+                                Some(IntervalFields::DayToMinute)
+                            } else if fields == interval_mask!(DAY) | interval_mask!(HOUR) | interval_mask!(MINUTE) | interval_mask!(SECOND) {
+                                Some(IntervalFields::DayToSecond)
+                            } else if fields == interval_mask!(HOUR) | interval_mask!(MINUTE) {
+                                Some(IntervalFields::HourToMinute)
+                            } else if fields == interval_mask!(HOUR) | interval_mask!(MINUTE) | interval_mask!(SECOND) {
+                                Some(IntervalFields::HourToSecond)
+                            } else if fields == interval_mask!(MINUTE) | interval_mask!(SECOND) {
+                                Some(IntervalFields::MinuteToSecond)
+                            } else if fields == INTERVAL_FULL_RANGE {
+                                None
+                            } else {
+                                return Err(Error::new(
+                                    ErrorKind::NotSupported,
+                                    None,
+                                    Some(format!("unsupported atttypmod value for interval type: {atttypmod}")),
+                                    None
+                                ));
+                            };
+
+                            let precision = if precision != 0xFFFF {
+                                NonZeroU32::new(precision.into())
+                            } else {
+                                None
+                            };
+
+                            BasicType::Interval { fields, precision }
+                        },
                         "json" => BasicType::JSON,
                         "jsonb" => BasicType::JSONB,
                         "line" => BasicType::Line,
