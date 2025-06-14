@@ -69,6 +69,20 @@ impl From<Name> for Rc<str> {
     }
 }
 
+impl From<Rc<str>> for Name {
+    #[inline]
+    fn from(value: Rc<str>) -> Self {
+        Name::new(value)
+    }
+}
+
+impl From<&str> for Name {
+    #[inline]
+    fn from(value: &str) -> Self {
+        Name::new(value)
+    }
+}
+
 impl std::fmt::Display for Name {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
