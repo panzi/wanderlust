@@ -32,6 +32,7 @@ pub enum ErrorKind {
     SchemaNotExists,
     AttributeNotExists,
 
+    IOError,
     ConnectionError,
 
     NotSupported,
@@ -71,6 +72,7 @@ impl std::fmt::Display for ErrorKind {
             Self::SchemaNotExists     => f.write_str("Schema Not Exists"),
             Self::AttributeNotExists  => f.write_str("Attribute Not Exists"),
 
+            Self::IOError             => f.write_str("IO Error"),
             Self::ConnectionError     => f.write_str("Connection Error"),
 
             Self::NotSupported        => f.write_str("Not Supported"),
@@ -184,6 +186,17 @@ impl std::error::Error for Error {
     #[inline]
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         self.source.as_deref()
+    }
+}
+
+impl From<std::io::Error> for Error {
+    fn from(value: std::io::Error) -> Self {
+        Self::new(
+            ErrorKind::IOError,
+            None,
+            Some(format!("{value}")),
+            Some(Box::new(value))
+        )
     }
 }
 

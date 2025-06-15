@@ -1,6 +1,6 @@
 use std::{num::NonZeroU32, rc::Rc};
 
-use postgres::{Client, NoTls};
+use postgres::Client;
 
 use crate::{dialects::postgresql::{PostgreSQLParser, PostgreSQLTokenizer}, error::{Error, ErrorKind, Result}, model::{column::{Column, ColumnConstraint, ColumnConstraintData, Storage}, database::Database, name::{Name, QName}, schema::Schema, syntax::Parser, table::Table, types::{BasicType, DataType, IntervalFields, Value}}, ordered_hash_map::OrderedHashMap};
 
@@ -33,8 +33,7 @@ macro_rules! interval_mask {
 }
 
 // TODO: implement loading from database
-pub fn load_from_database(url: &str) -> Result<Database> {
-    let mut client = Client::connect(url, NoTls)?;
+pub fn load_from_database(client: &mut Client) -> Result<Database> {
     let mut database = PostgreSQLParser::new_database();
 
     let reflect_schemas = client.query("
@@ -44,7 +43,7 @@ pub fn load_from_database(url: &str) -> Result<Database> {
     ", &[])?;
 
     for reflect_schema in &reflect_schemas {
-        let schema_oid: i64 = reflect_schema.get("oid");
+        let schema_oid: u32 = reflect_schema.get("oid");
         let nspname: &str = reflect_schema.get("nspname");
         let schema_name = Name::new(nspname);
 
@@ -59,7 +58,7 @@ pub fn load_from_database(url: &str) -> Result<Database> {
         ", &[&schema_oid])?;
 
         for reflect_table in &reflect_tables {
-            let table_oid: i64 = reflect_table.get("oid");
+            let table_oid: u32 = reflect_table.get("oid");
             let relname: &str = reflect_table.get("relname");
             let table_name = Name::new(relname.to_string());
             let qual_table_name = QName::new(Some(schema_name.clone()), table_name.clone());
@@ -74,11 +73,10 @@ pub fn load_from_database(url: &str) -> Result<Database> {
 
             let reflect_columns = client.query("
                 SELECT
-                    a.oid,
                     attname,
                     attnum,
                     attnotnull,
-                    attstorage,
+                    (case when attstorage = typstorage then '' else attstorage end) AS storage,
                     attndims,
                     collname,
                     cn.nspname AS collschema,
@@ -91,14 +89,13 @@ pub fn load_from_database(url: &str) -> Result<Database> {
                 LEFT JOIN pg_catalog.pg_attrdef ad ON a.attrelid = ad.adrelid AND a.attnum = ad.adnum
                 LEFT JOIN pg_catalog.pg_collation c ON c.oid = a.attcollation
                 LEFT JOIN pg_catalog.pg_namespace cn ON cn.oid = c.collnamespace
-                LEFT JOIN pg_catalog.pg_type ty ON ty.oid = c.atttypid
+                LEFT JOIN pg_catalog.pg_type ty ON ty.oid = a.atttypid
                 LEFT JOIN pg_catalog.pg_namespace tyn ON tyn.oid = ty.typnamespace
-                WHERE a.attrelid = $1 AND a.atttypid IS NOT NULL
+                WHERE a.attrelid = $1 AND a.atttypid IS NOT NULL AND a.attnum > 0
                 ORDER BY a.attnum
             ", &[&table_oid])?;
 
             for reflect_column in reflect_columns {
-                let column_oid: i64 = reflect_column.get("oid");
                 let column_name: &str = reflect_column.get("attname");
                 let column_name = Name::new(column_name);
                 let is_not_null: bool = reflect_column.get("attnotnull");
@@ -127,21 +124,35 @@ pub fn load_from_database(url: &str) -> Result<Database> {
                     }
                 }
 
-                let collation_name: Option<&str> = reflect_column.get("collname");
                 let collation_schema: Option<&str> = reflect_column.get("collschema");
-                let collation = if let Some(collation_name) = collation_name {
-                    Some(QName::new(collation_schema.map(Into::into), collation_name.into()))
-                } else {
-                    None
+                let collation_name: Option<&str> = reflect_column.get("collname");
+                let collation = match (collation_schema, collation_name) {
+                    (Some(collation_schema), Some(collation_name)) => {
+                        if collation_schema.eq_ignore_ascii_case("pg_catalog") && collation_name.eq_ignore_ascii_case("default") {
+                            None
+                        } else {
+                            Some(QName::new(Some(collation_schema.into()), collation_name.into()))
+                        }
+                    }
+                    (None, Some(collation_name)) => {
+                        if collation_name.eq_ignore_ascii_case("default") {
+                            None
+                        } else {
+                            Some(QName::new(None, collation_name.into()))
+                        }
+                    }
+                    (_, None) => {
+                        None
+                    }
                 };
 
-                let storage: &str = reflect_column.get("attstorage");
+                let storage: i8 = reflect_column.get("storage");
                 let storage = match storage {
-                    "p" => Storage::Plain,
-                    "e" => Storage::External,
-                    "m" => Storage::Main,
-                    "x" => Storage::Extended,
-                    "" => Storage::Default,
+                    0x70 => Storage::Plain,    // 'p'
+                    0x64 => Storage::External, // 'e'
+                    0x6D => Storage::Main,     // 'm'
+                    0x78 => Storage::Extended, // 'x'
+                    0 => Storage::Default,
                     _ => {
                         return Err(Error::new(
                             ErrorKind::NotSupported,
@@ -153,11 +164,11 @@ pub fn load_from_database(url: &str) -> Result<Database> {
                 };
 
                 let compression = if matches!(storage, Storage::Main | Storage::Extended) {
-                    let compression_value: &str = reflect_column.get("attcompression");
+                    let compression_value: i8 = reflect_column.get("attcompression");
                     match compression_value {
-                        "" | "\x00" => None, // documentation says '\0', reality is ''
-                        "p" => Some(Name::new("pglz")),
-                        "l" => Some(Name::new("LZ4")),
+                        0 => None, // documentation says '\0', reality is ''
+                        0x70 => Some(Name::new("pglz")), // 'p'
+                        0x6C => Some(Name::new("LZ4")), // 'l'
                         _ => {
                             return Err(Error::new(
                                 ErrorKind::NotSupported,
