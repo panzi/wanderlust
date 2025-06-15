@@ -120,6 +120,13 @@ impl std::fmt::Display for Database {
                         table.name(), IsoString(comment))?;
                 }
 
+                for column in table.columns().values() {
+                    if let Some(comment) = column.comment() {
+                        writeln!(f, "{COMMENT} {ON} {COLUMN} {}.{} {IS} {};",
+                            table.name(), column.name(), IsoString(comment))?;
+                    }
+                }
+
                 for constaint in table.constraints().values() {
                     if let Some(name) = constaint.name() {
                         if let Some(comment) = constaint.comment() {

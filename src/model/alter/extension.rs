@@ -1,4 +1,6 @@
-use crate::model::{extension::Version, name::{Name, QName}};
+use std::rc::Rc;
+
+use crate::model::name::{Name, QName};
 
 use crate::model::words::*;
 
@@ -34,7 +36,7 @@ impl std::fmt::Display for AlterExtension {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AlterExtensionData {
-    Update(Option<Version>),
+    Update(Option<Rc<str>>),
     SetSchema(Name),
 }
 

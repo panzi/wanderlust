@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::format::format_iso_string;
+use crate::format::IsoString;
 
 use super::name::{Name, QName};
 
@@ -61,32 +61,16 @@ impl std::fmt::Display for CreateExtension {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Version {
-    Name(Name),
-    String(Rc<str>),
-}
-
-impl std::fmt::Display for Version {
-    #[inline]
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Name(name) => name.fmt(f),
-            Self::String(value) => format_iso_string(f, value),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
 pub struct Extension {
     name: QName,
-    version: Option<Version>,
+    version: Option<Rc<str>>,
     comment: Option<Rc<str>>,
 }
 
 impl Extension {
     #[inline]
-    pub fn new(name: QName, version: Option<Version>) -> Self {
-        Self { name, version, comment: None }
+    pub fn new(name: QName, version: Option<impl Into<Rc<str>>>) -> Self {
+        Self { name, version: version.map(Into::into), comment: None }
     }
 
     #[inline]
@@ -100,12 +84,12 @@ impl Extension {
     }
 
     #[inline]
-    pub fn version(&self) -> Option<&Version> {
+    pub fn version(&self) -> Option<&Rc<str>> {
         self.version.as_ref()
     }
 
     #[inline]
-    pub fn set_version(&mut self, version: Option<Version>) {
+    pub fn set_version(&mut self, version: Option<Rc<str>>) {
         self.version = version;
     }
 
@@ -130,7 +114,7 @@ impl Extension {
             }
 
             if let Some(version) = &self.version {
-                write!(f, " {VERSION} {version}")?;
+                write!(f, " {VERSION} {}", IsoString(version))?;
             }
 
             if cascade {

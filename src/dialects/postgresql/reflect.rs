@@ -2,7 +2,7 @@ use std::{num::NonZeroU32, rc::Rc};
 
 use postgres::Client;
 
-use crate::{dialects::postgresql::{PostgreSQLParser, PostgreSQLTokenizer}, error::{Error, ErrorKind, Result}, model::{column::{Column, ColumnConstraint, ColumnConstraintData, Storage}, database::Database, name::{Name, QName}, schema::Schema, syntax::Parser, table::Table, types::{BasicType, DataType, IntervalFields, Value}}, ordered_hash_map::OrderedHashMap};
+use crate::{dialects::postgresql::{PostgreSQLParser, PostgreSQLTokenizer}, error::{Error, ErrorKind, Result}, format::IsoString, model::{column::{Column, ColumnConstraint, ColumnConstraintData, Storage}, database::Database, extension::Extension, name::{Name, QName}, schema::Schema, syntax::Parser, table::Table, types::{BasicType, DataType, IntervalFields, Value}}, ordered_hash_map::OrderedHashMap};
 
 // mabe these functions help? https://www.postgresql.org/docs/17/functions-info.html#FUNCTIONS-INFO-CATALOG
 // https://www.postgresql.org/docs/17/catalogs.html
@@ -36,6 +36,13 @@ macro_rules! interval_mask {
 pub fn load_from_database(client: &mut Client) -> Result<Database> {
     let mut database = PostgreSQLParser::new_database();
 
+    // TODO: types
+    // TODO: functions
+    // TODO: table contraints
+    // TODO: triggers
+    // TODO: indices
+    // TODO: comments
+
     let reflect_schemas = client.query("
         SELECT oid, nspname
         FROM pg_catalog.pg_namespace
@@ -51,11 +58,40 @@ pub fn load_from_database(client: &mut Client) -> Result<Database> {
             .entry(schema_name.clone())
             .or_insert_with(|| Schema::new(schema_name.clone()));
 
+        let reflect_extensions = client.query("
+            SELECT
+                extname,
+                extversion,
+                pg_catalog.obj_description(oid, 'pg_extension'::name) AS comment
+            FROM pg_catalog.pg_extension
+            WHERE extnamespace = $1
+            ORDER BY extname
+        ", &[&schema_oid])?;
+
+        for reflect_extension in &reflect_extensions {
+            let extname: &str = reflect_extension.get("extname");
+            let extversion: Option<&str> = reflect_extension.get("extversion");
+            let comment: Option<&str> = reflect_extension.get("comment");
+            let extname: Name = extname.into();
+            let mut extension = Extension::new(
+                QName::new(Some(schema_name.clone()), extname.clone()),
+                extversion
+            );
+
+            extension.set_comment(comment.map(Into::into));
+
+            schema.extensions_mut().insert(
+                extname,
+                Rc::new(extension)
+            );
+        }
+
         let reflect_tables = client.query("
             SELECT
                 oid,
                 relname,
-                (relpersistence = 'p') AS logged
+                (relpersistence = 'p') AS logged,
+                pg_catalog.obj_description(oid, 'pg_class'::name) AS comment
             FROM pg_catalog.pg_class c
             WHERE relnamespace = $1 AND relkind = 'r' AND relpersistence != 't'
         ", &[&schema_oid])?;
@@ -64,6 +100,7 @@ pub fn load_from_database(client: &mut Client) -> Result<Database> {
             let table_oid: u32 = reflect_table.get("oid");
             let relname: &str = reflect_table.get("relname");
             let table_name = Name::new(relname.to_string());
+            let comment: Option<&str> = reflect_table.get("comment");
             let qual_table_name = QName::new(Some(schema_name.clone()), table_name.clone());
 
             // TODO...
@@ -105,7 +142,8 @@ pub fn load_from_database(client: &mut Client) -> Result<Database> {
                     typname,
                     atttypmod,
                     tyn.nspname AS typschema,
-                    pg_get_expr(adbin, adrelid) as default_value
+                    pg_get_expr(adbin, adrelid) AS default_value,
+                    col_description($1, attnum) AS comment
                 FROM pg_catalog.pg_attribute a
                 LEFT JOIN pg_catalog.pg_attrdef ad ON a.attrelid = ad.adrelid AND a.attnum = ad.adnum
                 LEFT JOIN pg_catalog.pg_collation c ON c.oid = a.attcollation
@@ -120,6 +158,7 @@ pub fn load_from_database(client: &mut Client) -> Result<Database> {
                 let column_name: &str = reflect_column.get("attname");
                 let column_name = Name::new(column_name);
                 let is_not_null: bool = reflect_column.get("attnotnull");
+                let comment: Option<&str> = reflect_column.get("comment");
                 let default_value: Option<&str> = reflect_column.get("default_value"); // TODO
 
                 let mut column_constraints = Vec::new();
@@ -211,7 +250,7 @@ pub fn load_from_database(client: &mut Client) -> Result<Database> {
 
                 let data_type = load_data_type(type_schema, type_name, atttypmod, attndims)?;
 
-                let column = Column::new(
+                let mut column = Column::new(
                     column_name.clone(),
                     data_type,
                     storage,
@@ -219,11 +258,12 @@ pub fn load_from_database(client: &mut Client) -> Result<Database> {
                     collation,
                     column_constraints
                 );
+                column.set_comment(comment.map(Into::into));
 
                 columns.insert(column_name, column.into());
             }
 
-            let table = Table::new(
+            let mut table = Table::new(
                 qual_table_name,
                 logged,
                 columns,
@@ -231,6 +271,7 @@ pub fn load_from_database(client: &mut Client) -> Result<Database> {
                 triggers,
                 inherits
             );
+            table.set_comment(comment.map(Into::into));
 
             schema.tables_mut().insert(table_name.clone(), Rc::new(table));
         }

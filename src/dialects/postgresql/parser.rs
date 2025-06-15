@@ -16,7 +16,7 @@ use crate::{
             Column, ColumnConstraint, ColumnConstraintData, ColumnMatch, ReferentialAction, Storage,
         },
         database::Database,
-        extension::{CreateExtension, Extension, Version},
+        extension::{CreateExtension, Extension},
         floats::Float,
         function::{
             self, Argmode, Argument, ConfigurationValue, CreateFunction, Function, FunctionBody,
@@ -2265,11 +2265,12 @@ impl<'a> PostgreSQLParser<'a> {
         Ok(())
     }
 
-    fn parse_version(&mut self) -> Result<Version> {
+    fn parse_version(&mut self) -> Result<Rc<str>> {
         if peek_token!(self, TokenKind::Word | TokenKind::QuotName | TokenKind::UName)?.is_some() {
-            Ok(Version::Name(self.expect_name()?))
+            let version = self.expect_name()?;
+            Ok(version.into())
         } else {
-            Ok(Version::String(self.expect_string()?))
+            Ok(self.expect_string()?)
         }
     }
 

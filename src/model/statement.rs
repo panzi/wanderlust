@@ -5,7 +5,7 @@ use crate::format::IsoString;
 use super::alter::extension::AlterExtension;
 use super::alter::table::AlterTable;
 use super::alter::types::AlterType;
-use super::extension::{CreateExtension, Extension, Version};
+use super::extension::{CreateExtension, Extension};
 use super::function::{CreateFunction, FunctionSignature};
 use super::index::{CreateIndex, Index};
 use super::name::Name;
@@ -55,7 +55,7 @@ impl Statement {
     }
 
     #[inline]
-    pub fn create_extension(name: QName, version: Option<Version>) -> Self {
+    pub fn create_extension(name: QName, version: Option<impl Into<Rc<str>>>) -> Self {
         Self::CreateExtension(Rc::new(CreateExtension::new(false, Extension::new(name, version), false)))
     }
 
