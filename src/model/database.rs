@@ -9,7 +9,7 @@ use crate::model::alter::types::{AlterType, AlterTypeData, ValuePosition};
 use crate::model::column::ColumnConstraintData;
 use crate::model::index::IndexItemData;
 use crate::model::table::TableConstraintData;
-use crate::model::types::{BasicType, TypeData};
+use crate::model::types::{BasicType, DataType, TypeData};
 
 use super::alter::extension::{AlterExtension, AlterExtensionData};
 use super::alter::types::AlterTypeAction;
@@ -213,6 +213,58 @@ impl Database {
             }
         }
         None
+    }
+
+    pub(crate) fn get_table_err(&self, name: &QName) -> Result<&Rc<Table>> {
+        if let Some(schema_name) = name.schema() {
+            let Some(schema) = self.schemas.get(schema_name) else {
+                return Err(Error::new(
+                    ErrorKind::SchemaNotExists,
+                    None,
+                    Some(format!("schema not found: {schema_name}")),
+                    None
+                ));
+            };
+
+            let Some(table) = schema.tables().get(name.name()) else {
+                return Err(Error::new(
+                    ErrorKind::TableNotExists,
+                    None,
+                    Some(format!("table not found: {name}")),
+                    None
+                ));
+            };
+
+            return Ok(table);
+        }
+
+        for schema_name in &self.search_path {
+            if let Some(schema) = self.schemas.get(schema_name) {
+                if let Some(table) = schema.tables().get(name.name()) {
+                    return Ok(table);
+                }
+            }
+        }
+
+        Err(Error::new(
+            ErrorKind::TableNotExists,
+            None,
+            Some(format!("table not found: {name}")),
+            None
+        ))
+    }
+
+    pub(crate) fn get_column_type(&self, table_name: &QName, column_name: &Name) -> Result<&Rc<DataType>> {
+        let table = self.get_table_err(table_name)?;
+        let Some(column) = table.columns().get(column_name) else {
+            return Err(Error::new(
+                ErrorKind::ColumnNotExists,
+                None,
+                Some(format!("column not found: {table_name}.{column_name}")),
+                None
+            ));
+        };
+        Ok(column.data_type())
     }
 
     pub fn has_index(&self, name: &QName) -> bool {
@@ -963,12 +1015,6 @@ impl Database {
                 for column in table.columns_mut().values_unordered_mut() {
                     let column = Rc::make_mut(column);
 
-                    if let BasicType::ColumnType { table_name, .. } = Rc::make_mut(column.data_type_mut()).basic_type_mut() {
-                        if table_name == old_table_name {
-                            *table_name = new_table_name.clone();
-                        }
-                    }
-
                     for constraint in column.constraints_mut() {
                         let constraint = Rc::make_mut(constraint);
                         if let ColumnConstraintData::References { ref_table, .. } = constraint.data_mut() {
@@ -993,58 +1039,6 @@ impl Database {
                 let ref_table = index.table_name_mut();
                 if ref_table == old_table_name {
                     *ref_table = new_table_name.clone();
-                }
-            }
-
-            for type_def in schema.types_mut().values_unordered_mut() {
-                let type_def = Rc::make_mut(type_def);
-                if let TypeData::Composite { attributes } = type_def.data_mut() {
-                    for attribute in attributes.values_unordered_mut() {
-                        if let BasicType::ColumnType { table_name, .. } = attribute.data_type_mut().basic_type_mut() {
-                            if table_name == old_table_name {
-                                *table_name = new_table_name.clone();
-                            }
-                        }
-                    }
-                }
-            }
-
-            let mut rename_functions = Vec::new();
-            for (reference, function) in schema.functions_mut().iter_unordered_mut() {
-                let function = Rc::make_mut(function);
-                let arguments = Rc::make_mut(function.arguments_mut());
-                let mut sig_change = false;
-                for argument in arguments {
-                    if let BasicType::ColumnType { table_name, .. } = argument.data_type_mut().basic_type_mut() {
-                        if table_name == old_table_name {
-                            *table_name = new_table_name.clone();
-                            if argument.mode().is_input() {
-                                sig_change = true;
-                            }
-                        }
-                    }
-                }
-
-                if sig_change {
-                    rename_functions.push((reference.clone(), function.to_ref()));
-                }
-            }
-
-            for (old_function, new_function) in rename_functions {
-                if schema.functions().contains_key(&new_function) {
-                    return Err(Error::new(
-                        ErrorKind::FunctionExists,
-                        None,
-                        Some(format!(
-                            "signature of function {} changed to {} but that already exists",
-                            old_function, new_function
-                        )),
-                        None
-                    ));
-                }
-
-                if let Some(function) = schema.functions_mut().remove(&old_function) {
-                    schema.functions_mut().insert(new_function, function);
                 }
             }
         }
@@ -1107,12 +1101,6 @@ impl Database {
                 for column in table.columns_mut().values_unordered_mut() {
                     let column = Rc::make_mut(column);
 
-                    if let BasicType::ColumnType { table_name: ref_table, column_name } = Rc::make_mut(column.data_type_mut()).basic_type_mut() {
-                        if ref_table == table_name && column_name == old_column_name {
-                            *column_name = new_column_name.clone();
-                        }
-                    }
-
                     for constraint in column.constraints_mut() {
                         let constraint = Rc::make_mut(constraint);
                         if let ColumnConstraintData::References { ref_table, ref_column, .. } = constraint.data_mut() {
@@ -1146,58 +1134,6 @@ impl Database {
                     }
                 }
             }
-
-            for type_def in schema.types_mut().values_unordered_mut() {
-                let type_def = Rc::make_mut(type_def);
-                if let TypeData::Composite { attributes } = type_def.data_mut() {
-                    for attribute in attributes.values_unordered_mut() {
-                        if let BasicType::ColumnType { table_name: ref_table, column_name } = attribute.data_type_mut().basic_type_mut() {
-                            if ref_table == table_name && column_name == old_column_name {
-                                *column_name = new_column_name.clone();
-                            }
-                        }
-                    }
-                }
-            }
-
-            let mut rename_functions = Vec::new();
-            for (reference, function) in schema.functions_mut().iter_unordered_mut() {
-                let function = Rc::make_mut(function);
-                let arguments = Rc::make_mut(function.arguments_mut());
-                let mut sig_change = false;
-                for argument in arguments {
-                    if let BasicType::ColumnType { table_name: ref_table, column_name } = argument.data_type_mut().basic_type_mut() {
-                        if ref_table == table_name && column_name == old_column_name {
-                            *column_name = new_column_name.clone();
-                            if argument.mode().is_input() {
-                                sig_change = true;
-                            }
-                        }
-                    }
-                }
-
-                if sig_change {
-                    rename_functions.push((reference.clone(), function.to_ref()));
-                }
-            }
-
-            for (old_function, new_function) in rename_functions {
-                if schema.functions().contains_key(&new_function) {
-                    return Err(Error::new(
-                        ErrorKind::FunctionExists,
-                        None,
-                        Some(format!(
-                            "signature of function {} changed to {} but that already exists",
-                            old_function, new_function
-                        )),
-                        None
-                    ));
-                }
-
-                if let Some(function) = schema.functions_mut().remove(&old_function) {
-                    schema.functions_mut().insert(new_function, function);
-                }
-            }
         }
 
         Ok(())
@@ -1224,7 +1160,7 @@ impl Database {
                 let arguments = Rc::make_mut(function.arguments_mut());
                 let mut sig_change = false;
                 for argument in arguments {
-                    if let BasicType::UserDefined { name, .. } = argument.data_type_mut().basic_type_mut() {
+                    if let BasicType::UserDefined { name, .. } = Rc::make_mut(argument.data_type_mut()).basic_type_mut() {
                         if name == old_type_name {
                             *name = new_type_name.clone();
                             if argument.mode().is_input() {

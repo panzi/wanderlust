@@ -516,7 +516,7 @@ impl<'a> PostgreSQLParser<'a> {
         }
     }
 
-    fn parse_data_type(&mut self) -> Result<DataType> {
+    fn parse_data_type(&mut self) -> Result<Rc<DataType>> {
         let data_type =
         if self.parse_word(BIGINT)? || self.parse_word(INT8)? {
             BasicType::Bigint
@@ -777,23 +777,20 @@ impl<'a> PostgreSQLParser<'a> {
                 if self.parse_operator("%")? {
                     self.expect_word(TYPE)?;
 
-                    BasicType::ColumnType {
-                        table_name: self.database.resolve_table_name(&first),
-                        column_name: second
-                    }
+                    return Ok(self.database.get_column_type(&QName::new(None, first), &second)?.clone());
                 } else if self.parse_token(TokenKind::Period)? {
                     let column_name = self.expect_name()?;
 
                     self.expect_operator("%")?;
                     self.expect_word(TYPE)?;
 
-                    BasicType::ColumnType {
-                        table_name: QName::new(
+                    return Ok(self.database.get_column_type(
+                        &QName::new(
                             Some(first),
                             second,
                         ),
-                        column_name
-                    }
+                        &column_name
+                    )?.clone());
                 } else {
                     let parameters = self.parse_type_params()?;
                     BasicType::UserDefined {
@@ -837,7 +834,7 @@ impl<'a> PostgreSQLParser<'a> {
             array_dimensions = Some(dims.into_boxed_slice());
         }
 
-        Ok(DataType::new(data_type, array_dimensions.map(Into::into)))
+        Ok(Rc::new(DataType::new(data_type, array_dimensions.map(Into::into))))
     }
 
     #[inline]
@@ -1956,7 +1953,7 @@ impl<'a> PostgreSQLParser<'a> {
                     if self.parse_word(DATA)? {
                         self.expect_word(TYPE)?;
 
-                        let data_type = Rc::new(self.parse_data_type()?);
+                        let data_type = self.parse_data_type()?;
                         let collation = if self.parse_word(COLLATE)? {
                             Some(self.parse_ref_collation()?)
                         } else {
@@ -1992,7 +1989,7 @@ impl<'a> PostgreSQLParser<'a> {
                         ]));
                     }
                 } else if self.parse_word(TYPE)? {
-                    let data_type = Rc::new(self.parse_data_type()?);
+                    let data_type = self.parse_data_type()?;
                     let collation = if self.parse_word(COLLATE)? {
                         Some(self.parse_ref_collation()?)
                     } else {
@@ -2459,7 +2456,7 @@ impl<'a> PostgreSQLParser<'a> {
                 if function_name.schema().is_none() {
                     // lookup possibly schema qualified function: supportfn(internal) returns internal
                     let reference = FunctionRef::new(function_name.name().clone(), vec![
-                        DataType::new(BasicType::Internal, None)
+                        Rc::new(DataType::new(BasicType::Internal, None))
                     ]);
                     function_name = self.database.resolve_function_reference(&reference);
                 }

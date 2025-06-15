@@ -10,12 +10,12 @@ use crate::model::words::*;
 pub struct QFunctionRef {
     name: QName,
     /// only input arguments
-    arguments: Rc<[DataType]>,
+    arguments: Rc<[Rc<DataType>]>,
 }
 
 impl QFunctionRef {
     #[inline]
-    pub fn new(name: QName, arguments: impl Into<Rc<[DataType]>>) -> Self {
+    pub fn new(name: QName, arguments: impl Into<Rc<[Rc<DataType>]>>) -> Self {
         Self { name, arguments: arguments.into() }
     }
 
@@ -25,7 +25,7 @@ impl QFunctionRef {
     }
 
     #[inline]
-    pub fn arguments(&self) -> &Rc<[DataType]> {
+    pub fn arguments(&self) -> &Rc<[Rc<DataType>]> {
         &self.arguments
     }
 
@@ -68,12 +68,12 @@ impl std::fmt::Display for QFunctionRef {
 pub struct FunctionRef {
     name: Name,
     /// only input arguments
-    arguments: Rc<[DataType]>,
+    arguments: Rc<[Rc<DataType>]>,
 }
 
 impl FunctionRef {
     #[inline]
-    pub fn new(name: Name, arguments: impl Into<Rc<[DataType]>>) -> Self {
+    pub fn new(name: Name, arguments: impl Into<Rc<[Rc<DataType>]>>) -> Self {
         Self { name, arguments: arguments.into() }
     }
 
@@ -83,7 +83,7 @@ impl FunctionRef {
     }
 
     #[inline]
-    pub fn arguments(&self) -> &Rc<[DataType]> {
+    pub fn arguments(&self) -> &Rc<[Rc<DataType>]> {
         &self.arguments
     }
 
@@ -130,7 +130,7 @@ impl FunctionSignature {
         &self.arguments
     }
 
-    fn ref_args(&self) -> Vec<DataType> {
+    fn ref_args(&self) -> Vec<Rc<DataType>> {
         let mut args = Vec::new();
         for arg in self.arguments.deref() {
             match arg.mode() {
@@ -139,7 +139,7 @@ impl FunctionSignature {
                 }
                 Argmode::Variadic => {
                     // XXX: not sure if this is correct
-                    args.push(arg.data_type.to_array(None));
+                    args.push(Rc::new(arg.data_type.to_array(None)));
                 }
                 Argmode::Out => {}
             }
@@ -186,13 +186,13 @@ impl std::fmt::Display for FunctionSignature {
 pub struct SignatureArgument {
     mode: Argmode,
     name: Option<Name>,
-    data_type: DataType,
+    data_type: Rc<DataType>,
 }
 
 impl SignatureArgument {
     #[inline]
-    pub fn new(mode: Argmode, name: Option<Name>, data_type: DataType) -> Self {
-        Self { mode, name, data_type }
+    pub fn new(mode: Argmode, name: Option<Name>, data_type: impl Into<Rc<DataType>>) -> Self {
+        Self { mode, name, data_type: data_type.into() }
     }
 
     #[inline]
@@ -206,7 +206,7 @@ impl SignatureArgument {
     }
 
     #[inline]
-    pub fn data_type(&self) -> &DataType {
+    pub fn data_type(&self) -> &Rc<DataType> {
         &self.data_type
     }
 }
@@ -426,7 +426,7 @@ impl Function {
         self.comment = comment;
     }
 
-    fn ref_args(&self) -> Vec<DataType> {
+    fn ref_args(&self) -> Vec<Rc<DataType>> {
         let mut args = Vec::new();
         for arg in self.arguments.deref() {
             match arg.mode() {
@@ -435,7 +435,7 @@ impl Function {
                 }
                 Argmode::Variadic => {
                     // XXX: not sure if this is correct
-                    args.push(arg.data_type.to_array(None));
+                    args.push(Rc::new(arg.data_type.to_array(None)));
                 }
                 Argmode::Out => {}
             }
@@ -701,14 +701,14 @@ pub enum ConfigurationValue {
 pub struct Argument {
     mode: Argmode,
     name: Option<Name>,
-    data_type: DataType,
+    data_type: Rc<DataType>,
     default: Option<Rc<[ParsedToken]>>,
 }
 
 impl Argument {
     #[inline]
-    pub fn new(mode: Argmode, name: Option<Name>, data_type: DataType, default: Option<Rc<[ParsedToken]>>) -> Self {
-        Self { mode, name, data_type, default }
+    pub fn new(mode: Argmode, name: Option<Name>, data_type: impl Into<Rc<DataType>>, default: Option<Rc<[ParsedToken]>>) -> Self {
+        Self { mode, name, data_type: data_type.into(), default }
     }
 
     #[inline]
@@ -722,12 +722,12 @@ impl Argument {
     }
 
     #[inline]
-    pub fn data_type(&self) -> &DataType {
+    pub fn data_type(&self) -> &Rc<DataType> {
         &self.data_type
     }
 
     #[inline]
-    pub fn data_type_mut(&mut self) -> &mut DataType {
+    pub fn data_type_mut(&mut self) -> &mut Rc<DataType> {
         &mut self.data_type
     }
 
@@ -757,7 +757,7 @@ impl std::fmt::Display for Argument {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ReturnType {
-    Type(DataType),
+    Type(Rc<DataType>),
     Table { columns: Rc<[Column]> }
 }
 
@@ -796,13 +796,13 @@ impl std::fmt::Display for ReturnType {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Column {
     name: Name,
-    data_type: DataType,
+    data_type: Rc<DataType>,
 }
 
 impl Column {
     #[inline]
-    pub fn new(name: Name, data_type: DataType) -> Self {
-        Self { name, data_type }
+    pub fn new(name: Name, data_type: impl Into<Rc<DataType>>) -> Self {
+        Self { name, data_type: data_type.into() }
     }
 
     #[inline]
@@ -811,7 +811,7 @@ impl Column {
     }
 
     #[inline]
-    pub fn data_type(&self) -> &DataType {
+    pub fn data_type(&self) -> &Rc<DataType> {
         &self.data_type
     }
 }

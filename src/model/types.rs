@@ -184,7 +184,7 @@ impl std::fmt::Display for TypeData {
 #[derive(Debug, Clone, PartialEq)]
 pub struct CompositeAttribute {
     name: Name,
-    data_type: DataType,
+    data_type: Rc<DataType>,
     collation: Option<QName>,
 }
 
@@ -192,10 +192,10 @@ impl CompositeAttribute {
     #[inline]
     pub fn new(
         name: Name,
-        data_type: DataType,
+        data_type: impl Into<Rc<DataType>>,
         collation: Option<QName>,
     ) -> Self {
-        Self { name, data_type, collation }
+        Self { name, data_type: data_type.into(), collation }
     }
 
     #[inline]
@@ -209,17 +209,17 @@ impl CompositeAttribute {
     }
 
     #[inline]
-    pub fn data_type(&self) -> &DataType {
+    pub fn data_type(&self) -> &Rc<DataType> {
         &self.data_type
     }
 
     #[inline]
-    pub fn data_type_mut(&mut self) -> &mut DataType {
+    pub fn data_type_mut(&mut self) -> &mut Rc<DataType> {
         &mut self.data_type
     }
 
     #[inline]
-    pub fn set_data_type(&mut self, data_type: DataType) {
+    pub fn set_data_type(&mut self, data_type: Rc<DataType>) {
         self.data_type = data_type;
     }
 
@@ -348,7 +348,6 @@ pub enum BasicType {
     UUID,
     XML,
     UserDefined { name: QName, parameters: Option<Rc<[Value]>> },
-    ColumnType { table_name: QName, column_name: Name },
 }
 
 impl BasicType {
@@ -557,9 +556,6 @@ impl ToTokens for BasicType {
                     tokens.push(ParsedToken::RParen);
                 }
             }
-            Self::ColumnType { table_name, column_name } => {
-                make_tokens!(tokens, {table_name}.{column_name}%TYPE)
-            }
         }
     }
 }
@@ -698,9 +694,6 @@ impl std::fmt::Display for BasicType {
                 }
 
                 Ok(())
-            }
-            Self::ColumnType { table_name, column_name } => {
-                write!(f, "{table_name}.{column_name}%{TYPE}")
             }
         }
     }

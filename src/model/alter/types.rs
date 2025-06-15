@@ -51,7 +51,7 @@ impl AlterType {
     }
 
     #[inline]
-    pub fn add_attribute(type_name: QName, attribute_name: Name, data_type: DataType, collation: Option<QName>) -> Rc<Self> {
+    pub fn add_attribute(type_name: QName, attribute_name: Name, data_type: impl Into<Rc<DataType>>, collation: Option<QName>) -> Rc<Self> {
         Rc::new(Self { type_name, data: AlterTypeData::Actions { actions: vec![AlterTypeAction::add_attribute(attribute_name, data_type, collation)] } })
     }
 
@@ -61,7 +61,7 @@ impl AlterType {
     }
 
     #[inline]
-    pub fn alter_attribute(type_name: QName, attribute_name: Name, data_type: DataType, collation: Option<QName>) -> Rc<Self> {
+    pub fn alter_attribute(type_name: QName, attribute_name: Name, data_type: impl Into<Rc<DataType>>, collation: Option<QName>) -> Rc<Self> {
         Rc::new(Self { type_name, data: AlterTypeData::Actions { actions: vec![AlterTypeAction::alter_attribute(attribute_name, data_type, collation)] } })
     }
 
@@ -154,15 +154,15 @@ impl std::fmt::Display for AlterTypeData {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AlterTypeAction {
-    AddAttribute { name: Name, data_type: DataType, collation: Option<QName>, behavior: Option<DropBehavior> },
+    AddAttribute { name: Name, data_type: Rc<DataType>, collation: Option<QName>, behavior: Option<DropBehavior> },
     DropAttribute { if_exists: bool, name: Name, behavior: Option<DropBehavior> },
-    AlterAttribute { name: Name, data_type: DataType, collation: Option<QName>, behavior: Option<DropBehavior> },
+    AlterAttribute { name: Name, data_type: Rc<DataType>, collation: Option<QName>, behavior: Option<DropBehavior> },
 }
 
 impl AlterTypeAction {
     #[inline]
-    pub fn add_attribute(name: Name, data_type: DataType, collation: Option<QName>) -> Self {
-        Self::AddAttribute { name, data_type, collation, behavior: Some(DropBehavior::Cascade) }
+    pub fn add_attribute(name: Name, data_type: impl Into<Rc<DataType>>, collation: Option<QName>) -> Self {
+        Self::AddAttribute { name, data_type: data_type.into(), collation, behavior: Some(DropBehavior::Cascade) }
     }
 
     #[inline]
@@ -171,8 +171,8 @@ impl AlterTypeAction {
     }
 
     #[inline]
-    pub fn alter_attribute(name: Name, data_type: DataType, collation: Option<QName>) -> Self {
-        Self::AlterAttribute { name, data_type, collation, behavior: Some(DropBehavior::Cascade) }
+    pub fn alter_attribute(name: Name, data_type: impl Into<Rc<DataType>>, collation: Option<QName>) -> Self {
+        Self::AlterAttribute { name, data_type: data_type.into(), collation, behavior: Some(DropBehavior::Cascade) }
     }
 }
 
