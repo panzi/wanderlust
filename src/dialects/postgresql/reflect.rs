@@ -52,8 +52,11 @@ pub fn load_from_database(client: &mut Client) -> Result<Database> {
             .or_insert_with(|| Schema::new(schema_name.clone()));
 
         let reflect_tables = client.query("
-            SELECT oid, relname, (relpersistence = 'p') AS logged
-            FROM pg_catalog.pg_class
+            SELECT
+                oid,
+                relname,
+                (relpersistence = 'p') AS logged
+            FROM pg_catalog.pg_class c
             WHERE relnamespace = $1 AND relkind = 'r' AND relpersistence != 't'
         ", &[&schema_oid])?;
 
@@ -69,7 +72,25 @@ pub fn load_from_database(client: &mut Client) -> Result<Database> {
             let mut columns = OrderedHashMap::new();
             let mut constraints = OrderedHashMap::new(); // TODO
             let mut triggers = OrderedHashMap::new(); // TODO
-            let mut inherits = Vec::new(); // TODO
+            let mut inherits = Vec::new();
+
+            let reflect_inherits = client.query("
+                SELECT nspname, relname
+                FROM pg_catalog.pg_inherits i
+                LEFT JOIN pg_catalog.pg_class c ON c.oid = i.inhparent
+                LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+                WHERE i.inhrelid = $1
+                ORDER BY i.inhseqno
+            ", &[&table_oid])?;
+
+            for reflect_inherit in &reflect_inherits {
+                let nspname: Option<&str> = reflect_inherit.get("nspname");
+                let relname: &str = reflect_inherit.get("relname");
+
+                inherits.push(QName::new(
+                    nspname.map(Into::into), relname.into()
+                ));
+            }
 
             let reflect_columns = client.query("
                 SELECT
