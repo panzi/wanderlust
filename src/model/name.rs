@@ -10,20 +10,40 @@ impl Name {
     #[inline]
     pub fn needs_quoting(name: &str) -> bool {
         let Some(c) = name.chars().next() else {
-            return false;
+            return true;
         };
 
         if !c.is_alphabetic() && c != '_' {
-            return false;
+            return true;
         }
 
         name[c.len_utf8()..].contains(|c: char| !c.is_alphanumeric() && c != '_' && c != '$')
     }
 
     #[inline]
+    pub fn normed_needs_quoting(name: &str) -> bool {
+        let Some(c) = name.chars().next() else {
+            return true;
+        };
+
+        if (!c.is_alphabetic() && c != '_') || c.is_uppercase() {
+            return true;
+        }
+
+        name[c.len_utf8()..].contains(|c: char| (!c.is_alphanumeric() && c != '_' && c != '$') || c.is_uppercase())
+    }
+
+    #[inline]
     pub fn new(name: impl Into<Rc<str>>) -> Self {
         let name = name.into();
         let quoted = Self::needs_quoting(&name);
+        Self { name, quoted }
+    }
+
+    #[inline]
+    pub fn from_normed(name: impl Into<Rc<str>>) -> Self {
+        let name = name.into();
+        let quoted = Self::normed_needs_quoting(&name);
         Self { name, quoted }
     }
 

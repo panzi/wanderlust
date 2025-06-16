@@ -2,7 +2,23 @@ use std::{num::NonZeroU32, rc::Rc};
 
 use postgres::Client;
 
-use crate::{dialects::postgresql::{PostgreSQLParser, PostgreSQLTokenizer}, error::{Error, ErrorKind, Result}, format::IsoString, model::{column::{Column, ColumnConstraint, ColumnConstraintData, Storage}, database::Database, extension::Extension, name::{Name, QName}, schema::Schema, syntax::Parser, table::Table, types::{BasicType, DataType, IntervalFields, Value}}, ordered_hash_map::OrderedHashMap};
+use crate::{
+    dialects::postgresql::{PostgreSQLParser, PostgreSQLTokenizer},
+    error::{Error, ErrorKind, Result},
+    model::{
+        column::{Column, ColumnConstraint, ColumnConstraintData, Storage},
+        database::Database,
+        extension::Extension,
+        name::{Name, QName},
+        schema::Schema,
+        syntax::Parser,
+        table::Table,
+        types::{
+            BasicType, CompositeAttribute, DataType, IntervalFields, TypeData, TypeDef, Value,
+        },
+    },
+    ordered_hash_map::OrderedHashMap,
+};
 
 // mabe these functions help? https://www.postgresql.org/docs/17/functions-info.html#FUNCTIONS-INFO-CATALOG
 // https://www.postgresql.org/docs/17/catalogs.html
@@ -36,12 +52,11 @@ macro_rules! interval_mask {
 pub fn load_from_database(client: &mut Client) -> Result<Database> {
     let mut database = PostgreSQLParser::new_database();
 
-    // TODO: types
     // TODO: functions
     // TODO: table contraints
     // TODO: triggers
     // TODO: indices
-    // TODO: comments
+    // TODO: comments of the above
 
     let reflect_schemas = client.query("
         SELECT oid, nspname
@@ -52,7 +67,7 @@ pub fn load_from_database(client: &mut Client) -> Result<Database> {
     for reflect_schema in &reflect_schemas {
         let schema_oid: u32 = reflect_schema.get("oid");
         let nspname: &str = reflect_schema.get("nspname");
-        let schema_name = Name::new(nspname);
+        let schema_name = Name::from_normed(nspname);
 
         let schema = database.schemas_mut()
             .entry(schema_name.clone())
@@ -72,7 +87,7 @@ pub fn load_from_database(client: &mut Client) -> Result<Database> {
             let extname: &str = reflect_extension.get("extname");
             let extversion: Option<&str> = reflect_extension.get("extversion");
             let comment: Option<&str> = reflect_extension.get("comment");
-            let extname: Name = extname.into();
+            let extname = Name::from_normed(extname);
             let mut extension = Extension::new(
                 QName::new(Some(schema_name.clone()), extname.clone()),
                 extversion
@@ -84,6 +99,114 @@ pub fn load_from_database(client: &mut Client) -> Result<Database> {
                 extname,
                 Rc::new(extension)
             );
+        }
+
+        let reflect_types = client.query("
+            SELECT
+                t.oid,
+                typname,
+                typtype,
+                typcategory,
+                typrelid,
+                pg_catalog.obj_description(t.oid, 'pg_type'::name) AS comment
+            FROM pg_catalog.pg_type t
+            LEFT JOIN pg_catalog.pg_class c ON c.oid = typrelid
+            WHERE typnamespace = $1 AND typcategory != 'A' and (relkind IS NULL OR relkind = 'c');
+        ", &[&schema_oid])?;
+
+        for reflect_type in &reflect_types {
+            let type_oid: u32 = reflect_type.get("oid");
+            let typname: &str = reflect_type.get("typname");
+            let typtype: i8 = reflect_type.get("typtype");
+            let type_name = Name::from_normed(typname);
+            let comment: Option<&str> = reflect_type.get("comment");
+
+            let mut type_def = match typtype as u8 {
+                b'e' => {
+                    let reflect_enum_values = client.query("
+                        SELECT
+                            enumlabel
+                        FROM pg_catalog.pg_enum
+                        WHERE enumtypid = $1
+                        ORDER BY enumsortorder
+                    ", &[&type_oid])?;
+
+                    let mut enum_values = Vec::new();
+                    for reflect_enum_value in &reflect_enum_values {
+                        let enumlabel: &str = reflect_enum_value.get("enumlabel");
+                        enum_values.push(enumlabel.into());
+                    }
+
+                    TypeDef::new(
+                        QName::new(Some(schema_name.clone()), type_name.clone()),
+                        TypeData::Enum { values: enum_values.into() }
+                    )
+                }
+                b'c' => {
+                    let typrelid: u32 = reflect_type.get("typrelid");
+                    let mut attributes = OrderedHashMap::new();
+
+                    let reflect_attributes = client.query("
+                        SELECT
+                            attname,
+                            attnum,
+                            attndims,
+                            collname,
+                            cn.nspname AS collschema,
+                            typname,
+                            atttypmod,
+                            tyn.nspname AS typschema
+                        FROM pg_catalog.pg_attribute a
+                        LEFT JOIN pg_catalog.pg_collation c ON c.oid = a.attcollation
+                        LEFT JOIN pg_catalog.pg_namespace cn ON cn.oid = c.collnamespace
+                        LEFT JOIN pg_catalog.pg_type ty ON ty.oid = a.atttypid
+                        LEFT JOIN pg_catalog.pg_namespace tyn ON tyn.oid = ty.typnamespace
+                        WHERE a.attrelid = $1 AND a.atttypid IS NOT NULL AND a.attnum > 0
+                        ORDER BY a.attnum
+                    ", &[&typrelid])?;
+
+                    for reflect_attribute in reflect_attributes {
+                        let attribute_name: &str = reflect_attribute.get("attname");
+                        let attribute_name = Name::from_normed(attribute_name);
+
+                        let collation_schema: Option<&str> = reflect_attribute.get("collschema");
+                        let collation_name: Option<&str> = reflect_attribute.get("collname");
+                        let collation = load_collation(collation_schema, collation_name);
+
+                        let atttypmod: i32 = reflect_attribute.get("atttypmod"); // e.g. varchar parameter
+                        let attndims: i16 = reflect_attribute.get("attndims");
+
+                        let type_name: &str = reflect_attribute.get("typname");
+                        let type_schema: &str = reflect_attribute.get("typschema");
+
+                        let data_type = load_data_type(type_schema, type_name, atttypmod, attndims)?;
+
+                        let attribute = CompositeAttribute::new(
+                            attribute_name.clone(),
+                            data_type,
+                            collation
+                        );
+
+                        attributes.insert(attribute_name, attribute.into());
+                    }
+
+                    TypeDef::new(
+                        QName::new(Some(schema_name.clone()), type_name.clone()),
+                        TypeData::Composite { attributes }
+                    )
+                }
+                _ => {
+                    return Err(Error::new(
+                        ErrorKind::NotSupported,
+                        None,
+                        Some(format!("{schema_name}.{type_name}: unsupported typtype: {typtype:?}")),
+                        None
+                    ));
+                }
+            };
+            type_def.set_comment(comment.map(Into::into));
+
+            schema.types_mut().insert(type_name, Rc::new(type_def));
         }
 
         let reflect_tables = client.query("
@@ -99,7 +222,7 @@ pub fn load_from_database(client: &mut Client) -> Result<Database> {
         for reflect_table in &reflect_tables {
             let table_oid: u32 = reflect_table.get("oid");
             let relname: &str = reflect_table.get("relname");
-            let table_name = Name::new(relname.to_string());
+            let table_name = Name::from_normed(relname.to_string());
             let comment: Option<&str> = reflect_table.get("comment");
             let qual_table_name = QName::new(Some(schema_name.clone()), table_name.clone());
 
@@ -125,7 +248,7 @@ pub fn load_from_database(client: &mut Client) -> Result<Database> {
                 let relname: &str = reflect_inherit.get("relname");
 
                 inherits.push(QName::new(
-                    nspname.map(Into::into), relname.into()
+                    nspname.map(Name::from_normed), Name::from_normed(relname)
                 ));
             }
 
@@ -156,7 +279,7 @@ pub fn load_from_database(client: &mut Client) -> Result<Database> {
 
             for reflect_column in reflect_columns {
                 let column_name: &str = reflect_column.get("attname");
-                let column_name = Name::new(column_name);
+                let column_name = Name::from_normed(column_name);
                 let is_not_null: bool = reflect_column.get("attnotnull");
                 let comment: Option<&str> = reflect_column.get("comment");
                 let default_value: Option<&str> = reflect_column.get("default_value"); // TODO
@@ -186,32 +309,14 @@ pub fn load_from_database(client: &mut Client) -> Result<Database> {
 
                 let collation_schema: Option<&str> = reflect_column.get("collschema");
                 let collation_name: Option<&str> = reflect_column.get("collname");
-                let collation = match (collation_schema, collation_name) {
-                    (Some(collation_schema), Some(collation_name)) => {
-                        if collation_schema.eq_ignore_ascii_case("pg_catalog") && collation_name.eq_ignore_ascii_case("default") {
-                            None
-                        } else {
-                            Some(QName::new(Some(collation_schema.into()), collation_name.into()))
-                        }
-                    }
-                    (None, Some(collation_name)) => {
-                        if collation_name.eq_ignore_ascii_case("default") {
-                            None
-                        } else {
-                            Some(QName::new(None, collation_name.into()))
-                        }
-                    }
-                    (_, None) => {
-                        None
-                    }
-                };
+                let collation = load_collation(collation_schema, collation_name);
 
                 let storage: i8 = reflect_column.get("storage");
-                let storage = match storage {
-                    0x70 => Storage::Plain,    // 'p'
-                    0x64 => Storage::External, // 'e'
-                    0x6D => Storage::Main,     // 'm'
-                    0x78 => Storage::Extended, // 'x'
+                let storage = match storage as u8 {
+                    b'p' => Storage::Plain,
+                    b'e' => Storage::External,
+                    b'm' => Storage::Main,
+                    b'x' => Storage::Extended,
                     0 => Storage::Default,
                     _ => {
                         return Err(Error::new(
@@ -225,10 +330,10 @@ pub fn load_from_database(client: &mut Client) -> Result<Database> {
 
                 let compression = if matches!(storage, Storage::Main | Storage::Extended) {
                     let compression_value: i8 = reflect_column.get("attcompression");
-                    match compression_value {
-                        0 => None, // documentation says '\0', reality is ''
-                        0x70 => Some(Name::new("pglz")), // 'p'
-                        0x6C => Some(Name::new("LZ4")), // 'l'
+                    match compression_value as u8 {
+                        b'p' => Some(Name::new("pglz")),
+                        b'l' => Some(Name::new("LZ4")),
+                        0 => None,
                         _ => {
                             return Err(Error::new(
                                 ErrorKind::NotSupported,
@@ -429,7 +534,7 @@ pub fn load_basic_type(type_schema: &str, type_name: &str, atttypmod: i32) -> Re
             "xml" => BasicType::XML,
 
             _ => BasicType::UserDefined {
-                name: QName::new(Some(type_schema.into()), type_name.into()),
+                name: QName::new(Some(Name::from_normed(type_schema)), Name::from_normed(type_name)),
                 parameters: if atttypmod != -1 {
                     Some(vec![Value::Integer(atttypmod.into())].into())
                 } else {
@@ -440,7 +545,7 @@ pub fn load_basic_type(type_schema: &str, type_name: &str, atttypmod: i32) -> Re
     } else {
         // TODO: how to detect column type? Is that actually copied on creation?
         BasicType::UserDefined {
-            name: QName::new(Some(type_schema.into()), type_name.into()),
+            name: QName::new(Some(Name::from_normed(type_schema)), Name::from_normed(type_name)),
             parameters: if atttypmod != -1 {
                 Some(vec![Value::Integer(atttypmod.into())].into())
             } else {
@@ -467,4 +572,26 @@ pub fn load_data_type(type_schema: &str, type_name: &str, atttypmod: i32, attndi
     );
 
     Ok(data_type)
+}
+
+pub fn load_collation(schema: Option<&str>, name: Option<&str>) -> Option<QName> {
+    match (schema, name) {
+        (Some(schema), Some(name)) => {
+            if schema == "pg_catalog" && name == "default" {
+                None
+            } else {
+                Some(QName::new(Some(Name::from_normed(schema)), Name::from_normed(name)))
+            }
+        }
+        (None, Some(name)) => {
+            if name == "default" {
+                None
+            } else {
+                Some(QName::new(None, Name::from_normed(name)))
+            }
+        }
+        (_, None) => {
+            None
+        }
+    }
 }
