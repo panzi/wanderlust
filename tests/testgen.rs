@@ -170,12 +170,10 @@ mod test_{} {{", test_suite.name)?;
             write!(out, "
     #[test]
     fn test_{}_{}() {{
-        let test_data = crate::helper::load_file({:?}, crate::TEST_{}_{});
-        let migrations = wanderlust::migration::generate_migration(&test_data.before, &test_data.after);
-        // TODO: run against PostgreSQL and compare result
+        crate::helper::run_test({:?}, {:?}, {:?}, crate::TEST_{}_{});
     }}
 ",
-                test_suite.name, test.name, test.path, test_suite_upper, test_upper,
+                test_suite.name, test.name, test_suite.name, test.name, test.path, test_suite_upper, test_upper,
             )?;
         }
         writeln!(out, "}}")?;

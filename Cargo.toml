@@ -7,6 +7,9 @@ default-run = "wanderlust"
 [dependencies]
 postgres = "0.19.10"
 
+[dev-dependencies]
+pretty_assertions = "1.4.1"
+
 [[bin]]
 name = "wanderlust"
 

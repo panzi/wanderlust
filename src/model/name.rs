@@ -80,6 +80,18 @@ impl Name {
     pub fn into_name(self) -> Rc<str> {
         self.name
     }
+
+    #[inline]
+    pub fn as_str(&self) -> &str {
+        &self.name
+    }
+}
+
+impl AsRef<str> for Name {
+    #[inline]
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
 }
 
 impl From<Name> for Rc<str> {

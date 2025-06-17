@@ -1633,7 +1633,7 @@ impl<'a> PostgreSQLParser<'a> {
             logged,
             columns,
             table_constraints,
-            OrderedHashMap::new(),
+            OrderedHashMap::new(), // triggers
             inherits,
         );
 

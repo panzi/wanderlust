@@ -245,10 +245,9 @@ impl Table {
                 let column = Rc::make_mut(column);
                 column.set_data_type(integer_type);
                 column.set_not_null();
-                let seq_name = format!(
-                    "{}_{}_seq",
-                    self.name, column.name()
-                );
+
+                let seq_name = make_sequence_name(&self.name, column.name());
+                let seq_name = seq_name.to_string();
 
                 let mut tokens = Vec::new();
                 make_tokens!(&mut tokens, nextval({seq_name}::regclass));
@@ -256,6 +255,12 @@ impl Table {
             }
         }
     }
+}
+
+pub fn make_sequence_name(table_name: &QName, column_name: &Name) -> QName {
+    let seq_name = format!("{}_{}_seq", table_name.name().name(), column_name);
+    let seq_name = Name::new(seq_name);
+    QName::new(table_name.schema().cloned(), seq_name)
 }
 
 #[derive(Debug, Clone)]

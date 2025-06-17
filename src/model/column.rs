@@ -20,11 +20,103 @@ pub struct Column {
     comment: Option<Rc<str>>,
 }
 
+pub fn is_nextval(column_name: &Name, expr: &[ParsedToken]) -> bool {
+    // nextval('schema.table_column_seq'::regclass)
+    // nextval(regclass 'schema.table_column_seq')
+    // nextval('schema.table_column_seq')
+    // nextval(CAST('schema.table_column_seq' AS regclass))
+
+    if expr.len() < 4 {
+        return false;
+    }
+
+    if !expr[0].is_word("nextval") {
+        return false;
+    }
+
+    if expr[1] != ParsedToken::LParen {
+        return false;
+    }
+
+    let suffix = format!("_{}_seq", column_name.as_str());
+
+    macro_rules! is_seq_name {
+        ($actual:expr) => {
+            match &$actual {
+                ParsedToken::String(_actual_seq_name) => {
+                    _actual_seq_name.ends_with(&suffix)
+                },
+                _ => false,
+            }
+        };
+    }
+
+    match expr.len() {
+        4 => {
+            is_seq_name!(expr[2]) &&
+            expr[3] == ParsedToken::RParen
+        }
+        5 => {
+            expr[2].is_word("regclass") &&
+            is_seq_name!(expr[3]) &&
+            expr[4] == ParsedToken::RParen
+        }
+        6 => {
+            is_seq_name!(expr[2]) &&
+            expr[3] == ParsedToken::DoubleColon &&
+            expr[4].is_word("regclass") &&
+            expr[5] == ParsedToken::RParen
+        }
+        9 => {
+            expr[2].is_word(CAST) &&
+            expr[3] == ParsedToken::LParen &&
+            is_seq_name!(expr[4]) &&
+            expr[5].is_word(AS) &&
+            expr[6].is_word("regclass") &&
+            expr[7] == ParsedToken::RParen &&
+            expr[8] == ParsedToken::RParen
+        }
+        _ => false
+    }
+}
+
 impl std::fmt::Display for Column {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.data_type.array_dimensions().is_none() {
+            if let Some(serial_type) = self.data_type.integer_to_serial() {
+                if let Some(default_value) = self.default() {
+                    if is_nextval(&self.name, &default_value) {
+                        write!(f, "{} {}", self.name, serial_type)?;
+
+                        self.write_other(f)?;
+
+                        for constraint in &self.constraints {
+                            if !matches!(constraint.data(), ColumnConstraintData::Default { .. }) {
+                                write!(f, " {constraint}")?;
+                            }
+                        }
+
+                        return Ok(());
+                    }
+                }
+            }
+        }
+
         write!(f, "{} {}", self.name, self.data_type)?;
 
+        self.write_other(f)?;
+
+        for constraint in &self.constraints {
+            write!(f, " {constraint}")?;
+        }
+
+        Ok(())
+    }
+}
+
+impl Column {
+    fn write_other(&self, f: &mut std::fmt::Formatter<'_>)-> std::fmt::Result {
         if self.storage != Storage::Default {
             write!(f, " {STORAGE} {}", self.storage)?
         }
@@ -37,15 +129,9 @@ impl std::fmt::Display for Column {
             write!(f, " {COLLATE} {collation}")?;
         }
 
-        for constraint in &self.constraints {
-            write!(f, " {constraint}")?;
-        }
-
         Ok(())
     }
-}
 
-impl Column {
     #[inline]
     pub fn new(
         name: Name,
@@ -143,6 +229,16 @@ impl Column {
             None,
             None
         )));
+    }
+
+    pub fn default(&self) -> Option<&Rc<[ParsedToken]>> {
+        for constraint in &self.constraints {
+            if let ColumnConstraintData::Default { value } = constraint.data() {
+                return Some(value);
+            }
+        }
+
+        None
     }
 
     pub fn drop_not_null(&mut self) {

@@ -357,6 +357,11 @@ impl BasicType {
     }
 
     #[inline]
+    pub fn is_integer(&self) -> bool {
+        matches!(self, Self::Integer | Self::Bigint | Self::SmallInt)
+    }
+
+    #[inline]
     pub fn is_user_defined(&self, type_name: &QName) -> bool {
         if let BasicType::UserDefined { name, .. } = self {
             name == type_name
@@ -371,6 +376,16 @@ impl BasicType {
             Self::Serial => Some(Self::Integer),
             Self::BigSerial => Some(Self::Bigint),
             Self::SmallSerial => Some(Self::SmallInt),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub fn integer_to_serial(&self) -> Option<Self> {
+        match self {
+            Self::Integer => Some(Self::Serial),
+            Self::Bigint => Some(Self::BigSerial),
+            Self::SmallInt => Some(Self::SmallSerial),
             _ => None,
         }
     }
@@ -767,6 +782,11 @@ impl DataType {
 
     pub fn serial_to_integer(&self) -> Option<Self> {
         let basic_type = self.basic_type.serial_to_integer()?;
+        Some(DataType::new(basic_type, self.array_dimensions.clone()))
+    }
+
+    pub fn integer_to_serial(&self) -> Option<Self> {
+        let basic_type = self.basic_type.integer_to_serial()?;
         Some(DataType::new(basic_type, self.array_dimensions.clone()))
     }
 

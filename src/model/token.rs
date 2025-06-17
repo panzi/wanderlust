@@ -202,7 +202,7 @@ impl ParsedToken {
     #[inline]
     pub fn is_word(&self, word: &str) -> bool {
         if let ParsedToken::Name(name) = self {
-            name.name().eq_ignore_ascii_case(word)
+            name.equals(word)
         } else {
             false
         }
