@@ -266,7 +266,7 @@ pub fn load_from_database(client: &mut Client) -> Result<Database> {
                 LEFT JOIN pg_catalog.pg_namespace cn ON cn.oid = c.collnamespace
                 LEFT JOIN pg_catalog.pg_type ty ON ty.oid = a.atttypid
                 LEFT JOIN pg_catalog.pg_namespace tyn ON tyn.oid = ty.typnamespace
-                WHERE a.attrelid = $1 AND a.atttypid IS NOT NULL AND a.attnum > 0
+                WHERE a.attrelid = $1 AND a.atttypid IS NOT NULL AND a.attnum > 0 AND attinhcount = 0
                 ORDER BY a.attnum
             ", &[&table_oid])?;
 
