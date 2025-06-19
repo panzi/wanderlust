@@ -1072,23 +1072,23 @@ impl<'a> PostgreSQLParser<'a> {
             ));
         }
 
-        let mut deferrable = None;
+        let mut deferrable = false;
         if self.parse_word(DEFERRABLE)? {
-            deferrable = Some(true);
+            deferrable = true;
         } else if self.parse_word(NOT)? {
             self.expect_word(DEFERRABLE)?;
-            deferrable = Some(false);
+            deferrable = false;
         }
 
-        let mut initially_deferred = None;
+        let mut initially_deferred = false;
         if self.peek_word(INITIALLY)? {
             self.expect_some()?;
 
             if self.parse_word(DEFERRED)? {
-                initially_deferred = Some(true);
+                initially_deferred = true;
             } else {
                 self.expect_word(IMMEDIATE)?;
-                initially_deferred = Some(false);
+                initially_deferred = false;
             }
         }
 
@@ -1287,30 +1287,30 @@ impl<'a> PostgreSQLParser<'a> {
                 break;
             }
 
-            let mut deferrable = None;
+            let mut deferrable = false;
             if self.parse_word(DEFERRABLE)? {
-                deferrable = Some(true);
+                deferrable = true;
             } else if self.peek_word(NOT)? {
                 let start_offset = self.expect_some()?.cursor().start_offset();
 
                 // Might be NOT NULL!
                 // I guess SQL needs more than one token lookahead!
                 if self.parse_word(DEFERRABLE)? {
-                    deferrable = Some(false);
+                    deferrable = false;
                 } else {
                     self.tokenizer.move_to(start_offset);
                 }
             }
 
-            let mut initially_deferred = None;
+            let mut initially_deferred = false;
             if self.peek_word(INITIALLY)? {
                 self.expect_some()?;
 
                 if self.parse_word(DEFERRED)? {
-                    initially_deferred = Some(true);
+                    initially_deferred = true;
                 } else {
                     self.expect_word(IMMEDIATE)?;
-                    initially_deferred = Some(false);
+                    initially_deferred = false;
                 }
             }
 

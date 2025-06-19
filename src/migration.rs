@@ -21,8 +21,6 @@ use crate::{make_tokens, model::{
     types::{DataType, TypeData, TypeDef},
 }};
 
-use crate::model::words::*;
-
 pub fn create_extension(extension: &Rc<Extension>, stmts: &mut Vec<Statement>) {
     stmts.push(Statement::create_extension(
         extension.name().clone(),
@@ -504,8 +502,8 @@ fn migrate_table(old_table: &Table, new_table: &Table, stmts: &mut Vec<Statement
                     AlterTable::alter_constraint(
                         new_table.name().clone(),
                         old_name.clone(),
-                        Some(new_constraint.default_deferrable()),
-                        Some(new_constraint.default_initially_deferred())
+                        Some(new_constraint.deferrable()),
+                        Some(new_constraint.initially_deferred())
                     )
                 ));
 

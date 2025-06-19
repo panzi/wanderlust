@@ -226,8 +226,8 @@ impl Column {
         self.constraints.push(Rc::new(ColumnConstraint::new(
             None,
             ColumnConstraintData::Default { value },
-            None,
-            None
+            false,
+            false
         )));
     }
 
@@ -253,8 +253,8 @@ impl Column {
         self.constraints.push(Rc::new(ColumnConstraint::new(
             None,
             ColumnConstraintData::NotNull,
-            None,
-            None
+            false,
+            false
         )));
     }
 
@@ -417,6 +417,14 @@ pub enum ColumnConstraintData {
     },
 }
 
+
+impl ColumnConstraintData {
+    #[inline]
+    pub fn is_deferrable(&self) -> bool {
+        matches!(self, Self::Unique { .. } | Self::PrimaryKey { .. } | Self::References { .. })
+    }
+}
+
 impl PartialEq for ColumnConstraintData {
     fn eq(&self, other: &Self) -> bool {
         match self {
@@ -547,8 +555,8 @@ impl std::fmt::Display for ColumnConstraintData {
 pub struct ColumnConstraint {
     name: Option<Name>,
     data: ColumnConstraintData,
-    deferrable: Option<bool>,
-    initially_deferred: Option<bool>,
+    deferrable: bool,
+    initially_deferred: bool,
 }
 
 pub fn make_constraint_name(table_name: &Name, column_name: &Name, data: &ColumnConstraintData) -> Name {
@@ -718,8 +726,8 @@ impl PartialEq for ColumnConstraint {
     fn eq(&self, other: &Self) -> bool {
         self.name == other.name &&
         self.data == other.data &&
-        self.default_deferrable() == other.default_deferrable() &&
-        self.default_initially_deferred() == other.default_initially_deferred()
+        self.deferrable == other.deferrable &&
+        self.initially_deferred == other.initially_deferred
     }
 }
 
@@ -732,16 +740,14 @@ impl std::fmt::Display for ColumnConstraint {
 
         self.data.fmt(f)?;
 
-        if let Some(deferrable) = self.deferrable {
-            if deferrable {
+        if self.data.is_deferrable() {
+            if self.deferrable {
                 write!(f, " {DEFERRABLE}")?;
             } else {
                 write!(f, " {NOT} {DEFERRABLE}")?;
             }
-        }
 
-        if let Some(initially_deferred) = self.initially_deferred {
-            if initially_deferred {
+            if self.initially_deferred {
                 write!(f, " {INITIALLY} {DEFERRED}")?;
             } else {
                 write!(f, " {INITIALLY} {IMMEDIATE}")?;
@@ -757,8 +763,8 @@ impl ColumnConstraint {
     pub fn new(
         name: Option<Name>,
         data: ColumnConstraintData,
-        deferrable: Option<bool>,
-        initially_deferred: Option<bool>,
+        deferrable: bool,
+        initially_deferred: bool,
     ) -> Self {
         Self { name, data, deferrable, initially_deferred }
     }
@@ -779,22 +785,12 @@ impl ColumnConstraint {
     }
 
     #[inline]
-    pub fn deferrable(&self) -> Option<bool> {
+    pub fn deferrable(&self) -> bool {
         self.deferrable
     }
 
     #[inline]
-    pub fn initially_deferred(&self) -> Option<bool> {
+    pub fn initially_deferred(&self) -> bool {
         self.initially_deferred
-    }
-
-    #[inline]
-    pub fn default_deferrable(&self) -> bool {
-        self.deferrable.unwrap_or(false)
-    }
-
-    #[inline]
-    pub fn default_initially_deferred(&self) -> bool {
-        self.initially_deferred.unwrap_or(false)
     }
 }

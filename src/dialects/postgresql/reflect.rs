@@ -283,8 +283,8 @@ pub fn load_from_database(client: &mut Client) -> Result<Database> {
                     column_constraints.push(ColumnConstraint::new(
                         None,
                         ColumnConstraintData::NotNull,
-                        None,
-                        None
+                        false,
+                        false
                     ).into());
                 }
 
@@ -294,8 +294,8 @@ pub fn load_from_database(client: &mut Client) -> Result<Database> {
                         column_constraints.push(ColumnConstraint::new(
                             None,
                             ColumnConstraintData::Default { value: tokens.into() },
-                            None,
-                            None
+                            false,
+                            false
                         ).into());
                     }
                 }
@@ -532,8 +532,8 @@ pub fn load_from_database(client: &mut Client) -> Result<Database> {
                 let constraint = TableConstraint::new(
                     Some(constraint_name.clone()),
                     constraint_data,
-                    Some(condeferrable),
-                    Some(condeferred)
+                    condeferrable,
+                    condeferred
                 );
 
                 constraints.insert(constraint_name, Rc::new(constraint));

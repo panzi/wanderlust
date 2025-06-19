@@ -1471,12 +1471,12 @@ impl Database {
 
                                     let constraint = Rc::make_mut(constraint);
 
-                                    if deferrable.is_some() {
-                                        constraint.set_deferrable(*deferrable);
+                                    if let &Some(deferrable) = deferrable {
+                                        constraint.set_deferrable(deferrable);
                                     }
 
-                                    if initially_deferred.is_some() {
-                                        constraint.set_initially_deferred(*initially_deferred);
+                                    if let &Some(initially_deferred) = initially_deferred {
+                                        constraint.set_initially_deferred(initially_deferred);
                                     }
                                 }
                                 AlterTableAction::DropColumn { if_exists, column_name, behavior } => {

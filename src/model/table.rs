@@ -288,6 +288,13 @@ pub enum TableConstraintData {
     },
 }
 
+impl TableConstraintData {
+    #[inline]
+    pub fn is_deferrable(&self) -> bool {
+        matches!(self, Self::Unique { .. } | Self::PrimaryKey { .. } | Self::ForeignKey { .. })
+    }
+}
+
 impl std::fmt::Display for TableConstraintData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -423,8 +430,8 @@ impl PartialEq for TableConstraintData {
 pub struct TableConstraint {
     name: Option<Name>,
     data: TableConstraintData,
-    deferrable: Option<bool>,
-    initially_deferred: Option<bool>,
+    deferrable: bool,
+    initially_deferred: bool,
     comment: Option<Rc<str>>,
 }
 
@@ -469,16 +476,14 @@ impl std::fmt::Display for TableConstraint {
 
         self.data.fmt(f)?;
 
-        if let Some(deferrable) = self.deferrable {
-            if deferrable {
+        if self.data.is_deferrable() {
+            if self.deferrable {
                 write!(f, " {DEFERRABLE}")?;
             } else {
                 write!(f, " {NOT} {DEFERRABLE}")?;
             }
-        }
 
-        if let Some(initially_deferred) = self.initially_deferred {
-            if initially_deferred {
+            if self.initially_deferred {
                 write!(f, " {INITIALLY} {DEFERRED}")?;
             } else {
                 write!(f, " {INITIALLY} {IMMEDIATE}")?;
@@ -493,8 +498,8 @@ impl PartialEq for TableConstraint {
     fn eq(&self, other: &Self) -> bool {
         self.name == other.name &&
         self.data == other.data &&
-        self.default_deferrable() == other.default_deferrable() &&
-        self.default_initially_deferred() == other.default_initially_deferred()
+        self.deferrable == other.deferrable &&
+        self.initially_deferred == other.initially_deferred
     }
 }
 
@@ -503,8 +508,8 @@ impl TableConstraint {
     pub fn new(
         name: Option<Name>,
         data: TableConstraintData,
-        deferrable: Option<bool>,
-        initially_deferred: Option<bool>,
+        deferrable: bool,
+        initially_deferred: bool,
     ) -> Self {
         Self { name, data, deferrable, initially_deferred, comment: None }
     }
@@ -546,33 +551,23 @@ impl TableConstraint {
     }
 
     #[inline]
-    pub fn deferrable(&self) -> Option<bool> {
+    pub fn deferrable(&self) -> bool {
         self.deferrable
     }
 
     #[inline]
-    pub fn set_deferrable(&mut self, value: Option<bool>) {
+    pub fn set_deferrable(&mut self, value: bool) {
         self.deferrable = value;
     }
 
     #[inline]
-    pub fn initially_deferred(&self) -> Option<bool> {
+    pub fn initially_deferred(&self) -> bool {
         self.initially_deferred
     }
 
     #[inline]
-    pub fn set_initially_deferred(&mut self, value: Option<bool>) {
+    pub fn set_initially_deferred(&mut self, value: bool) {
         self.initially_deferred = value;
-    }
-
-    #[inline]
-    pub fn default_deferrable(&self) -> bool {
-        self.deferrable.unwrap_or(false)
-    }
-
-    #[inline]
-    pub fn default_initially_deferred(&self) -> bool {
-        self.initially_deferred.unwrap_or(false)
     }
 
     #[inline]
