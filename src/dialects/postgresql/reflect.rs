@@ -6,16 +6,9 @@ use crate::{
     dialects::postgresql::{PostgreSQLParser, PostgreSQLTokenizer},
     error::{Error, ErrorKind, Result},
     model::{
-        column::{Column, ColumnConstraint, ColumnConstraintData, Storage},
-        database::Database,
-        extension::Extension,
-        name::{Name, QName},
-        schema::Schema,
-        syntax::Parser,
-        table::Table,
-        types::{
+        column::{Column, ColumnConstraint, ColumnConstraintData, ColumnMatch, ReferentialAction, Storage}, database::Database, extension::Extension, index::IndexParameters, name::{Name, QName}, schema::Schema, syntax::Parser, table::{Table, TableConstraint, TableConstraintData}, types::{
             BasicType, CompositeAttribute, DataType, IntervalFields, TypeData, TypeDef, Value,
-        },
+        }
     },
     ordered_hash_map::OrderedHashMap,
 };
@@ -366,6 +359,184 @@ pub fn load_from_database(client: &mut Client) -> Result<Database> {
                 column.set_comment(comment.map(Into::into));
 
                 columns.insert(column_name, column.into());
+            }
+
+            let reflect_constraints = client.query("
+                SELECT
+                    conname,
+                    contype,
+                    condeferrable,
+                    condeferred,
+                    confdeltype,
+                    confmatchtype,
+                    connoinherit,
+                    confupdtype,
+                    confdeltype,
+                    fkrel.relname AS confrelname,
+                    fkn.nspname AS confrelschema,
+                    (
+                        SELECT coalesce(array_agg(attname), ARRAY[]::pg_catalog.name[])
+                        FROM unnest(conkey) AS k
+                        LEFT JOIN pg_catalog.pg_attribute a ON a.attnum = k
+                        WHERE attrelid = conrelid
+                    ) AS keycols,
+                    (
+                        SELECT coalesce(array_agg(attname), ARRAY[]::pg_catalog.name[])
+                        FROM unnest(confkey) AS k
+                        LEFT JOIN pg_catalog.pg_attribute a ON a.attnum = k
+                        WHERE attrelid = conrelid
+                    ) AS fkeycols,
+                    (
+                        SELECT array_agg(attname)
+                        FROM unnest(confdelsetcols) AS k
+                        LEFT JOIN pg_catalog.pg_attribute a ON a.attnum = k
+                        WHERE attrelid = conrelid
+                    ) AS delsetcols,
+                    pg_get_expr(conbin, conrelid) AS check_expr
+                FROM pg_catalog.pg_constraint c
+                LEFT JOIN pg_catalog.pg_class fkrel ON fkrel.oid = confrelid
+                LEFT JOIN pg_catalog.pg_namespace fkn ON fkn.oid = fkrel.relnamespace
+                WHERE conrelid = $1
+            ", &[&table_oid])?;
+
+            for reflect_constraint in &reflect_constraints {
+                let conname: &str = reflect_constraint.get("conname");
+                let contype: i8 = reflect_constraint.get("contype");
+                let condeferrable: bool = reflect_constraint.get("condeferrable");
+                let condeferred: bool = reflect_constraint.get("condeferred");
+                let confupdtype: i8 = reflect_constraint.get("confupdtype");
+                let confdeltype: i8 = reflect_constraint.get("confdeltype");
+                let confmatchtype: i8 = reflect_constraint.get("confmatchtype");
+                let connoinherit: bool = reflect_constraint.get("connoinherit");
+                let confrelname: Option<&str> = reflect_constraint.get("confrelname");
+                let confrelschema: Option<&str> = reflect_constraint.get("confrelschema");
+                let check_expr: Option<&str> = reflect_constraint.get("check_expr");
+                let keycols: Vec<&str> = reflect_constraint.get("keycols");
+                let fkeycols: Vec<&str> = reflect_constraint.get("fkeycols");
+                let delsetcols: Option<Vec<&str>> = reflect_constraint.get("delsetcols");
+                let delsetcols = if let Some(delsetcols) = delsetcols {
+                    if delsetcols.is_empty() {
+                        None
+                    } else {
+                        Some(delsetcols)
+                    }
+                } else {
+                    None
+                };
+
+                let constraint_name = Name::from_normed(conname);
+
+                let constraint_data = match contype as u8 {
+                    b'c' => TableConstraintData::Check {
+                        expr: if let Some(check_expr) = check_expr {
+                            PostgreSQLTokenizer::parse_all(check_expr)?.into()
+                        } else {
+                            [].into()
+                        },
+                        inherit: !connoinherit
+                    },
+                    b'f' => TableConstraintData::ForeignKey {
+                        columns: keycols.into_iter().map(Name::from_normed).collect::<Vec<_>>().into(),
+                        ref_table: if let Some(confrelname) = confrelname {
+                            QName::new(
+                                confrelschema.map(Name::from_normed),
+                                Name::from_normed(confrelname)
+                            )
+                        } else {
+                            return Err(Error::new(
+                                ErrorKind::NotSupported,
+                                None,
+                                Some(format!("{schema_name}.{table_name}: In constraint {constraint_name}: missing foreing table")),
+                                None
+                            ));
+                        },
+                        ref_columns: Some(fkeycols.into_iter().map(Name::from_normed).collect::<Vec<_>>().into()),
+                        column_match: Some(match confmatchtype as u8 {
+                            b'f' => ColumnMatch::Full,
+                            b'p' => ColumnMatch::Partial,
+                            b's' => ColumnMatch::Simple,
+                            confmatchtype => {
+                                return Err(Error::new(
+                                    ErrorKind::NotSupported,
+                                    None,
+                                    Some(format!("{schema_name}.{table_name}: In constraint {constraint_name}: unsupported match type: {:?} (0x{confmatchtype:x})", confmatchtype as char)),
+                                    None
+                                ));
+                            }
+                        }),
+                        on_delete: Some(
+                            match confdeltype as u8 {
+                                b'a' => ReferentialAction::NoAction,
+                                b'r' => ReferentialAction::Restrict,
+                                b'c' => ReferentialAction::Cascade,
+                                b'n' => ReferentialAction::SetNull {
+                                    columns: delsetcols.map(|delsetcols| delsetcols.into_iter().map(Name::from_normed).collect::<Vec<_>>().into())
+                                },
+                                b'd' => ReferentialAction::SetDefault {
+                                    columns: delsetcols.map(|delsetcols| delsetcols.into_iter().map(Name::from_normed).collect::<Vec<_>>().into())
+                                },
+                                confdeltype => {
+                                    return Err(Error::new(
+                                        ErrorKind::NotSupported,
+                                        None,
+                                        Some(format!("{schema_name}.{table_name}: In constraint {constraint_name}: unsupported on delete action: {:?} (0x{confdeltype:x})", confdeltype as char)),
+                                        None
+                                    ));
+                                }
+                            }
+                        ),
+                        on_update: Some(
+                            match confupdtype as u8 {
+                                b'a' => ReferentialAction::NoAction,
+                                b'r' => ReferentialAction::Restrict,
+                                b'c' => ReferentialAction::Cascade,
+                                b'n' => ReferentialAction::SetNull {
+                                    columns: None // XXX: confupdsetcols column is missing?
+                                },
+                                b'd' => ReferentialAction::SetDefault {
+                                    columns: None
+                                },
+                                confupdtype => {
+                                    return Err(Error::new(
+                                        ErrorKind::NotSupported,
+                                        None,
+                                        Some(format!("{schema_name}.{table_name}: In constraint {constraint_name}: unsupported on update action: {:?} (0x{confupdtype:x})", confupdtype as char)),
+                                        None
+                                    ));
+                                }
+                            }
+                        )
+                    },
+                    b'p' => TableConstraintData::PrimaryKey {
+                        columns: keycols.into_iter().map(Name::from_normed).collect::<Vec<_>>().into(),
+                        index_parameters: IndexParameters::new(None, None, None), // TODO: IndexParameters
+                    },
+                    b'u' => TableConstraintData::Unique {
+                        nulls_distinct: None, // TODO: nulls_distinct
+                        columns: keycols.into_iter().map(Name::from_normed).collect::<Vec<_>>().into(),
+                        index_parameters: IndexParameters::new(None, None, None), // TODO: IndexParameters
+                    },
+                    // b'n' => // TODO: not null? only for "domains"?
+                    // b't' => // TODO: constraint trigger. what is this?
+                    // b'x' => // TODO: exclusion constraint
+                    contype => {
+                        return Err(Error::new(
+                            ErrorKind::NotSupported,
+                            None,
+                            Some(format!("{schema_name}.{table_name}: In constraint {constraint_name}: unsupported constraint type: {:?} (0x{contype:x})", contype as char)),
+                            None
+                        ));
+                    }
+                };
+
+                let constraint = TableConstraint::new(
+                    Some(constraint_name.clone()),
+                    constraint_data,
+                    Some(condeferrable),
+                    Some(condeferred)
+                );
+
+                constraints.insert(constraint_name, Rc::new(constraint));
             }
 
             let mut table = Table::new(
