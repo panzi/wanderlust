@@ -1,6 +1,6 @@
-use std::{collections::{HashMap, HashSet}, rc::Rc};
+use std::{collections::{HashMap, HashSet}, ops::Deref, rc::Rc};
 
-use crate::{make_tokens, model::{
+use crate::{format::{write_token_list, FmtWriter}, make_tokens, model::{
     alter::{
         extension::{AlterExtension, AlterExtensionData},
         table::{AlterColumn, AlterTable},
@@ -243,7 +243,64 @@ pub fn migrate_types(old_database: &Database, old: &Schema, new: &Schema, replac
 
                             for (table_name, column) in old_database.find_columns_with_type(type_def.name()) {
                                 let new_type = column.data_type().with_user_type(tmp_name.clone(), None);
-                                let using = new_type.cast(column.name());
+                                let mut using = Vec::new();
+                                make_tokens!(&mut using, {column.name()}::TEXT::{new_type});
+                                //let using = new_type.cast(
+                                //    DataType::basic(BasicType::Text).cast(
+                                //        column.name()
+                                //    )
+                                //);
+
+                                let default_value = column.default();
+                                let set_default;
+
+                                if let Some(default_value) = default_value {
+                                    stmts.push(Statement::AlterTable(
+                                        AlterTable::alter_column(
+                                            table_name.clone(),
+                                            AlterColumn::drop_default(column.name().clone())
+                                        )
+                                    ));
+
+                                    let mut default_value: Vec<ParsedToken> = default_value.deref().into();
+                                    if default_value.len() >= 3 {
+                                        let mut index = default_value.len() - 1;
+
+                                        if matches!(default_value[index], ParsedToken::Name(..)) && index > 0 {
+                                            index -= 1;
+
+                                            if index >= 2 &&
+                                               matches!(default_value[index], ParsedToken::Period) &&
+                                               matches!(default_value[index - 1], ParsedToken::Name(..)) {
+                                                index -= 2;
+                                            }
+
+                                            if index >= 2 &&
+                                               matches!(default_value[index], ParsedToken::Period) &&
+                                               matches!(default_value[index - 1], ParsedToken::Name(..)) {
+                                                index -= 2;
+                                            }
+
+                                            if matches!(default_value[index], ParsedToken::DoubleColon) {
+                                                default_value.truncate(index);
+                                            }
+                                        }
+                                    }
+
+                                    make_tokens!(&mut default_value, ::{new_type});
+
+                                    set_default = Some(Statement::AlterTable(
+                                        AlterTable::alter_column(
+                                            table_name.clone(),
+                                            AlterColumn::set_default(
+                                                column.name().clone(),
+                                                default_value.into()
+                                            )
+                                        )
+                                    ));
+                                } else {
+                                    set_default = None;
+                                }
 
                                 stmts.push(Statement::AlterTable(
                                     AlterTable::alter_column(
@@ -256,6 +313,10 @@ pub fn migrate_types(old_database: &Database, old: &Schema, new: &Schema, replac
                                         )
                                     )
                                 ));
+
+                                if let Some(set_default) = set_default {
+                                    stmts.push(set_default);
+                                }
                             }
 
                             replace_functions.extend(
@@ -695,7 +756,7 @@ fn is_same_default_value(data_type: &DataType, old_default: &[ParsedToken], new_
         return old_default == new_default;
     }
 
-    let mut tokens = Vec::new();
+    let mut tokens = Vec::with_capacity(longer.len());
     make_tokens!(&mut tokens, {shorter}::{data_type});
 
     if tokens == longer {

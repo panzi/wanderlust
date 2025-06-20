@@ -9,6 +9,8 @@ create table super_table2 (
 );
 
 create table sub_table (
+    foo text,
+    bar text,
     id serial primary key
 ) inherits (super_table1, super_table2);
 

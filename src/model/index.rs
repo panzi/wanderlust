@@ -221,7 +221,11 @@ impl Index {
 
         index_name.push_str("_idx");
 
-        Name::new(index_name)
+        if self.table_name.name().quoted() {
+            Name::new_quoted(index_name)
+        } else {
+            Name::new(index_name)
+        }
     }
 
     #[inline]

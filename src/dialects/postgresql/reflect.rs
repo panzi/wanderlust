@@ -154,7 +154,7 @@ pub fn load_from_database(client: &mut Client) -> Result<Database> {
                         LEFT JOIN pg_catalog.pg_namespace cn ON cn.oid = c.collnamespace
                         LEFT JOIN pg_catalog.pg_type ty ON ty.oid = a.atttypid
                         LEFT JOIN pg_catalog.pg_namespace tyn ON tyn.oid = ty.typnamespace
-                        WHERE a.attrelid = $1 AND a.atttypid IS NOT NULL AND a.attnum > 0
+                        WHERE a.attrelid = $1 AND a.atttypid IS NOT NULL AND a.attnum > 0 AND NOT attisdropped
                         ORDER BY a.attnum
                     ", &[&typrelid])?;
 
@@ -266,7 +266,7 @@ pub fn load_from_database(client: &mut Client) -> Result<Database> {
                 LEFT JOIN pg_catalog.pg_namespace cn ON cn.oid = c.collnamespace
                 LEFT JOIN pg_catalog.pg_type ty ON ty.oid = a.atttypid
                 LEFT JOIN pg_catalog.pg_namespace tyn ON tyn.oid = ty.typnamespace
-                WHERE a.attrelid = $1 AND a.atttypid IS NOT NULL AND a.attnum > 0 AND attinhcount = 0
+                WHERE a.attrelid = $1 AND a.atttypid IS NOT NULL AND a.attnum > 0 AND NOT attisdropped
                 ORDER BY a.attnum
             ", &[&table_oid])?;
 
@@ -275,7 +275,7 @@ pub fn load_from_database(client: &mut Client) -> Result<Database> {
                 let column_name = Name::from_normed(column_name);
                 let is_not_null: bool = reflect_column.get("attnotnull");
                 let comment: Option<&str> = reflect_column.get("comment");
-                let default_value: Option<&str> = reflect_column.get("default_value"); // TODO
+                let default_value: Option<&str> = reflect_column.get("default_value");
 
                 let mut column_constraints = Vec::new();
 
@@ -424,7 +424,7 @@ pub fn load_from_database(client: &mut Client) -> Result<Database> {
                     None
                 };
 
-                let constraint_name = Name::from_normed(conname);
+                let constraint_name = Name::new(conname);
 
                 let constraint_data = match contype as u8 {
                     b'c' => TableConstraintData::Check {
@@ -548,6 +548,8 @@ pub fn load_from_database(client: &mut Client) -> Result<Database> {
                 inherits
             );
             table.set_comment(comment.map(Into::into));
+
+            table.convert_serial();
 
             schema.tables_mut().insert(table_name.clone(), Rc::new(table));
         }
@@ -714,7 +716,6 @@ pub fn load_basic_type(type_schema: &str, type_name: &str, atttypmod: i32) -> Re
             }
         }
     } else {
-        // TODO: how to detect column type? Is that actually copied on creation?
         BasicType::UserDefined {
             name: QName::new(Some(Name::from_normed(type_schema)), Name::from_normed(type_name)),
             parameters: if atttypmod != -1 {

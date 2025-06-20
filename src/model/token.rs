@@ -1,4 +1,4 @@
-use std::{num::NonZeroU32, rc::Rc};
+use std::{num::NonZeroU32, ops::Deref, rc::Rc};
 
 use crate::format::format_iso_string;
 
@@ -159,7 +159,7 @@ impl From<Token> for Cursor {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone)]
 pub enum ParsedToken {
     Integer(i64),
     Float(f64),
@@ -205,6 +205,21 @@ impl ParsedToken {
             name.equals(word)
         } else {
             false
+        }
+    }
+}
+
+impl PartialEq for ParsedToken {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Name(name), Self::Operator(op)) if (name.equals("like") && op.deref() == "~~") || (name.equals("ilike") && op.deref() == "~~*") => true,
+            (Self::Operator(op), Self::Name(name)) if (name.equals("like") && op.deref() == "~~") || (name.equals("ilike") && op.deref() == "~~*") => true,
+            (&Self::Integer(left), &Self::Integer(right)) => left == right,
+            (&Self::Float(left), &Self::Float(right)) => left == right,
+            (Self::String(left), Self::String(right)) => left == right,
+            (Self::Name(left), Self::Name(right)) => left == right,
+            (Self::Operator(left), Self::Operator(right)) => left == right,
+            _ => std::mem::discriminant(self) == std::mem::discriminant(other),
         }
     }
 }
@@ -465,19 +480,10 @@ impl<T> ToTokens for Vec<T> where T: ToTokens {
     }
 }
 
-impl ToTokens for [ParsedToken] {
+impl ToTokens for ParsedToken {
+    #[inline]
     fn to_tokens_into(&self, tokens: &mut Vec<ParsedToken>) {
-        for token in self {
-            tokens.push(token.clone());
-        }
-    }
-}
-
-impl ToTokens for Vec<ParsedToken> {
-    fn to_tokens_into(&self, tokens: &mut Vec<ParsedToken>) {
-        for token in self {
-            tokens.push(token.clone());
-        }
+        tokens.push(self.clone());
     }
 }
 

@@ -36,7 +36,7 @@ where T: PartialEq {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct OrderedHashMap<K, V, S = RandomState> {
     inner: HashMap<K, OrderedCell<V>, S>,
     next_order: u64,
@@ -395,5 +395,13 @@ where K: Eq + Hash {
     #[inline]
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl<K, V, S> std::fmt::Debug for OrderedHashMap<K, V, S>
+where K: Eq + Hash + std::fmt::Debug, V: std::fmt::Debug, S: BuildHasher {
+    #[inline]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_map().entries(self.iter()).finish()
     }
 }

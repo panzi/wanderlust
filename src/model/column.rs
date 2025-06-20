@@ -600,7 +600,11 @@ pub fn make_constraint_name(table_name: &Name, column_name: &Name, data: &Column
         }
     }
 
-    Name::new(constraint_name)
+    //if table_name.quoted() || column_name.quoted() {
+    //    Name::new_quoted(constraint_name)
+    //} else {
+        Name::new(constraint_name)
+    //}
 }
 
 impl ColumnConstraint {

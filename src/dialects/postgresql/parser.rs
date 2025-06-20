@@ -4,13 +4,9 @@ use crate::{
     dialects::postgresql::{
         parse_estring, parse_int, parse_quot_name, parse_string, parse_uint, parse_uname,
         parse_ustring, strip_dollar_string, tokenizer::PostgreSQLTokenizer, uunescape,
-    },
-    error::{Error, ErrorKind, Result},
-    model::{
+    }, error::{Error, ErrorKind, Result}, model::{
         alter::{
-            DropBehavior, Owner,
-            table::{AlterColumn, AlterColumnData, AlterTable, AlterTableAction, AlterTableData},
-            types::{AlterType, AlterTypeAction, AlterTypeData, ValuePosition},
+            table::{AlterColumn, AlterColumnData, AlterTable, AlterTableAction, AlterTableData}, types::{AlterType, AlterTypeAction, AlterTypeData, ValuePosition}, DropBehavior, Owner
         },
         column::{
             Column, ColumnConstraint, ColumnConstraintData, ColumnMatch, ReferentialAction, Storage,
@@ -29,12 +25,10 @@ use crate::{
         name::{Name, QName},
         syntax::{Cursor, Parser, Tokenizer},
         table::{CreateTable, Table, TableConstraint, TableConstraintData},
-        token::{ParsedToken, ToTokens, Token, TokenKind},
+        token::{ParsedToken, Token, TokenKind},
         trigger::{CreateTrigger, Event, LifeCycle, ReferencedTable, Trigger, When},
         types::{BasicType, CompositeAttribute, DataType, IntervalFields, TypeDef, Value},
-    },
-    ordered_hash_map::OrderedHashMap,
-    peek_token,
+    }, ordered_hash_map::OrderedHashMap, peek_token
 };
 
 use crate::model::words::*;
@@ -130,13 +124,14 @@ impl<'a> PostgreSQLParser<'a> {
                 TokenKind::Comma | TokenKind::SemiColon | TokenKind::RParen | TokenKind::RBracket => {
                     break;
                 }
-                TokenKind::DoubleColon => {
-                    expr.push(self.tokenizer.parse()?);
-
-                    let data_type = self.parse_data_type()?;
-                    data_type.to_tokens_into(&mut expr);
-                    continue;
-                }
+                // XXX: This adds a `public.` to unqualified types and then the value never matches and there is always a migration generated.
+                //TokenKind::DoubleColon => {
+                //    expr.push(self.tokenizer.parse()?);
+                //
+                //    let data_type = self.parse_data_type()?;
+                //    data_type.to_tokens_into(&mut expr);
+                //    continue;
+                //}
                 TokenKind::Word if !matches!(token.kind(), TokenKind::Period | TokenKind::Operator | TokenKind::DoubleColon) => {
                     break;
                 }

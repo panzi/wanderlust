@@ -71,10 +71,10 @@ fn main() {
         let new_db = load_database(&new);
         let migrations = generate_migration(&old_db, &new_db);
 
-        println!("{BEGIN};");
-        println!();
         let mut iter = migrations.iter();
         if let Some(mut prev) = iter.next() {
+            println!("{BEGIN};");
+            println!();
             println!("{prev}");
             for stmt in iter {
                 if !prev.is_same_variant(stmt) {
@@ -83,9 +83,11 @@ fn main() {
                 println!("{stmt}");
                 prev = stmt;
             }
+            println!();
+            println!("{COMMIT};");
+        } else {
+            println!("-- NO CHANGES");
         }
-        println!();
-        println!("{COMMIT};");
     } else {
         println!("{old_db}");
     }

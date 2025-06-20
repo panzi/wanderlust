@@ -163,7 +163,7 @@ impl std::fmt::Display for TypeData {
                 f.write_str(")")
             }
             Self::Enum { values } => {
-                write!(f, "{AS} (")?;
+                write!(f, "{AS} {ENUM} (")?;
 
                 let mut iter = values.iter();
                 if let Some(first) = iter.next() {
@@ -791,11 +791,10 @@ impl DataType {
     }
 
     pub fn cast(&self, value: impl ToTokens) -> Vec<ParsedToken> {
-        let mut expr = vec![ParsedToken::from_name(CAST), ParsedToken::LParen];
+        let mut expr = Vec::new();
         value.to_tokens_into(&mut expr);
-        expr.push(ParsedToken::from_name(AS));
+        expr.push(ParsedToken::DoubleColon);
         self.to_tokens_into(&mut expr);
-        expr.push(ParsedToken::RParen);
 
         expr
     }

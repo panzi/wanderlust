@@ -438,12 +438,8 @@ impl Database {
                         name.clone()
                     );
                 }
-            }
-        }
 
-        // all tables have an automatic associated type
-        for schema_name in &self.search_path {
-            if let Some(schema) = self.schemas.get(schema_name) {
+                // all tables have an automatic associated type
                 if schema.tables().contains_key(name) {
                     return QName::new(
                         Some(schema_name.clone()),

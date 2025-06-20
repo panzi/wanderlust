@@ -246,7 +246,7 @@ impl Table {
                 column.set_data_type(integer_type);
                 column.set_not_null();
 
-                let seq_name = make_sequence_name(&self.name, column.name());
+                let seq_name = make_sequence_name(self.name.name(), column.name());
                 let seq_name = seq_name.to_string();
 
                 let mut tokens = Vec::new();
@@ -257,10 +257,13 @@ impl Table {
     }
 }
 
-pub fn make_sequence_name(table_name: &QName, column_name: &Name) -> QName {
-    let seq_name = format!("{}_{}_seq", table_name.name().name(), column_name);
-    let seq_name = Name::new(seq_name);
-    QName::new(table_name.schema().cloned(), seq_name)
+pub fn make_sequence_name(table_name: &Name, column_name: &Name) -> Name {
+    let seq_name = format!("{}_{}_seq", table_name.name(), column_name);
+    if table_name.quoted() || column_name.quoted() {
+        Name::new_quoted(seq_name)
+    } else {
+        Name::new(seq_name)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -527,12 +530,23 @@ impl TableConstraint {
     pub fn ensure_name(&mut self, table_name: &Name, other_constraints: &OrderedHashMap<Name, Rc<TableConstraint>>) -> &Name {
         if self.name.is_none() {
             let prefix = make_constraint_name(table_name, &self.data);
+            //let mut name = if table_name.quoted() {
+            //    Name::new_quoted(prefix.clone())
+            //} else {
+            //    Name::new(prefix.clone())
+            //};
             let mut name = Name::new(prefix.clone());
             let mut counter = 0u32;
 
             while other_constraints.contains_key(&name) {
                 counter += 1;
-                name = Name::new(format!("{prefix}{counter}"));
+                let name_str = format!("{prefix}{counter}");
+                //name = if table_name.quoted() {
+                //    Name::new_quoted(name_str)
+                //} else {
+                //    Name::new(name_str)
+                //};
+                name = Name::new(name_str);
             }
 
             self.name = Some(name);

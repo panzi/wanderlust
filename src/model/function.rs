@@ -853,13 +853,13 @@ impl CreateFunction {
 
 impl std::fmt::Display for CreateFunction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(CREATE)?;
+        write!(f, "{CREATE} ")?;
 
         if self.or_replace {
-            write!(f, " {OR} {REPLACE}")?;
+            write!(f, "{OR} {REPLACE} ")?;
         }
 
-        write!(f, " {}", self.function)
+        self.function.write(f)
     }
 }
 
