@@ -281,8 +281,8 @@ pub struct Function {
     null_input_handling: Option<NullInputHandling>,
     security: Option<Security>,
     parallelism: Option<Parallelism>,
-    cost: Option<u32>,
-    rows: Option<u32>,
+    cost: Option<f32>,
+    rows: Option<f32>,
     support: Option<QName>,
     configuration_parameters: Vec<(Name, ConfigurationValue)>,
     body: FunctionBody,
@@ -304,8 +304,8 @@ impl Function {
             null_input_handling: Option<NullInputHandling>,
             security: Option<Security>,
             parallelism: Option<Parallelism>,
-            cost: Option<u32>,
-            rows: Option<u32>,
+            cost: Option<f32>,
+            rows: Option<f32>,
             support: Option<QName>,
             configuration_parameters: Vec<(Name, ConfigurationValue)>,
             body: FunctionBody,
@@ -392,12 +392,12 @@ impl Function {
     }
 
     #[inline]
-    pub fn cost(&self) -> Option<u32> {
+    pub fn cost(&self) -> Option<f32> {
         self.cost
     }
 
     #[inline]
-    pub fn rows(&self) -> Option<u32> {
+    pub fn rows(&self) -> Option<f32> {
         self.rows
     }
 

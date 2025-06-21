@@ -587,7 +587,7 @@ pub fn load_from_database(client: &mut Client) -> Result<Database> {
                 proisstrict,
                 proparallel,
                 provolatile,
-                proretset, -- TODO
+                proretset,
                 pronargdefaults,
                 proargnames,
                 proargmodes,
@@ -635,6 +635,14 @@ pub fn load_from_database(client: &mut Client) -> Result<Database> {
         ", &[&schema_oid])?;
 
         for reflect_function in &reflect_functions {
+            let proname: &str = reflect_function.get("proname");
+            let lang: &str = reflect_function.get("lang");
+            let procost: f32 = reflect_function.get("procost");
+            let prorows: f32 = reflect_function.get("prorows");
+
+            // if true then out paramerters are actually record attributes
+            let proretset: bool = reflect_function.get("proretset");
+
             // TODO
         }
     }

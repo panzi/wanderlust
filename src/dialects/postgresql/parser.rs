@@ -301,6 +301,32 @@ impl<'a> PostgreSQLParser<'a> {
         Ok(self.parse_float()?.1)
     }
 
+    fn parse_as_float<F: Float>(&mut self) -> Result<(Token, F)> {
+        let token = self.expect_some()?;
+        let source = self.get_source(token.cursor());
+
+        if !matches!(token.kind(), TokenKind::Float | TokenKind::DecInt) {
+            let value: u64 = parse_uint(&token, source)?;
+            return Ok((token, F::from_u64(value)));
+        }
+
+        let Ok(value) = source.replace("_", "").parse() else {
+            return Err(Error::with_message(
+                ErrorKind::UnexpectedToken,
+                *token.cursor(),
+                format!("expected: <floating-point number> or <integer>, actual: {source}")
+            ));
+        };
+
+        Ok((token, value))
+    }
+
+    #[inline]
+    fn expect_as_float<F: Float>(&mut self) -> Result<F> {
+        Ok(self.parse_as_float()?.1)
+    }
+
+
     fn parse_precision(&mut self) -> Result<NonZeroU32> {
         let (token, value) = self.parse_uint()?;
         let Some(value) = NonZeroU32::new(value) else {
@@ -2443,9 +2469,9 @@ impl<'a> PostgreSQLParser<'a> {
                     ]));
                 }
             } else if !is_procedure && self.parse_word(COST)? {
-                cost = Some(self.expect_uint()?);
+                cost = Some(self.expect_as_float()?);
             } else if !is_procedure && self.parse_word(ROWS)? {
-                rows = Some(self.expect_uint()?);
+                rows = Some(self.expect_as_float()?);
             } else if !is_procedure && self.parse_word(SUPPORT)? {
                 let mut function_name = self.parse_qual_name()?;
 
