@@ -1,4 +1,4 @@
-use std::{num::NonZeroU32, rc::Rc};
+use std::{num::NonZeroU32, ops::Not, rc::Rc};
 
 use postgres::Client;
 
@@ -392,10 +392,12 @@ pub fn load_from_database(client: &mut Client) -> Result<Database> {
                         LEFT JOIN pg_catalog.pg_attribute a ON a.attnum = k
                         WHERE attrelid = conrelid
                     ) AS delsetcols,
+                    indnullsnotdistinct,
                     pg_get_expr(conbin, conrelid) AS check_expr
                 FROM pg_catalog.pg_constraint c
                 LEFT JOIN pg_catalog.pg_class fkrel ON fkrel.oid = confrelid
                 LEFT JOIN pg_catalog.pg_namespace fkn ON fkn.oid = fkrel.relnamespace
+                LEFT JOIN pg_catalog.pg_index i ON i.indexrelid = conindid
                 WHERE conrelid = $1
             ", &[&table_oid])?;
 
@@ -425,6 +427,7 @@ pub fn load_from_database(client: &mut Client) -> Result<Database> {
                 };
 
                 let constraint_name = Name::new(conname);
+                let indnullsnotdistinct: Option<bool> = reflect_constraint.get("indnullsnotdistinct");
 
                 let constraint_data = match contype as u8 {
                     b'c' => TableConstraintData::Check {
@@ -491,10 +494,10 @@ pub fn load_from_database(client: &mut Client) -> Result<Database> {
                                 b'r' => ReferentialAction::Restrict,
                                 b'c' => ReferentialAction::Cascade,
                                 b'n' => ReferentialAction::SetNull {
-                                    columns: None // XXX: confupdsetcols column is missing?
+                                    columns: None // doesn't actually exist
                                 },
                                 b'd' => ReferentialAction::SetDefault {
-                                    columns: None
+                                    columns: None // doesn't actually exist
                                 },
                                 confupdtype => {
                                     return Err(Error::new(
@@ -512,7 +515,7 @@ pub fn load_from_database(client: &mut Client) -> Result<Database> {
                         index_parameters: IndexParameters::new(None, None, None), // TODO: IndexParameters
                     },
                     b'u' => TableConstraintData::Unique {
-                        nulls_distinct: None, // TODO: nulls_distinct
+                        nulls_distinct: indnullsnotdistinct.map(Not::not),
                         columns: keycols.into_iter().map(Name::from_normed).collect::<Vec<_>>().into(),
                         index_parameters: IndexParameters::new(None, None, None), // TODO: IndexParameters
                     },
@@ -552,6 +555,87 @@ pub fn load_from_database(client: &mut Client) -> Result<Database> {
             table.convert_serial();
 
             schema.tables_mut().insert(table_name.clone(), Rc::new(table));
+        }
+
+        let reflect_functions = client.query("
+            WITH
+                argtype AS (
+                    SELECT
+                        t.oid,
+                        (array[nspname, typname]::pg_catalog.name[]) AS typqualname
+                    FROM pg_catalog.pg_type t
+                    LEFT JOIN pg_catalog.pg_namespace n ON n.oid = typnamespace
+                ),
+                argdefault AS (
+                    SELECT
+                        f.oid AS procid,
+                        argnum,
+                        pg_get_function_arg_default(f.oid, argnum::integer) AS default_value
+                    FROM pg_catalog.pg_proc f,
+                    unnest(f.proallargtypes) WITH ORDINALITY xx(argtype, argnum)
+                )
+            SELECT
+                p.oid,
+                proname,
+                l.lanname AS lang,
+                procost,
+                prorows,
+                prokind,
+                prosupport,
+                prosecdef,
+                proleakproof,
+                proisstrict,
+                proparallel,
+                provolatile,
+                proretset, -- TODO
+                pronargdefaults,
+                proargnames,
+                proargmodes,
+                vt.typname AS varname,
+                vn.nspname AS varschema,
+                (
+                    SELECT coalesce(array_agg(typqualname), array[]::pg_catalog.name[][2])
+                    FROM unnest(proargtypes) x
+                    left join argtype on argtype.oid = x
+                ) AS args,
+                (
+                    SELECT array_agg(typqualname)
+                    FROM unnest(proallargtypes) x
+                    left join argtype on argtype.oid = x
+                ) AS allargs,
+                (
+                    SELECT coalesce(array_agg(d.default_value), array[]::text[])
+                    FROM argdefault d
+                    WHERE d.procid = p.oid
+                ) AS default_values,
+                rt.typname AS retname,
+                rn.nspname AS retschema,
+                prosrc,
+                probin,
+                pg_get_expr(prosqlbody, 0) AS sqlbody
+            FROM pg_catalog.pg_proc p
+
+            LEFT JOIN pg_catalog.pg_language l ON l.oid = prolang
+
+            LEFT JOIN pg_catalog.pg_type rt ON rt.oid = prorettype
+            LEFT JOIN pg_catalog.pg_namespace rn ON rn.oid = rt.typnamespace
+
+            LEFT JOIN pg_catalog.pg_type vt ON vt.oid = provariadic
+            LEFT JOIN pg_catalog.pg_namespace vn ON vn.oid = vt.typnamespace
+
+            WHERE pronamespace = $1
+              AND NOT EXISTS(
+                SELECT *
+                FROM pg_catalog.pg_depend d
+                WHERE d.refclassid = 'pg_extension'::regclass
+                  AND d.classid = 'pg_proc'::regclass
+                  AND d.objid = p.oid
+                  AND d.deptype IN ('i', 'P', 'S', 'e')
+              )
+        ", &[&schema_oid])?;
+
+        for reflect_function in &reflect_functions {
+            // TODO
         }
     }
 
