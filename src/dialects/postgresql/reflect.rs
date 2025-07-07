@@ -6,9 +6,20 @@ use crate::{
     dialects::postgresql::{PostgreSQLParser, PostgreSQLTokenizer},
     error::{Error, ErrorKind, Result},
     model::{
-        column::{Column, ColumnConstraint, ColumnConstraintData, ColumnMatch, ReferentialAction, Storage}, database::Database, extension::Extension, index::IndexParameters, name::{Name, QName}, schema::Schema, syntax::Parser, table::{Table, TableConstraint, TableConstraintData}, types::{
+        column::{
+            Column, ColumnConstraint, ColumnConstraintData, ColumnMatch, ReferentialAction, Storage,
+        },
+        database::Database,
+        extension::Extension,
+        function::{Argmode, Argument},
+        index::IndexParameters,
+        name::{Name, QName},
+        schema::Schema,
+        syntax::Parser,
+        table::{Table, TableConstraint, TableConstraintData},
+        types::{
             BasicType, CompositeAttribute, DataType, IntervalFields, TypeData, TypeDef, Value,
-        }
+        },
     },
     ordered_hash_map::OrderedHashMap,
 };
@@ -581,7 +592,8 @@ pub fn load_from_database(client: &mut Client) -> Result<Database> {
                 procost,
                 prorows,
                 prokind,
-                prosupport,
+                sp.proname AS support_name,
+                sn.nspname AS support_schema,
                 prosecdef,
                 proleakproof,
                 proisstrict,
@@ -623,6 +635,9 @@ pub fn load_from_database(client: &mut Client) -> Result<Database> {
             LEFT JOIN pg_catalog.pg_type vt ON vt.oid = provariadic
             LEFT JOIN pg_catalog.pg_namespace vn ON vn.oid = vt.typnamespace
 
+            LEFT JOIN pg_catalog.pg_proc sp ON sp.oid = prosupport
+            LEFT JOIN pg_catalog.pg_namespace sn ON snoid = sp.pronamespace
+
             WHERE pronamespace = $1
               AND NOT EXISTS(
                 SELECT *
@@ -636,12 +651,72 @@ pub fn load_from_database(client: &mut Client) -> Result<Database> {
 
         for reflect_function in &reflect_functions {
             let proname: &str = reflect_function.get("proname");
+            let proname = Name::new(proname);
             let lang: &str = reflect_function.get("lang");
             let procost: f32 = reflect_function.get("procost");
             let prorows: f32 = reflect_function.get("prorows");
 
+            let support_name: Option<&str> = reflect_function.get("support_name");
+            let support_schema: Option<&str> = reflect_function.get("support_schema");
+            let support = support_name.map(|support_name|
+                QName::new(support_schema.map(Into::into), support_name.into())
+            );
+
             // if true then out paramerters are actually record attributes
             let proretset: bool = reflect_function.get("proretset");
+
+            let inargs: Vec<Vec<&str>> = reflect_function.get("args");
+            let allargs: Option<Vec<Vec<&str>>> = reflect_function.get("allargs");
+            let allargs: &[_] = allargs.as_ref().unwrap_or(&inargs);
+
+            let argnames: Option<Vec<&str>> = reflect_function.get("proargnames");
+            let argnames: Option<&[_]> = argnames.as_ref().map(|v| &**v);
+            let argnames = argnames.unwrap_or(&[]);
+
+            let argmodes: Option<Vec<u8>> = reflect_function.get("proargmodes");
+            let argmodes: Option<&[_]> = argmodes.as_ref().map(|v| &**v);
+            let argmodes = argmodes.unwrap_or(&[]);
+
+            let default_values: Vec<Option<&str>> = reflect_function.get("default_values");
+
+            let mut arguments: Vec<Argument> = Vec::with_capacity(allargs.len().max(inargs.len()));
+
+            for (argindex, arg) in allargs.iter().enumerate() {
+                let argtype_schema = arg[0];
+                let argtype_name = arg[1];
+                let argtype = load_data_type(argtype_schema, argtype_name, -1, 0)?;
+                let argname = if let Some(&argname) = argnames.get(argindex) {
+                    if argname.is_empty() { None } else { Some(Name::new(argname)) }
+                } else {
+                    None
+                };
+
+                let argmode = *argmodes.get(argindex).unwrap_or(&b'i');
+                let argmode = match argmode {
+                    b'i' => Argmode::In,
+                    b'o' => Argmode::Out,
+                    b'b' => Argmode::InOut,
+                    b'v' => Argmode::Variadic,
+                    _ => {
+                        return Err(Error::new(
+                            ErrorKind::NotSupported,
+                            None,
+                            Some(format!("{schema_name}.{proname}: Argument {} has illegal mode: {:?}", argindex + 1, argmode as char)),
+                            None
+                        ));
+                    }
+                };
+
+                let default_value = *default_values.get(argindex).unwrap_or(&None);
+                let default_value = if let Some(default_value) = default_value {
+                    Some(PostgreSQLTokenizer::parse_all(default_value)?.into())
+                } else {
+                    None
+                };
+
+                let argument = Argument::new(argmode, argname, argtype, default_value);
+                arguments.push(argument);
+            }
 
             // TODO
         }
